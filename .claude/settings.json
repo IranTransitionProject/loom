@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(pip install:*)",
+      "Bash(pip3 install:*)"
+    ]
+  }
+}
