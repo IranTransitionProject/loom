@@ -49,6 +49,29 @@ class WorkspaceManager:
     def __init__(self, workspace_dir: str | Path) -> None:
         self.workspace_dir = Path(workspace_dir)
 
+    def _ensure_within_workspace(self, file_ref: str) -> Path:
+        """Resolve ``file_ref`` and confirm it lives inside the workspace.
+
+        Returns the resolved absolute path on success, or raises
+        ``ValueError`` if the path escapes the workspace boundary.
+        Used by both read and write paths so the boundary is checked
+        identically everywhere.
+
+        Why ``Path.is_relative_to`` and not ``str.startswith`` (the
+        previous shape):  string-prefix checks are defeated by
+        sibling-prefix collisions.  With ``workspace_dir=/tmp/work``,
+        a ``file_ref`` of ``"../work-evil/secret"`` resolves to
+        ``/tmp/work-evil/secret`` whose string representation begins
+        with ``/tmp/work`` — the prefix check passes and a file
+        outside the workspace is read.  ``is_relative_to`` compares
+        path components, not characters, and is immune.
+        """
+        workspace_root = self.workspace_dir.resolve()
+        resolved = (self.workspace_dir / file_ref).resolve()
+        if not resolved.is_relative_to(workspace_root):
+            raise ValueError(f"Path traversal detected: {file_ref}")
+        return resolved
+
     def resolve(self, file_ref: str) -> Path:
         """Resolve a file reference to a validated absolute path.
 
@@ -64,9 +87,7 @@ class WorkspaceManager:
                 boundary (path traversal attack).
             FileNotFoundError: If the resolved file does not exist.
         """
-        resolved = (self.workspace_dir / file_ref).resolve()
-        if not str(resolved).startswith(str(self.workspace_dir.resolve())):
-            raise ValueError(f"Path traversal detected: {file_ref}")
+        resolved = self._ensure_within_workspace(file_ref)
         if not resolved.exists():
             raise FileNotFoundError(f"File not found in workspace: {file_ref}")
         return resolved
@@ -115,8 +136,15 @@ class WorkspaceManager:
             Absolute path to the written file.
 
         Raises:
+            ValueError: If ``filename`` would write outside the workspace
+                (path traversal).
             OSError: If the write fails (disk full, permissions, etc.).
         """
-        path = self.workspace_dir / filename
+        # Boundary check applies to writes too.  Without this, callers
+        # could escape the workspace via ``"../outside.json"`` —
+        # writing untrusted content anywhere on disk the process can
+        # reach (Design Invariant 13).
+        path = self._ensure_within_workspace(filename)
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data, indent=2))
         return path

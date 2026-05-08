@@ -7,6 +7,7 @@ version tracking via WorkshopDB.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -19,6 +20,38 @@ if TYPE_CHECKING:
     from heddle.workshop.db import WorkshopDB
 
 logger = structlog.get_logger()
+
+
+# Worker / pipeline names flow from URL paths and form fields straight
+# into a filesystem path (``configs/workers/{name}.yaml``).  Without
+# validation a value like ``"../../etc/cron.d/evil"`` would write
+# outside ``configs_dir``.  The allowed set is alphanumerics plus
+# underscore and hyphen, no dots, slashes, or backslashes — which
+# matches every shipped worker config name (``summarizer``, ``qa``,
+# ``rag_vectorstore_lance``, ``_subprocess_template``) and rejects
+# every traversal payload.
+_VALID_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _validate_config_name(name: str) -> None:
+    r"""Reject worker/pipeline names that could escape ``configs_dir``.
+
+    Names flow from URL paths and form fields directly into filesystem
+    paths.  This rejects empty strings, path separators (``/``, ``\``),
+    parent traversal (``..``), null bytes, leading dots, and anything
+    not in ``[A-Za-z0-9_-]``.
+
+    Why a strict allowlist and not just a "no slash" check: ``Path``
+    happily resolves ``"a/b"`` and ``"..\.."`` into useful traversals
+    on different platforms.  An allowlist is the only check that holds
+    on every OS without having to enumerate every blocked sequence.
+    """
+    if not isinstance(name, str) or not _VALID_NAME_RE.fullmatch(name):
+        raise ValueError(
+            f"Invalid config name: {name!r}. "
+            "Names must match ^[A-Za-z0-9_-]+$ "
+            "(no path separators, no '..', no leading dots)."
+        )
 
 
 class ConfigManager:
@@ -86,15 +119,24 @@ class ConfigManager:
     def get_worker(self, name: str) -> dict[str, Any]:
         """Load a worker config by name.
 
-        Raises FileNotFoundError if the config doesn't exist.
+        Raises:
+            ValueError: If ``name`` is not a safe filename (path traversal).
+            FileNotFoundError: If the config doesn't exist.
         """
+        _validate_config_name(name)
         path = self.configs_dir / "workers" / f"{name}.yaml"
         if not path.exists():
             raise FileNotFoundError(f"Worker config not found: {path}")
         return load_config(str(path))
 
     def get_worker_yaml(self, name: str) -> str:
-        """Get raw YAML content for a worker config."""
+        """Get raw YAML content for a worker config.
+
+        Raises:
+            ValueError: If ``name`` is not a safe filename (path traversal).
+            FileNotFoundError: If the config doesn't exist.
+        """
+        _validate_config_name(name)
         path = self.configs_dir / "workers" / f"{name}.yaml"
         if not path.exists():
             raise FileNotFoundError(f"Worker config not found: {path}")
@@ -110,7 +152,11 @@ class ConfigManager:
 
         Returns list of validation errors (empty = success).
         Also saves a version to DB if available.
+
+        Raises:
+            ValueError: If ``name`` is not a safe filename (path traversal).
         """
+        _validate_config_name(name)
         errors = validate_worker_config(config)
         if errors:
             return errors
@@ -129,13 +175,25 @@ class ConfigManager:
         return []
 
     def clone_worker(self, source_name: str, new_name: str) -> list[str]:
-        """Clone a worker config with a new name."""
+        """Clone a worker config with a new name.
+
+        Both ``source_name`` and ``new_name`` are validated; the inner
+        calls re-validate so this is defence-in-depth.
+        """
+        _validate_config_name(source_name)
+        _validate_config_name(new_name)
         config = self.get_worker(source_name)
         config["name"] = new_name
         return self.save_worker(new_name, config, description=f"Cloned from {source_name}")
 
     def delete_worker(self, name: str) -> None:
-        """Delete a worker config file."""
+        """Delete a worker config file.
+
+        Raises:
+            ValueError: If ``name`` is not a safe filename (path traversal).
+            FileNotFoundError: If the config doesn't exist.
+        """
+        _validate_config_name(name)
         path = self.configs_dir / "workers" / f"{name}.yaml"
         if path.exists():
             path.unlink()
@@ -144,7 +202,12 @@ class ConfigManager:
             raise FileNotFoundError(f"Worker config not found: {path}")
 
     def get_worker_version_history(self, name: str) -> list[dict[str, Any]]:
-        """Get version history from DB (empty if no DB)."""
+        """Get version history from DB (empty if no DB).
+
+        Raises:
+            ValueError: If ``name`` is not a safe filename (path traversal).
+        """
+        _validate_config_name(name)
         if self.db:
             return self.db.get_worker_versions(name)
         return []
@@ -189,7 +252,13 @@ class ConfigManager:
         return results
 
     def get_pipeline(self, name: str) -> dict[str, Any]:
-        """Load a pipeline config by name."""
+        """Load a pipeline config by name.
+
+        Raises:
+            ValueError: If ``name`` is not a safe filename (path traversal).
+            FileNotFoundError: If the config doesn't exist.
+        """
+        _validate_config_name(name)
         path = self.configs_dir / "orchestrators" / f"{name}.yaml"
         if not path.exists():
             raise FileNotFoundError(f"Pipeline config not found: {path}")
@@ -199,7 +268,11 @@ class ConfigManager:
         """Validate and save a pipeline config.
 
         Returns list of validation errors (empty = success).
+
+        Raises:
+            ValueError: If ``name`` is not a safe filename (path traversal).
         """
+        _validate_config_name(name)
         errors = validate_pipeline_config(config)
         if errors:
             return errors

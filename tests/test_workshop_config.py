@@ -222,3 +222,162 @@ class TestVersionHistory:
     def test_version_history_without_db(self, tmp_path):
         mgr = ConfigManager(str(tmp_path))
         assert mgr.get_worker_version_history("w") == []
+
+
+# ---------------------------------------------------------------------------
+# Path-traversal security
+#
+# Names flow from URL paths and form fields straight into a filesystem
+# path (``configs/workers/{name}.yaml``).  Without validation, the
+# workshop's mutating routes accept payloads like
+# ``"../../etc/cron.d/evil"`` and read or write outside ``configs_dir``.
+# These tests pin the validation contract for every entry point, plus
+# the parametrized table of unsafe names that any future entry point
+# must also reject.
+# ---------------------------------------------------------------------------
+
+
+_UNSAFE_NAMES = [
+    "../escape",
+    "../../etc/passwd",
+    "..",
+    ".",
+    ".gitignore",
+    "subdir/file",
+    "..\\windows",
+    "/absolute",
+    "with space",
+    "with;semicolon",
+    "with$dollar",
+    "with\x00null",
+    "",
+    "name.with.dots",  # dots not allowed — could be confused with extensions
+]
+
+
+@pytest.mark.parametrize("bad_name", _UNSAFE_NAMES)
+class TestConfigManagerNameValidation:
+    """Every entry point that takes a user-supplied name must reject unsafe values.
+
+    Parametrized over a table of attack payloads so a future entry
+    point that forgets to validate fails the whole class.
+    """
+
+    def test_get_worker_rejects(self, tmp_path, bad_name):
+        mgr = ConfigManager(str(tmp_path))
+        with pytest.raises(ValueError, match="Invalid config name"):
+            mgr.get_worker(bad_name)
+
+    def test_get_worker_yaml_rejects(self, tmp_path, bad_name):
+        mgr = ConfigManager(str(tmp_path))
+        with pytest.raises(ValueError, match="Invalid config name"):
+            mgr.get_worker_yaml(bad_name)
+
+    def test_save_worker_rejects(self, tmp_path, bad_name):
+        mgr = ConfigManager(str(tmp_path))
+        with pytest.raises(ValueError, match="Invalid config name"):
+            mgr.save_worker(bad_name, {"name": "x", "system_prompt": "x"})
+
+    def test_delete_worker_rejects(self, tmp_path, bad_name):
+        mgr = ConfigManager(str(tmp_path))
+        with pytest.raises(ValueError, match="Invalid config name"):
+            mgr.delete_worker(bad_name)
+
+    def test_clone_worker_rejects_source(self, tmp_path, bad_name):
+        mgr = ConfigManager(str(tmp_path))
+        with pytest.raises(ValueError, match="Invalid config name"):
+            mgr.clone_worker(bad_name, "ok")
+
+    def test_clone_worker_rejects_target(self, tmp_path, bad_name):
+        # Need a real source so the source check passes.
+        _write_worker(tmp_path, "src")
+        mgr = ConfigManager(str(tmp_path))
+        with pytest.raises(ValueError, match="Invalid config name"):
+            mgr.clone_worker("src", bad_name)
+
+    def test_get_worker_version_history_rejects(self, tmp_path, bad_name):
+        mgr = ConfigManager(str(tmp_path))
+        with pytest.raises(ValueError, match="Invalid config name"):
+            mgr.get_worker_version_history(bad_name)
+
+    def test_get_pipeline_rejects(self, tmp_path, bad_name):
+        mgr = ConfigManager(str(tmp_path))
+        with pytest.raises(ValueError, match="Invalid config name"):
+            mgr.get_pipeline(bad_name)
+
+    def test_save_pipeline_rejects(self, tmp_path, bad_name):
+        mgr = ConfigManager(str(tmp_path))
+        with pytest.raises(ValueError, match="Invalid config name"):
+            mgr.save_pipeline(
+                bad_name,
+                {"name": "x", "pipeline_stages": [{"name": "s", "worker_type": "w"}]},
+            )
+
+
+class TestConfigManagerNameValidationDoesNotEscapeConfigsDir:
+    """The validation must actually prevent writes outside configs_dir.
+
+    Belt-and-braces test: even if the regex check were bypassed somehow,
+    no file should appear outside ``configs_dir`` after a traversal
+    attempt.
+    """
+
+    def test_save_worker_traversal_does_not_write_outside(self, tmp_path):
+        configs_dir = tmp_path / "configs"
+        configs_dir.mkdir()
+        outside = tmp_path / "outside.yaml"
+
+        mgr = ConfigManager(str(configs_dir))
+        with pytest.raises(ValueError, match="Invalid config name"):
+            mgr.save_worker(
+                "../outside",
+                {"name": "x", "system_prompt": "x"},
+            )
+
+        assert not outside.exists(), (
+            "save_worker traversal must not produce a file outside configs_dir"
+        )
+
+    def test_save_pipeline_traversal_does_not_write_outside(self, tmp_path):
+        configs_dir = tmp_path / "configs"
+        configs_dir.mkdir()
+        outside = tmp_path / "outside.yaml"
+
+        mgr = ConfigManager(str(configs_dir))
+        with pytest.raises(ValueError, match="Invalid config name"):
+            mgr.save_pipeline(
+                "../outside",
+                {
+                    "name": "x",
+                    "pipeline_stages": [{"name": "s", "worker_type": "w"}],
+                },
+            )
+
+        assert not outside.exists()
+
+
+class TestConfigManagerAcceptsLegitimateNames:
+    """Sanity-check that validation does not reject names actually shipped."""
+
+    @pytest.mark.parametrize(
+        "good_name",
+        [
+            "summarizer",
+            "qa",
+            "rag_vectorstore_lance",
+            "_subprocess_template",
+            "worker-with-dashes",
+            "MixedCase",
+            "name123",
+        ],
+    )
+    def test_accepts(self, tmp_path, good_name):
+        mgr = ConfigManager(str(tmp_path))
+        # save_worker with a valid config — this round-trips through the
+        # validator and should succeed.
+        errors = mgr.save_worker(
+            good_name, {"name": good_name, "system_prompt": "x"}
+        )
+        assert errors == []
+        # And get_worker should find what we just saved.
+        assert mgr.get_worker(good_name)["name"] == good_name
