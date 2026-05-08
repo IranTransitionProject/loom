@@ -852,8 +852,12 @@ def mdns(workshop_port: int, nats_port: int, mcp_port: int, host: str | None):
             mcp_port=mcp_port if mcp_port > 0 else "disabled",
         )
         try:
-            # Block until SIGINT/SIGTERM
-            await asyncio.sleep(float("inf"))
+            # Block until SIGINT/SIGTERM.  ``asyncio.sleep(float("inf"))``
+            # raises ``OverflowError`` on uvloop and on Windows because the
+            # underlying ``call_later`` schedules a finite C-side delay.
+            # ``Event().wait()`` blocks indefinitely without any scheduled
+            # wake-up and cancels cleanly on shutdown.
+            await asyncio.Event().wait()
         except asyncio.CancelledError:
             pass
         finally:

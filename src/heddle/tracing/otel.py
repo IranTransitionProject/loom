@@ -124,6 +124,9 @@ _NOOP_TRACER = _NoOpTracer()
 # ---------------------------------------------------------------------------
 
 
+_TRACING_INITIALIZED = False
+
+
 def init_tracing(
     service_name: str = "heddle",
     *,
@@ -131,17 +134,30 @@ def init_tracing(
 ) -> bool:
     """Initialize OTel tracing with OTLP exporter.
 
+    Idempotent: a second call is a no-op that returns ``True``.  Without
+    this guard, calling ``init_tracing`` twice triggered the OTel SDK's
+    "Overriding of current TracerProvider is not allowed" warning, which
+    surfaced in tests and in CLI commands that re-imported the tracing
+    module.
+
     Args:
         service_name: Service name reported to the collector.
         endpoint: OTLP gRPC endpoint (e.g. ``http://localhost:4317``).
             Defaults to the ``OTEL_EXPORTER_OTLP_ENDPOINT`` env var.
 
     Returns:
-        ``True`` if OTel was initialized, ``False`` if not installed.
+        ``True`` if OTel was initialized (or was already initialized),
+        ``False`` if not installed.
     """
+    global _TRACING_INITIALIZED  # noqa: PLW0603 — module-level singleton flag is the simplest idempotency guard
+
     if not _HAS_OTEL:
         logger.info("tracing.otel_not_available", hint="install with: uv sync --extra otel")
         return False
+
+    if _TRACING_INITIALIZED:
+        logger.debug("tracing.already_initialized", service_name=service_name)
+        return True
 
     try:
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # type: ignore[import-untyped]
@@ -166,6 +182,7 @@ def init_tracing(
     exporter = OTLPSpanExporter(**exporter_kwargs)
     provider.add_span_processor(BatchSpanProcessor(exporter))
     _trace_mod.set_tracer_provider(provider)
+    _TRACING_INITIALIZED = True
 
     logger.info("tracing.initialized", service_name=service_name, endpoint=endpoint)
     return True
