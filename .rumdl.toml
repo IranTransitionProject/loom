@@ -1,11 +1,26 @@
 # rumdl configuration — Heddle
+#
+# CI runs ``uv run rumdl check .`` (via the ``rvben/rumdl`` action,
+# pinned in ``.github/workflows/ci.yml``).  Keep this file as the
+# single source of truth — no inline ``<!-- markdownlint-disable -->``
+# comments scattered through the docs.
+#
+# When you add a new rule disable, document the reason on the comment
+# line directly above it and consider whether the disable can be
+# scoped (per-rule config) instead of project-wide.
 
 [global]
 # MD013: Line length — 80 chars is too restrictive for prose documentation
-# MD036: Emphasis as heading — false positive on subtitle lines
+# MD036: Emphasis as heading — false positive on subtitle lines like ``**Status:**``
 # MD042: Empty link — used for status badges with no target URL
 # MD057: Cross-repo relative links unresolvable in CI (repos checked out in isolation)
 disable = ["MD013", "MD036", "MD042", "MD057"]
+
+# Skip files matched by ``.gitignore`` so generated artefacts (``site/``,
+# ``htmlcov/``, build outputs) are never linted.  Default ``true`` in
+# rumdl 0.1.x; pinned explicitly so a future default change can't drop
+# the protection without a config edit.
+respect_gitignore = true
 
 # .claude/ holds Claude Code agent and command definitions, not project docs.
 # These files use YAML frontmatter (so MD041 trips on a level-1 heading
