@@ -55,9 +55,7 @@ class UploadTooLargeError(Exception):
     """Raised when an upload exceeds the configured size cap."""
 
     def __init__(self, max_bytes: int) -> None:
-        super().__init__(
-            f"Upload exceeds the maximum size of {max_bytes} bytes."
-        )
+        super().__init__(f"Upload exceeds the maximum size of {max_bytes} bytes.")
         self.max_bytes = max_bytes
 
 

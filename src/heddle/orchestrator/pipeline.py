@@ -732,9 +732,7 @@ class PipelineOrchestrator(BaseActor):
 
         Returns the matching :class:`TaskResult` or ``None`` on timeout.
         """
-        result_future: asyncio.Future[TaskResult] = (
-            asyncio.get_running_loop().create_future()
-        )
+        result_future: asyncio.Future[TaskResult] = asyncio.get_running_loop().create_future()
         subject = f"heddle.results.{goal_id}"
 
         # Step 1: subscribe FIRST.

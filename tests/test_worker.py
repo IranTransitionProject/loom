@@ -347,9 +347,7 @@ async def test_llm_worker_disconnect_closes_all_backends(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_llm_worker_disconnect_continues_when_backend_aclose_raises(
-    tmp_path, caplog
-):
+async def test_llm_worker_disconnect_continues_when_backend_aclose_raises(tmp_path, caplog):
     """A failure in one backend's aclose must not prevent the others from closing.
 
     The disconnect contract is best-effort: each backend is closed

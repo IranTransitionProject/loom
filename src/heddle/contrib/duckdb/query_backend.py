@@ -114,9 +114,7 @@ class DuckDBQueryBackend(SyncProcessingBackend):
         # validate those — they're a documented power-user surface.
         self.table_name = validate_sql_identifier(table_name, field="table_name")
         self.id_column = validate_sql_identifier(id_column, field="id_column")
-        self.embedding_column = validate_sql_identifier(
-            embedding_column, field="embedding_column"
-        )
+        self.embedding_column = validate_sql_identifier(embedding_column, field="embedding_column")
         if full_text_column is not None:
             self.full_text_column = validate_sql_identifier(
                 full_text_column, field="full_text_column"
@@ -127,9 +125,7 @@ class DuckDBQueryBackend(SyncProcessingBackend):
         # Each name must be a valid identifier.  We re-join after
         # validation so the stored value is the canonical
         # whitespace-trimmed form.
-        self.fts_fields = ",".join(
-            validate_sql_identifier_list(fts_fields, field="fts_fields")
-        )
+        self.fts_fields = ",".join(validate_sql_identifier_list(fts_fields, field="fts_fields"))
         self.result_columns = result_columns or ["id"]
         self.json_columns = json_columns or set()
         self.filter_fields = filter_fields or {}

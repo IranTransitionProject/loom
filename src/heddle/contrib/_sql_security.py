@@ -102,9 +102,7 @@ def escape_sql_string_literal(value: str) -> str:
             byte.
     """
     if not isinstance(value, str):
-        raise ValueError(
-            f"Invalid string literal: expected str, got {type(value).__name__}"
-        )
+        raise ValueError(f"Invalid string literal: expected str, got {type(value).__name__}")
     if "\x00" in value:
         raise ValueError("Invalid string literal: contains null byte")
     return value.replace("'", "''")

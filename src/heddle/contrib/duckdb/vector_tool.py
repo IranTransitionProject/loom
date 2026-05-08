@@ -82,9 +82,7 @@ class DuckDBVectorTool(SyncToolProvider):
         # construction so misconfigured YAML rejects loudly instead of
         # silently corrupting (or hijacking) queries.
         self.table_name = validate_sql_identifier(table_name, field="table_name")
-        self.embedding_column = validate_sql_identifier(
-            embedding_column, field="embedding_column"
-        )
+        self.embedding_column = validate_sql_identifier(embedding_column, field="embedding_column")
         self._result_columns = result_columns
         self.tool_name = tool_name
         self.description = description

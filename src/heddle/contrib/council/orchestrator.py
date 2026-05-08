@@ -332,9 +332,7 @@ class CouncilOrchestrator(BaseActor):
         of that helper.  Subscribe-before-publish is mandatory because
         NATS is at-most-once.
         """
-        result_future: asyncio.Future[TaskResult] = (
-            asyncio.get_running_loop().create_future()
-        )
+        result_future: asyncio.Future[TaskResult] = asyncio.get_running_loop().create_future()
         subject = f"heddle.results.{goal_id}"
 
         sub = await self._bus.subscribe(subject)

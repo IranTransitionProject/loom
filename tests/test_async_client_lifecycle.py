@@ -192,9 +192,7 @@ class TestChatBridgeLifecycle:
         bridge._get_or_create_session("seeded")
         assert "seeded" in bridge._sessions
         await bridge.aclose()
-        assert bridge._sessions == {}, (
-            f"{label}.aclose() must clear in-memory sessions"
-        )
+        assert bridge._sessions == {}, f"{label}.aclose() must clear in-memory sessions"
 
     @pytest.mark.asyncio
     async def test_aclose_is_idempotent(self, label, factory):

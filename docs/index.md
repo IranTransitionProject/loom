@@ -129,11 +129,6 @@ Go deeper:
 
 Tutorials (step-by-step, phased examples):
 
-- **[Document Intake](docs/tutorials/document-intake.md)** — Build a public comment pipeline: CSV reader, classifier, entity extractor, bias audit (three phases)
-- **[Research Review](docs/tutorials/research-review.md)** — Build a paper review pipeline: claim extraction, methodology review, blind adversarial audit (three phases)
-
-Tutorials (step-by-step, phased examples):
-
 - **[Document Intake](tutorials/document-intake.md)** — Build a public comment pipeline: CSV reader, classifier, entity extractor, bias audit (three phases)
 - **[Research Review](tutorials/research-review.md)** — Build a paper review pipeline: claim extraction, methodology review, blind adversarial audit (three phases)
 

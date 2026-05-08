@@ -123,12 +123,8 @@ def _assert_subscribe_before_publish(
         (i for i, (op, subj) in enumerate(calls) if op == "publish" and subj == task_subject),
         None,
     )
-    assert sub_idx is not None, (
-        f"Expected a subscribe to {result_subject!r}; calls were {calls}"
-    )
-    assert pub_idx is not None, (
-        f"Expected a publish to {task_subject!r}; calls were {calls}"
-    )
+    assert sub_idx is not None, f"Expected a subscribe to {result_subject!r}; calls were {calls}"
+    assert pub_idx is not None, f"Expected a publish to {task_subject!r}; calls were {calls}"
     assert sub_idx < pub_idx, (
         f"Subscribe to {result_subject!r} (index {sub_idx}) must precede "
         f"publish to {task_subject!r} (index {pub_idx}). Calls: {calls}"
@@ -170,9 +166,7 @@ class TestPipelineOrchestratorOrdering:
             timeout=0.05,
         )
 
-        _assert_subscribe_before_publish(
-            bus.calls, result_subject="heddle.results.goal-pipe"
-        )
+        _assert_subscribe_before_publish(bus.calls, result_subject="heddle.results.goal-pipe")
 
     @pytest.mark.asyncio
     async def test_inline_worker_reply_is_delivered(self):
@@ -248,9 +242,7 @@ class _OneSubtaskBackend:
         import json as _json
 
         if "task decomposition" in system_prompt.lower():
-            content = _json.dumps(
-                [{"worker_type": "summarizer", "payload": {"text": "hi"}}]
-            )
+            content = _json.dumps([{"worker_type": "summarizer", "payload": {"text": "hi"}}])
         else:
             content = "{}"
         return {
@@ -437,9 +429,7 @@ class TestCouncilOrchestratorOrdering:
             timeout=0.05,
         )
 
-        _assert_subscribe_before_publish(
-            bus.calls, result_subject="heddle.results.goal-council"
-        )
+        _assert_subscribe_before_publish(bus.calls, result_subject="heddle.results.goal-council")
 
     @pytest.mark.asyncio
     async def test_inline_worker_reply_is_delivered(self):

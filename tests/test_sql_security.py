@@ -45,7 +45,7 @@ _INVALID_IDENTIFIERS = [
     # Quotes / SQL string-literal escape attempts.
     "x' OR 1=1 --",
     "x';DROP TABLE users;--",
-    "x\";",
+    'x";',
     "x` ",
     # Path-like / dot notation (no schema-qualified support today).
     "schema.table",

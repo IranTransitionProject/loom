@@ -401,9 +401,7 @@ class OrchestratorActor(BaseActor):
                     },
                 ) as collect_span:
                     results = await self._collect_results(stream, goal_state, log)
-                    collect_span.set_attribute(
-                        "orchestrator.collected_count", len(results)
-                    )
+                    collect_span.set_attribute("orchestrator.collected_count", len(results))
                     collect_span.set_attribute(
                         "orchestrator.success_count",
                         sum(1 for r in results if r.status == TaskStatus.COMPLETED),

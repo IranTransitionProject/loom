@@ -169,9 +169,7 @@ async def test_subscription_anext_raises_stop_on_terminal_error():
     import nats.errors
 
     mock_nats_sub = AsyncMock()
-    mock_nats_sub.next_msg = AsyncMock(
-        side_effect=nats.errors.ConnectionClosedError()
-    )
+    mock_nats_sub.next_msg = AsyncMock(side_effect=nats.errors.ConnectionClosedError())
 
     sub = NATSSubscription(mock_nats_sub)
 

@@ -569,9 +569,7 @@ class TestTimerAndFireTimes:
         # And must align with the original cadence (some integer number of
         # intervals past the stale next_fire).
         offset = entry.next_fire - (now - 95.0)
-        assert offset % 10 == 0, (
-            f"catch-up broke cadence: offset {offset} not a multiple of 10"
-        )
+        assert offset % 10 == 0, f"catch-up broke cadence: offset {offset} not a multiple of 10"
 
     def test_advance_next_fire_cron(self, tmp_path):
         schedules = [_goal_schedule(cron="*/5 * * * *")]
@@ -874,10 +872,7 @@ class TestSchedulerOnReload:
         try:
             for _ in range(50):
                 await asyncio.sleep(0.02)
-                if any(
-                    "heddle.control.reload" in subj
-                    for subj in bus._subscribers
-                ):
+                if any("heddle.control.reload" in subj for subj in bus._subscribers):
                     break
 
             await bus.publish("heddle.control.reload", {"action": "reload"})

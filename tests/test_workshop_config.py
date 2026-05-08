@@ -375,9 +375,7 @@ class TestConfigManagerAcceptsLegitimateNames:
         mgr = ConfigManager(str(tmp_path))
         # save_worker with a valid config — this round-trips through the
         # validator and should succeed.
-        errors = mgr.save_worker(
-            good_name, {"name": good_name, "system_prompt": "x"}
-        )
+        errors = mgr.save_worker(good_name, {"name": good_name, "system_prompt": "x"})
         assert errors == []
         # And get_worker should find what we just saved.
         assert mgr.get_worker(good_name)["name"] == good_name

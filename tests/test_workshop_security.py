@@ -112,15 +112,11 @@ class TestOriginCheckFailureReason:
         assert _origin_check_failure_reason(req) is None
 
     def test_referer_fallback_same_origin_passes(self):
-        req = _build_request(
-            origin=None, referer="http://localhost:8080/apps"
-        )
+        req = _build_request(origin=None, referer="http://localhost:8080/apps")
         assert _origin_check_failure_reason(req) is None
 
     def test_referer_fallback_cross_origin_rejected(self):
-        req = _build_request(
-            origin=None, referer="https://evil.com/page"
-        )
+        req = _build_request(origin=None, referer="https://evil.com/page")
         reason = _origin_check_failure_reason(req)
         assert reason is not None
         assert "evil.com" in reason
@@ -233,9 +229,7 @@ class TestReadUploadWithSizeCap:
         upload = _FakeUploadFile(data)
         dest = tmp_path / "out.bin"
 
-        written = await read_upload_with_size_cap(
-            upload, dest, max_bytes=10 * 1024 * 1024
-        )
+        written = await read_upload_with_size_cap(upload, dest, max_bytes=10 * 1024 * 1024)
 
         assert written == len(data)
         assert dest.read_bytes() == data
@@ -252,9 +246,7 @@ class TestReadUploadWithSizeCap:
         upload = _FakeUploadFile(data)
         dest = tmp_path / "out.bin"
 
-        written = await read_upload_with_size_cap(
-            upload, dest, max_bytes=cap
-        )
+        written = await read_upload_with_size_cap(upload, dest, max_bytes=cap)
 
         assert written == cap
 
@@ -283,9 +275,7 @@ class TestReadUploadWithSizeCap:
         upload = _FakeUploadFile(data)
         buf = io.BytesIO()
 
-        written = await read_upload_with_size_cap(
-            upload, buf, max_bytes=len(data) * 2
-        )
+        written = await read_upload_with_size_cap(upload, buf, max_bytes=len(data) * 2)
 
         assert written == len(data)
         assert buf.getvalue() == data

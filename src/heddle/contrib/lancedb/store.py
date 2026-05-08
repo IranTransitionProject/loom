@@ -357,9 +357,7 @@ class LanceDBVectorStore(VectorStore):
 
         before = self._table.count_rows()
         try:
-            self._table.delete(
-                f"chunk_id = '{escape_sql_string_literal(chunk_id)}'"
-            )
+            self._table.delete(f"chunk_id = '{escape_sql_string_literal(chunk_id)}'")
         except Exception as exc:
             logger.warning("Delete failed for chunk %s: %s", chunk_id, exc)
             return False
