@@ -645,16 +645,28 @@ class PipelineOrchestrator(BaseActor):
     ) -> dict[str, Any]:
         """Build a stage's task payload by resolving input_mapping against context.
 
-        Mapping values are dot-separated paths into the context dict.
+        Mapping values are dot-separated paths into the context dict, OR
+        single-quoted strings that pass through as literal values.
 
         Examples:
             "goal.context.file_ref" → context["goal"]["context"]["file_ref"]
             "extract.output.page_count" → context["extract"]["output"]["page_count"]
+            "'store'" → "store"  (literal — used by the shipped RAG
+                                  pipeline's ``vectorize`` stage to pass
+                                  ``action="store"`` without a context key)
         """
         mapping = stage.get("input_mapping", {})
         payload: dict[str, Any] = {}
         for target_field, source_path in mapping.items():
-            payload[target_field] = self._resolve_path(source_path, context)
+            # Single-quoted strings are literal values, not paths.  The
+            # validator in core/config.py applies the same rule when
+            # checking inter-stage references; if these two diverged,
+            # a config could validate but fail at dispatch time (or
+            # vice versa).
+            if source_path.startswith("'") and source_path.endswith("'"):
+                payload[target_field] = source_path[1:-1]
+            else:
+                payload[target_field] = self._resolve_path(source_path, context)
         return payload
 
     @staticmethod

@@ -186,6 +186,31 @@ class TestBuildStagePayload:
         payload = orch._build_stage_payload(stage, context)
         assert payload == {"file_ref": "extracted.json", "document_type": "invoice"}
 
+    def test_literal_mapping_value(self, tmp_path):
+        """Single-quoted strings in input_mapping are literal values, not paths.
+
+        ``configs/orchestrators/rag_pipeline.yaml`` relies on this for the
+        ``vectorize`` stage (``action: "'store'"``).  The validator in
+        ``core/config.py`` already treats single-quoted strings as
+        literals (skips dependency validation for them); the runtime
+        payload builder must agree, otherwise ``_resolve_path`` tries
+        to traverse a top-level context key named ``"'store'"`` and
+        raises ``KeyError`` — the shipped config validates but fails
+        at dispatch time.
+        """
+        orch = self._make_orchestrator(tmp_path)
+        context = {"chunk": {"output": {"chunks": [{"id": 1}]}}}
+        stage = {
+            "name": "vectorize",
+            "worker_type": "rag_vectorstore",
+            "input_mapping": {
+                "action": "'store'",
+                "chunks": "chunk.output.chunks",
+            },
+        }
+        payload = orch._build_stage_payload(stage, context)
+        assert payload == {"action": "store", "chunks": [{"id": 1}]}
+
 
 # --- _infer_dependencies tests ---
 
