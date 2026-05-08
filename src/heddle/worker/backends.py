@@ -159,12 +159,18 @@ class AnthropicBackend(LLMBackend):
         # ``thinking`` blocks separately on the response dict
         # (mirror the OpenAI-compat ``reasoning_content`` field).
         # See https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking
-        content = None
+        # Anthropic responses can contain multiple text blocks
+        # interleaved with tool_use blocks (e.g. text → tool_use →
+        # text, common when tool_use is enabled).  Earlier shape
+        # assigned ``content = block["text"]``, overwriting on each
+        # iteration, so any text after the first tool_use block was
+        # silently lost.  Accumulate into a list and join at the end.
+        text_parts: list[str] = []
         tool_calls = None
 
         for block in data.get("content", []):
             if block["type"] == "text":
-                content = block["text"]
+                text_parts.append(block["text"])
             elif block["type"] == "tool_use":
                 if tool_calls is None:
                     tool_calls = []
@@ -175,6 +181,12 @@ class AnthropicBackend(LLMBackend):
                         "arguments": block["input"],
                     }
                 )
+
+        # ``None`` when no text blocks were present preserves the
+        # original contract (callers distinguish "no text" from "empty
+        # text" — the OpenAI-compat backend returns None for tool-only
+        # responses).
+        content = "".join(text_parts) if text_parts else None
 
         return {
             "content": content,

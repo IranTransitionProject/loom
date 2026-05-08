@@ -339,13 +339,33 @@ class OrchestratorActor(BaseActor):
                 return
 
             # Enforce max concurrent tasks limit.
+            #
+            # Earlier shape silently truncated the list and dispatched
+            # the first N subtasks, then published ``COMPLETED`` —
+            # producing a partial result the caller had no way to
+            # detect.  We now fail the goal with an explicit error so
+            # the caller learns the goal was too large and can either
+            # raise the limit or split the goal at submission time.
+            #
+            # Future enhancement: chunk the dispatch into N-at-a-time
+            # batches.  Out of scope for the current fix; the failure
+            # is the safe default until that is implemented.
             if len(subtasks) > self._max_concurrent_tasks:
-                log.warning(
-                    "orchestrator.subtask_limit",
+                log.error(
+                    "orchestrator.subtask_limit_exceeded",
                     requested=len(subtasks),
                     limit=self._max_concurrent_tasks,
                 )
-                subtasks = subtasks[: self._max_concurrent_tasks]
+                await self._publish_final_result(
+                    goal,
+                    TaskStatus.FAILED,
+                    error=(
+                        f"Decomposition produced {len(subtasks)} subtasks but "
+                        f"max_concurrent_tasks={self._max_concurrent_tasks}.  "
+                        "Raise the limit or split the goal."
+                    ),
+                )
+                return
 
             # -- 3. Subscribe → dispatch → collect.
             # Subscription is opened BEFORE dispatch.  NATS is at-most-once,

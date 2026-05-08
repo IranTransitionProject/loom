@@ -315,6 +315,62 @@ class TestAnthropicBackendComplete:
         assert result["tool_calls"][0]["name"] == "search"
 
     @pytest.mark.asyncio
+    async def test_multiple_text_blocks_are_accumulated(self, backend):
+        """Multiple text blocks in one response are concatenated, not lost.
+
+        Regression test for the original bug: ``content = block["text"]``
+        overwrote on each iteration, so any text after the first
+        ``tool_use`` block was silently dropped.  Anthropic returns
+        text → tool_use → text patterns whenever a model thinks aloud
+        between tool calls; without the fix, the trailing text was
+        lost on every such response.
+        """
+        api_data = {
+            "model": "claude-test",
+            "content": [
+                {"type": "text", "text": "Let me check that. "},
+                {
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "search",
+                    "input": {"q": "x"},
+                },
+                {"type": "text", "text": "Calling search now."},
+            ],
+            "usage": {"input_tokens": 10, "output_tokens": 20},
+            "stop_reason": "tool_use",
+        }
+        with patch.object(backend.client, "post", return_value=_mock_response(api_data)):
+            result = await backend.complete("sys", "msg", tools=[{"name": "search"}])
+
+        # Both text blocks must be preserved in order.
+        assert result["content"] == "Let me check that. Calling search now."
+        # Tool call still surfaces.
+        assert len(result["tool_calls"]) == 1
+        assert result["tool_calls"][0]["id"] == "toolu_1"
+
+    @pytest.mark.asyncio
+    async def test_text_only_no_tool_use_returns_none_content(self, backend):
+        """A response with no text blocks returns ``content=None`` (unchanged)."""
+        api_data = {
+            "model": "claude-test",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "search",
+                    "input": {"q": "x"},
+                },
+            ],
+            "usage": {"input_tokens": 10, "output_tokens": 10},
+            "stop_reason": "tool_use",
+        }
+        with patch.object(backend.client, "post", return_value=_mock_response(api_data)):
+            result = await backend.complete("sys", "msg", tools=[{"name": "search"}])
+
+        assert result["content"] is None  # not "" — distinguishes "no text" from "empty"
+
+    @pytest.mark.asyncio
     async def test_tools_parameter_transforms_format(self, backend):
         """Verify that the tools list is transformed to Anthropic's schema format."""
         api_data = {

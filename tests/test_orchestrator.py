@@ -590,9 +590,21 @@ class TestFullLifecycle:
             os.unlink(config_path)
 
     @pytest.mark.asyncio
-    async def test_subtask_limit_truncates_plan(self):
-        """When decomposition returns more subtasks than max_concurrent_tasks, truncate."""
-        # Return 10 subtasks
+    async def test_subtask_limit_fails_goal_with_explicit_error(self):
+        """A plan exceeding ``max_concurrent_tasks`` fails the goal explicitly.
+
+        Earlier shape silently truncated the plan and dispatched the
+        first N subtasks, then published ``COMPLETED`` — the caller
+        had no signal that data was lost.  We now publish ``FAILED``
+        with an actionable message so the operator either raises the
+        limit or splits the goal at submission time.
+
+        Regression test: dispatch must be skipped (no tasks published
+        to ``heddle.tasks.incoming``) and the final result must be
+        FAILED with a message naming both the requested and limit
+        counts.
+        """
+        # 10 subtasks, max_concurrent_tasks=5 (default in _write_config).
         plan = json.dumps(
             [{"worker_type": "summarizer", "payload": {"text": f"chunk {i}"}} for i in range(10)]
         )
@@ -608,23 +620,27 @@ class TestFullLifecycle:
                 backend=backend,
                 bus=bus,
             )
-            # max_concurrent_tasks defaults to 5 from _write_config
 
-            # Subscribe to tasks to count how many were dispatched
+            # Subscribe BEFORE the goal arrives so we can verify
+            # nothing was dispatched.
             task_sub = await bus.subscribe("heddle.tasks.incoming")
 
-            goal_data = _make_goal_data("Process many chunks")
-            await actor.handle_message(goal_data)
+            goal = OrchestratorGoal(instruction="Process many chunks")
+            result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-            # Collect dispatched tasks (should be capped at 5)
-            dispatched = []
-            for _ in range(5):
-                try:
-                    msg = await asyncio.wait_for(task_sub.__anext__(), timeout=0.5)
-                    dispatched.append(msg)
-                except (TimeoutError, StopAsyncIteration):
-                    break
-            assert len(dispatched) == 5
+            await actor.handle_message(goal.model_dump(mode="json"))
+
+            # No tasks should have been dispatched — the goal failed
+            # before reaching the dispatch step.
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(task_sub.__anext__(), timeout=0.2)
+
+            # The final result must be FAILED with both counts named.
+            final = await asyncio.wait_for(result_sub.__anext__(), timeout=0.5)
+            result = TaskResult(**final)
+            assert result.status == TaskStatus.FAILED
+            assert "10 subtasks" in result.error
+            assert "max_concurrent_tasks=5" in result.error
         finally:
             os.unlink(config_path)
 
