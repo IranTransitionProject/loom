@@ -364,6 +364,12 @@ class LLMWorker(TaskWorker):
         if workspace_dir and file_ref_fields:
             from heddle.core.workspace import WorkspaceManager
 
+            # Detach from the caller's payload before mutating: shallow-copy
+            # and rebind locally so the ``_content`` keys we add never leak
+            # back into the ``TaskMessage.payload`` the actor framework holds
+            # (worker statelessness — adjacent tasks must not see each other's
+            # resolved content).
+            payload = dict(payload)
             ws = WorkspaceManager(workspace_dir)
             for field in file_ref_fields:
                 if field in payload:
