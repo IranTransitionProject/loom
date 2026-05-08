@@ -137,29 +137,29 @@ def _assert_subscribe_before_publish(
 
 
 class TestPipelineOrchestratorOrdering:
+    """Pin the ordering on the shared dispatch helper.
+
+    Originally tested
+    ``PipelineOrchestrator._dispatch_and_wait_for_result``; the body
+    moved to :func:`heddle.orchestrator.dispatch.dispatch_and_wait_for_result`
+    so both pipeline and council orchestrators share it.  The pipeline
+    class is kept in the test name because it's the original caller —
+    if the shared helper subtly diverges from what the pipeline needs,
+    these tests will catch it.
+    """
+
     @pytest.mark.asyncio
     async def test_subscribe_precedes_publish(self):
-        """``_dispatch_and_wait_for_result`` subscribes BEFORE publishing the task."""
-        from heddle.orchestrator.pipeline import PipelineOrchestrator
+        """``dispatch_and_wait_for_result`` subscribes BEFORE publishing the task."""
+        from heddle.orchestrator.dispatch import dispatch_and_wait_for_result
 
         bus = BusRecorder()
         await bus.connect()
 
-        # PipelineOrchestrator only needs a config_path for ``_load_config``;
-        # construct directly with the bus injected.
-        orch = PipelineOrchestrator.__new__(PipelineOrchestrator)
-        orch.actor_id = "test-pipeline"
-        orch._bus = bus
-        orch._sub = None
-        orch._control_sub = None
-        orch._running = False
-        orch._shutdown_event = None
-        orch._semaphore = None
-        orch._background_tasks = set()
-
         task = TaskMessage(worker_type="summarizer", payload={"text": "hi"})
         # Time out fast — we don't actually wait for a real reply.
-        await orch._dispatch_and_wait_for_result(
+        await dispatch_and_wait_for_result(
+            bus=bus,
             task=task,
             task_data=task.model_dump(mode="json"),
             goal_id="goal-pipe",
@@ -176,23 +176,14 @@ class TestPipelineOrchestratorOrdering:
         deadlocked or timed out because the synthetic result was
         published before the subscription existed.
         """
-        from heddle.orchestrator.pipeline import PipelineOrchestrator
+        from heddle.orchestrator.dispatch import dispatch_and_wait_for_result
 
         bus = WorkerSimBus(goal_id="goal-pipe-race", output={"summary": "fast"})
         await bus.connect()
 
-        orch = PipelineOrchestrator.__new__(PipelineOrchestrator)
-        orch.actor_id = "test-pipeline-race"
-        orch._bus = bus
-        orch._sub = None
-        orch._control_sub = None
-        orch._running = False
-        orch._shutdown_event = None
-        orch._semaphore = None
-        orch._background_tasks = set()
-
         task = TaskMessage(worker_type="summarizer", payload={"text": "hi"})
-        result = await orch._dispatch_and_wait_for_result(
+        result = await dispatch_and_wait_for_result(
+            bus=bus,
             task=task,
             task_data=task.model_dump(mode="json"),
             goal_id="goal-pipe-race",
@@ -404,25 +395,25 @@ class TestOrchestratorActorOrdering:
 
 
 class TestCouncilOrchestratorOrdering:
+    """Council mirror of the pipeline ordering test class.
+
+    Both orchestrators now share
+    :func:`heddle.orchestrator.dispatch.dispatch_and_wait_for_result`.
+    Keeping a separate class for the council path documents the
+    intent — "the council uses the same helper, and we expect it to
+    keep doing so."
+    """
+
     @pytest.mark.asyncio
     async def test_subscribe_precedes_publish(self):
-        from heddle.contrib.council.orchestrator import CouncilOrchestrator
+        from heddle.orchestrator.dispatch import dispatch_and_wait_for_result
 
         bus = BusRecorder()
         await bus.connect()
 
-        orch = CouncilOrchestrator.__new__(CouncilOrchestrator)
-        orch.actor_id = "test-council"
-        orch._bus = bus
-        orch._sub = None
-        orch._control_sub = None
-        orch._running = False
-        orch._shutdown_event = None
-        orch._semaphore = None
-        orch._background_tasks = set()
-
         task = TaskMessage(worker_type="reviewer", payload={"prompt": "hi"})
-        await orch._dispatch_and_wait_for_result(
+        await dispatch_and_wait_for_result(
+            bus=bus,
             task=task,
             task_data=task.model_dump(mode="json"),
             goal_id="goal-council",
@@ -433,23 +424,14 @@ class TestCouncilOrchestratorOrdering:
 
     @pytest.mark.asyncio
     async def test_inline_worker_reply_is_delivered(self):
-        from heddle.contrib.council.orchestrator import CouncilOrchestrator
+        from heddle.orchestrator.dispatch import dispatch_and_wait_for_result
 
         bus = WorkerSimBus(goal_id="goal-council-race", output={"content": "ok"})
         await bus.connect()
 
-        orch = CouncilOrchestrator.__new__(CouncilOrchestrator)
-        orch.actor_id = "test-council-race"
-        orch._bus = bus
-        orch._sub = None
-        orch._control_sub = None
-        orch._running = False
-        orch._shutdown_event = None
-        orch._semaphore = None
-        orch._background_tasks = set()
-
         task = TaskMessage(worker_type="reviewer", payload={"prompt": "hi"})
-        result = await orch._dispatch_and_wait_for_result(
+        result = await dispatch_and_wait_for_result(
+            bus=bus,
             task=task,
             task_data=task.model_dump(mode="json"),
             goal_id="goal-council-race",

@@ -15,8 +15,6 @@ for NATS subscription, result waiting, and final result publishing.
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import json
 import time
 from datetime import UTC, datetime
@@ -37,6 +35,7 @@ from heddle.core.messages import (
     TaskResult,
     TaskStatus,
 )
+from heddle.orchestrator.dispatch import dispatch_and_wait_for_result
 from heddle.tracing import get_tracer, inject_trace_context
 
 logger = structlog.get_logger()
@@ -268,7 +267,8 @@ class CouncilOrchestrator(BaseActor):
         # Subscribe BEFORE publishing.  NATS is at-most-once and a fast
         # worker can publish onto heddle.results.{goal_id} between the
         # publish and the subscription if this ordering is inverted.
-        result = await self._dispatch_and_wait_for_result(
+        result = await dispatch_and_wait_for_result(
+            bus=self._bus,
             task=task,
             task_data=msg,
             goal_id=goal.goal_id,
@@ -318,44 +318,9 @@ class CouncilOrchestrator(BaseActor):
             timestamp=datetime.now(UTC),
         )
 
-    async def _dispatch_and_wait_for_result(
-        self,
-        task: TaskMessage,
-        task_data: dict[str, Any],
-        goal_id: str,
-        timeout: float,
-    ) -> TaskResult | None:
-        """Subscribe → publish → wait, in that order.
-
-        See :meth:`PipelineOrchestrator._dispatch_and_wait_for_result`
-        for the full rationale; this is the council-NATS-mode mirror
-        of that helper.  Subscribe-before-publish is mandatory because
-        NATS is at-most-once.
-        """
-        result_future: asyncio.Future[TaskResult] = asyncio.get_running_loop().create_future()
-        subject = f"heddle.results.{goal_id}"
-
-        sub = await self._bus.subscribe(subject)
-
-        async def _consume() -> None:
-            async for data in sub:
-                if data.get("task_id") == task.task_id:
-                    with contextlib.suppress(asyncio.InvalidStateError):
-                        result_future.set_result(TaskResult(**data))
-                    break
-
-        consume_task = asyncio.create_task(_consume())
-
-        try:
-            await self.publish("heddle.tasks.incoming", task_data)
-            return await asyncio.wait_for(result_future, timeout=timeout)
-        except TimeoutError:
-            return None
-        finally:
-            consume_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await consume_task
-            await sub.unsubscribe()
+    # ``_dispatch_and_wait_for_result`` was extracted to
+    # :func:`heddle.orchestrator.dispatch.dispatch_and_wait_for_result`
+    # so the subscribe-before-publish ordering lives in one place.
 
     async def _synthesize(
         self,
