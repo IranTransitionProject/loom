@@ -321,23 +321,36 @@ class TaskRouter:
             inject_trace_context(outgoing)
             await self.bus.publish(subject, outgoing)
 
+    # Queue group name shared by all router replicas.  NATS delivers
+    # each ``heddle.tasks.incoming`` message to exactly one member of
+    # the group, so multiple router pods form a competing-consumer
+    # pool rather than producing N-fold duplicate dispatch.
+    QUEUE_GROUP = "router"
+
     async def run(self) -> None:
         """Connect to NATS and subscribe to the incoming task subject.
 
-        After this method returns, the router is actively processing tasks
-        via NATS async callbacks. The caller is responsible for keeping the
-        event loop alive (e.g., via ``await asyncio.Event().wait()``).
+        Subscribes with the ``router`` queue group so that running more
+        than one router replica produces a competing-consumer pool —
+        each task is delivered to exactly one replica, which then
+        re-publishes once to the worker subject.  Without the queue
+        group, every replica receives every task and dispatches
+        duplicates (and consumes N times the rate-limit budget).
 
-        The CLI command in cli/main.py handles this::
-
-            async def _run():
-                await router.run()
-                await asyncio.Event().wait()
-            asyncio.run(_run())
+        After this method returns, the router is connected and
+        subscribed; the caller must call :meth:`process_messages` to
+        enter the consumption loop (see ``cli/main.py``).
         """
         await self.bus.connect()
-        self._sub = await self.bus.subscribe("heddle.tasks.incoming")
-        logger.info("router.running", dead_letter_subject=DEAD_LETTER_SUBJECT)
+        self._sub = await self.bus.subscribe(
+            "heddle.tasks.incoming",
+            queue_group=self.QUEUE_GROUP,
+        )
+        logger.info(
+            "router.running",
+            dead_letter_subject=DEAD_LETTER_SUBJECT,
+            queue_group=self.QUEUE_GROUP,
+        )
 
     async def process_messages(self) -> None:
         """Process messages from the subscription until cancelled.

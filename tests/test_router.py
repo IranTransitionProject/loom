@@ -321,3 +321,108 @@ class TestRunAndProcessMessages:
             await bus.close()
         finally:
             os.unlink(rules_path)
+
+
+# ---------------------------------------------------------------------------
+# Queue-group / horizontal-scaling regression
+#
+# Without the ``router`` queue group, every router replica subscribes
+# as an independent listener and receives every task — producing N-fold
+# duplicate dispatch (and N-fold rate-limit consumption).  The fix is
+# to subscribe with a queue group so NATS picks exactly one replica
+# per message via round-robin.
+#
+# We rely on InMemoryBus's queue-group implementation, which mirrors
+# NATS semantics: members of a group compete for messages in
+# round-robin order.
+# ---------------------------------------------------------------------------
+
+
+class TestRouterQueueGroup:
+    @pytest.mark.asyncio
+    async def test_run_subscribes_with_router_queue_group(self):
+        """``run()`` must subscribe to ``heddle.tasks.incoming`` with the
+        ``router`` queue group.
+
+        Pinning the actual queue group name guards against accidental
+        rename — replicas using different group names form independent
+        listener pools, restoring the bug.
+        """
+        from unittest.mock import AsyncMock
+
+        rules_path = _write_rules({"tier_overrides": {}, "rate_limits": {}})
+        try:
+            bus = InMemoryBus()
+            router = TaskRouter(rules_path, bus)
+            # Wrap subscribe so we can inspect what was passed.
+            real_subscribe = bus.subscribe
+            calls: list[tuple[str, str | None]] = []
+
+            async def spy_subscribe(subject: str, queue_group: str | None = None):
+                calls.append((subject, queue_group))
+                return await real_subscribe(subject, queue_group)
+
+            bus.subscribe = AsyncMock(side_effect=spy_subscribe)
+
+            await router.run()
+            await bus.close()
+
+            assert ("heddle.tasks.incoming", "router") in calls, (
+                f"router must subscribe with queue_group='router'; got {calls}"
+            )
+        finally:
+            os.unlink(rules_path)
+
+    @pytest.mark.asyncio
+    async def test_two_routers_each_task_dispatched_once(self):
+        """Two routers in the same queue group dispatch each task exactly once.
+
+        End-to-end regression test: publish one task to
+        ``heddle.tasks.incoming`` while two router replicas are
+        subscribed.  With the queue-group fix, NATS delivers to one
+        replica only, so the destination subject sees exactly one
+        forwarded message.  Without it, both replicas forward → the
+        destination sees two duplicates.
+        """
+        rules_path = _write_rules({"tier_overrides": {}, "rate_limits": {}})
+        try:
+            bus = InMemoryBus()
+            await bus.connect()
+            router_a = TaskRouter(rules_path, bus)
+            router_b = TaskRouter(rules_path, bus)
+
+            await router_a.run()
+            await router_b.run()
+
+            dest_sub = await bus.subscribe("heddle.tasks.summarizer.local")
+
+            # Both routers compete to consume the next incoming task.
+            proc_a = asyncio.create_task(router_a.process_messages())
+            proc_b = asyncio.create_task(router_b.process_messages())
+
+            # Yield so the routers actually subscribe before we publish.
+            await asyncio.sleep(0)
+
+            data = _make_task_data("summarizer", "local")
+            await bus.publish("heddle.tasks.incoming", data)
+
+            # First dispatched message must arrive — collect it.
+            first = await asyncio.wait_for(dest_sub.__anext__(), timeout=2.0)
+            assert first["worker_type"] == "summarizer"
+
+            # No SECOND dispatch — assert by waiting briefly for another
+            # message and confirming none arrives (timeout).
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(dest_sub.__anext__(), timeout=0.2)
+
+            # Cleanup.
+            proc_a.cancel()
+            proc_b.cancel()
+            for t in (proc_a, proc_b):
+                try:
+                    await t
+                except (asyncio.CancelledError, Exception):
+                    pass
+            await bus.close()
+        finally:
+            os.unlink(rules_path)

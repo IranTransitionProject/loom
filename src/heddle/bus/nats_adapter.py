@@ -31,10 +31,12 @@ NOTE: All messages are JSON-serialized dicts. Binary payloads are not supported.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import TYPE_CHECKING, Any
 
 import nats
+import nats.errors
 import structlog
 
 from heddle.bus.base import MessageBus, Subscription
@@ -48,6 +50,20 @@ logger = structlog.get_logger()
 _RECONNECT_INITIAL_WAIT = 1  # seconds
 _RECONNECT_MAX_WAIT = 30  # seconds
 _RECONNECT_MAX_ATTEMPTS = 60
+
+# Errors that mean the subscription will never deliver another message.
+# Any other exception from ``next_msg`` is treated as transient and the
+# loop continues after a short backoff (see NATSSubscription.__anext__).
+_TERMINAL_SUB_ERRORS: tuple[type[BaseException], ...] = (
+    nats.errors.ConnectionClosedError,
+    nats.errors.BadSubscriptionError,
+    nats.errors.ConnectionDrainingError,
+)
+
+# Sleep between retries after a transient ``next_msg`` error.  Short
+# enough to recover quickly; long enough to avoid busy-looping if the
+# error persists.
+_TRANSIENT_RETRY_SLEEP = 0.1  # seconds
 
 
 class NATSSubscription(Subscription):
@@ -66,23 +82,47 @@ class NATSSubscription(Subscription):
     async def __anext__(self) -> dict[str, Any]:
         """Yield the next message, JSON-decoded.
 
-        Blocks until a message arrives. Raises StopAsyncIteration when the
-        underlying NATS subscription is drained or closed.
+        Blocks until a message arrives.
 
-        Malformed (non-JSON) messages are logged and skipped — the
-        subscription continues processing subsequent messages rather than
-        terminating.
+        Termination — only the connection or subscription being closed
+        ends iteration.  Earlier shapes raised ``StopAsyncIteration``
+        from any ``next_msg`` exception, so a single transient
+        nats-py error (slow consumer signal, momentary connection
+        state, parse hiccup) silently killed the actor's only inbound
+        channel forever.  We now distinguish:
+
+        - **Terminal** (subscription closed, connection closed/drained)
+          → raise ``StopAsyncIteration`` so callers exit cleanly.
+        - **Transient** (anything else, e.g. ``SlowConsumerError``,
+          ``StaleConnectionError``) → log a warning, sleep briefly to
+          avoid busy-looping if the error persists, then retry.
+        - ``asyncio.CancelledError`` → re-raise so shutdown propagates.
+
+        Malformed (non-JSON) messages are also skipped, with a
+        warning, so a single corrupt payload doesn't terminate the
+        subscription.
         """
         while True:
             try:
                 msg = await self._sub.next_msg(timeout=None)
-            except Exception as e:
-                logger.error(
-                    "nats.subscription_error",
+            except asyncio.CancelledError:
+                # Shutdown signal — must propagate.
+                raise
+            except _TERMINAL_SUB_ERRORS as e:
+                logger.info(
+                    "nats.subscription_terminated",
                     error=str(e),
                     error_type=type(e).__name__,
                 )
                 raise StopAsyncIteration from e
+            except Exception as e:
+                logger.warning(
+                    "nats.subscription_transient_error",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+                await asyncio.sleep(_TRANSIENT_RETRY_SLEEP)
+                continue
 
             try:
                 return json.loads(msg.data.decode())

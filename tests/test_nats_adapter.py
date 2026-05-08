@@ -157,10 +157,21 @@ async def test_subscription_anext_decodes_json():
 
 
 @pytest.mark.asyncio
-async def test_subscription_anext_raises_stop_on_exception():
-    """__anext__() catches exceptions from next_msg and raises StopAsyncIteration."""
+async def test_subscription_anext_raises_stop_on_terminal_error():
+    """A *terminal* error (connection closed, subscription invalid) ends iteration.
+
+    Earlier the iterator caught any ``Exception`` and ended iteration —
+    a single transient hiccup silently killed the actor's only inbound
+    channel forever.  We now distinguish terminal from transient: only
+    closed-connection / invalid-subscription errors raise
+    ``StopAsyncIteration``; other errors retry (covered separately).
+    """
+    import nats.errors
+
     mock_nats_sub = AsyncMock()
-    mock_nats_sub.next_msg = AsyncMock(side_effect=Exception("subscription closed"))
+    mock_nats_sub.next_msg = AsyncMock(
+        side_effect=nats.errors.ConnectionClosedError()
+    )
 
     sub = NATSSubscription(mock_nats_sub)
 
@@ -259,16 +270,133 @@ async def test_subscription_multiple_malformed_before_valid():
 
 
 @pytest.mark.asyncio
-async def test_subscription_nats_error_after_malformed_still_stops():
-    """If NATS subscription errors after skipping malformed, StopAsyncIteration is raised."""
+async def test_subscription_terminal_error_after_malformed_still_stops():
+    """A terminal NATS error after skipping malformed messages still ends iteration."""
+    import nats.errors
+
     bad_msg = MagicMock()
     bad_msg.data = b"not json"
     bad_msg.subject = "test"
 
     mock_nats_sub = AsyncMock()
-    mock_nats_sub.next_msg = AsyncMock(side_effect=[bad_msg, Exception("connection lost")])
+    mock_nats_sub.next_msg = AsyncMock(
+        side_effect=[bad_msg, nats.errors.ConnectionClosedError()],
+    )
 
     sub = NATSSubscription(mock_nats_sub)
 
     with pytest.raises(StopAsyncIteration):
+        await sub.__anext__()
+
+
+# ---------------------------------------------------------------------------
+# NATSSubscription — transient-error resilience
+#
+# The previous shape collapsed every nats-py exception into
+# StopAsyncIteration, which made any transient hiccup silently
+# terminate the actor's only inbound channel.  These tests pin the
+# new behaviour: terminal errors stop iteration; everything else
+# retries.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_subscription_recovers_from_transient_error():
+    """A transient error (e.g. StaleConnectionError) is retried, not terminal.
+
+    Regression test: pre-fix, the very first transient nats-py error
+    raised ``StopAsyncIteration`` and the actor lost its inbound
+    channel forever.  The fix retries after a short sleep so a single
+    slow-consumer signal or stale connection does not kill the actor.
+    """
+    import nats.errors
+
+    payload = {"recovered": True}
+    good_msg = MagicMock()
+    good_msg.data = json.dumps(payload).encode()
+
+    mock_nats_sub = AsyncMock()
+    mock_nats_sub.next_msg = AsyncMock(
+        side_effect=[
+            nats.errors.StaleConnectionError(),
+            good_msg,
+        ],
+    )
+
+    sub = NATSSubscription(mock_nats_sub)
+    # Patch the retry sleep down to 0 so the test does not actually
+    # block for 100ms.  Production code uses a small backoff to avoid
+    # busy-looping if the error persists.
+    with patch("heddle.bus.nats_adapter._TRANSIENT_RETRY_SLEEP", 0.0):
+        result = await sub.__anext__()
+
+    assert result == payload
+    assert mock_nats_sub.next_msg.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_subscription_recovers_from_multiple_transient_errors():
+    """Several consecutive transient errors are all retried."""
+    import nats.errors
+
+    payload = {"got_through": True}
+    good_msg = MagicMock()
+    good_msg.data = json.dumps(payload).encode()
+
+    mock_nats_sub = AsyncMock()
+    mock_nats_sub.next_msg = AsyncMock(
+        side_effect=[
+            nats.errors.StaleConnectionError(),
+            nats.errors.OutboundBufferLimitError(),
+            ValueError("some unexpected library error"),
+            good_msg,
+        ],
+    )
+
+    sub = NATSSubscription(mock_nats_sub)
+    with patch("heddle.bus.nats_adapter._TRANSIENT_RETRY_SLEEP", 0.0):
+        result = await sub.__anext__()
+
+    assert result == payload
+    assert mock_nats_sub.next_msg.await_count == 4
+
+
+@pytest.mark.asyncio
+async def test_subscription_propagates_cancellation():
+    """``asyncio.CancelledError`` must propagate, not be treated as transient.
+
+    Without explicit handling, the broad ``except Exception`` catch
+    would swallow shutdown signals (CancelledError is BaseException in
+    Python 3.8+, so technically not caught — but we want a regression
+    test that pins the behaviour explicitly).
+    """
+    import asyncio
+
+    mock_nats_sub = AsyncMock()
+    mock_nats_sub.next_msg = AsyncMock(side_effect=asyncio.CancelledError())
+
+    sub = NATSSubscription(mock_nats_sub)
+
+    with pytest.raises(asyncio.CancelledError):
+        await sub.__anext__()
+
+
+@pytest.mark.asyncio
+async def test_subscription_terminal_after_transient_still_stops():
+    """A terminal error after transient retries still ends iteration cleanly."""
+    import nats.errors
+
+    mock_nats_sub = AsyncMock()
+    mock_nats_sub.next_msg = AsyncMock(
+        side_effect=[
+            nats.errors.StaleConnectionError(),
+            nats.errors.ConnectionClosedError(),
+        ],
+    )
+
+    sub = NATSSubscription(mock_nats_sub)
+    with (
+        patch("heddle.bus.nats_adapter._TRANSIENT_RETRY_SLEEP", 0.0),
+        pytest.raises(StopAsyncIteration),
+    ):
         await sub.__anext__()
