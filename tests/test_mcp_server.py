@@ -172,7 +172,10 @@ class TestCreateServer:
 
         assert gateway.requires_bus is False
         assert gateway.workshop_bridge is not None
-        assert gateway.workshop_bridge.dead_letter is not None
+        # No live bus → no DeadLetterConsumer.  deadletter.* tools fail
+        # with "DeadLetterConsumer not configured" rather than silently
+        # returning empty results from a disconnected in-memory consumer.
+        assert gateway.workshop_bridge.dead_letter is None
         assert "workshop.worker.list" in gateway.tool_registry
 
 
@@ -1392,3 +1395,157 @@ class TestBuildWorkshopBridgeAppsDir:
         }
         bridge = _build_workshop_bridge(workshop_config)
         assert bridge is not None
+
+
+# ---------------------------------------------------------------------------
+# Dead-letter wiring (A1 regression — workshop deadletter.list was always empty)
+# ---------------------------------------------------------------------------
+
+
+class TestDeadLetterWiring:
+    """Pin the wiring that connects Workshop's DeadLetterConsumer to the live bus.
+
+    Before the fix: ``_build_workshop_bridge`` constructed
+    ``DeadLetterConsumer(bus=InMemoryBus())`` unconditionally and never
+    subscribed it, so ``workshop.deadletter.list`` over the MCP gateway
+    was permanently empty when the gateway ran against real NATS.
+    """
+
+    def test_consumer_uses_live_bus_when_provided(self):
+        """The DLC's bus must be the gateway's live bus (not a fresh in-memory)."""
+        from heddle.mcp.server import _build_workshop_bridge
+
+        live_bus = InMemoryBus()
+        wb = _build_workshop_bridge({"configs_dir": "."}, replay_bus=live_bus)
+
+        assert wb.dead_letter is not None
+        # _bus is the underlying bus injected into BaseActor.__init__.
+        assert wb.dead_letter._bus is live_bus
+        assert wb.replay_bus is live_bus
+
+    def test_no_consumer_in_no_bus_mode(self):
+        """No live bus → no DLC (avoid silent-empty trap)."""
+        from heddle.mcp.server import _build_workshop_bridge
+
+        wb = _build_workshop_bridge({"configs_dir": "."}, replay_bus=None)
+        assert wb.dead_letter is None
+        assert wb.replay_bus is None
+
+    @pytest.mark.asyncio
+    async def test_drain_helper_records_published_messages(self):
+        """``_drain_dead_letter`` subscribes and feeds messages to the consumer."""
+        import contextlib as _contextlib
+
+        from heddle.mcp.server import _drain_dead_letter
+        from heddle.router.dead_letter import DeadLetterConsumer
+
+        bus = InMemoryBus()
+        await bus.connect()
+        consumer = DeadLetterConsumer(bus=bus)
+
+        task = asyncio.create_task(_drain_dead_letter(consumer, bus))
+        # Yield so the subscribe inside the drain runs before publish.
+        for _ in range(5):
+            if "heddle.tasks.dead_letter" in bus._subscribers:
+                break
+            await asyncio.sleep(0)
+
+        await bus.publish(
+            "heddle.tasks.dead_letter",
+            {
+                "reason": "no_route",
+                "task_id": "t-1",
+                "worker_type": "missing",
+                "original_task": {"foo": "bar"},
+            },
+        )
+
+        for _ in range(50):
+            if consumer.count() >= 1:
+                break
+            await asyncio.sleep(0.01)
+
+        assert consumer.count() == 1
+        entries = consumer.list_entries()
+        assert entries[0]["reason"] == "no_route"
+        assert entries[0]["task_id"] == "t-1"
+
+        task.cancel()
+        with _contextlib.suppress(asyncio.CancelledError):
+            await task
+        await bus.close()
+
+    def test_run_stdio_subscribes_consumer_when_workshop_present(self):
+        """Lifecycle: run_stdio subscribes to ``heddle.tasks.dead_letter``.
+
+        Pins both the subscribe (assertion on bus subscribers) and that
+        published dead-letter envelopes flow through the drain into the
+        consumer's stored entries — the contract the Workshop UI relies on.
+        """
+        from fastmcp import FastMCP
+
+        from heddle.mcp.server import run_stdio
+        from heddle.mcp.workshop_bridge import WorkshopBridge
+        from heddle.router.dead_letter import DeadLetterConsumer
+
+        bus = InMemoryBus()
+        bridge = MCPBridge(bus)
+        consumer = DeadLetterConsumer(bus=bus)
+        workshop_bridge = WorkshopBridge(dead_letter=consumer, replay_bus=bus)
+        gateway = MCPGateway(
+            config={"name": "test"},
+            bridge=bridge,
+            tool_registry={},
+            tool_defs=[],
+            workshop_bridge=workshop_bridge,
+            requires_bus=True,
+        )
+        server = FastMCP(name="test")
+
+        observed: dict[str, object] = {}
+
+        async def fake_run_async(transport: str) -> None:
+            # By now, the drain task has been spawned and subscribed.
+            for _ in range(20):
+                if "heddle.tasks.dead_letter" in bus._subscribers:
+                    break
+                await asyncio.sleep(0)
+            observed["subjects"] = list(bus._subscribers.keys())
+            await bus.publish(
+                "heddle.tasks.dead_letter",
+                {"reason": "rate_limited", "task_id": "rl-1"},
+            )
+            for _ in range(50):
+                if consumer.count() >= 1:
+                    break
+                await asyncio.sleep(0.01)
+
+        with patch.object(server, "run_async", side_effect=fake_run_async):
+            run_stdio(server, gateway)
+
+        assert "heddle.tasks.dead_letter" in observed["subjects"]
+        assert consumer.count() == 1
+        assert consumer.list_entries()[0]["reason"] == "rate_limited"
+
+    def test_run_stdio_no_drain_when_no_workshop(self, tmp_path):
+        """Adjacent contract: no workshop bridge → no drain task, no crash."""
+        config_path = _make_gateway_config(
+            tmp_path,
+            worker_cfgs=_single_worker_cfgs("solo"),
+        )
+        server, gateway = create_server(config_path)
+
+        gateway.bridge = MagicMock()
+        gateway.bridge.connect = AsyncMock()
+        gateway.bridge.close = AsyncMock()
+
+        # No workshop bridge means no drain — runner must complete cleanly.
+        assert gateway.workshop_bridge is None
+
+        with patch.object(server, "run_async", new_callable=AsyncMock):
+            from heddle.mcp.server import run_stdio
+
+            run_stdio(server, gateway)
+
+        gateway.bridge.connect.assert_awaited_once()
+        gateway.bridge.close.assert_awaited_once()

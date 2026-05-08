@@ -28,10 +28,11 @@ def discover_workshop_tools(
     Returns:
         List of tool definition dicts with ``_loom`` metadata.
     """
-    # Dead-letter tools are excluded by default: the MCP path creates a
-    # local in-memory DeadLetterConsumer that is NOT subscribed to the live
-    # NATS dead-letter stream.  Listing/replay only works for entries stored
-    # in that local consumer, which starts empty.  Require explicit opt-in.
+    # Dead-letter tools are excluded by default — opt in via
+    # ``enable: [..., "deadletter"]``.  When enabled, the gateway subscribes
+    # the consumer to ``heddle.tasks.dead_letter`` on the live bus.
+    # Workshop-only (no-bus) deployments cannot list or replay; those tool
+    # calls fail with "DeadLetterConsumer not configured".
     enabled = set(
         workshop_config.get(
             "enable",

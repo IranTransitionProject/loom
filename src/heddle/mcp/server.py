@@ -23,6 +23,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -31,6 +32,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from fastmcp import FastMCP as FastMCPType
+
+    from heddle.bus.base import MessageBus
+    from heddle.router.dead_letter import DeadLetterConsumer
 
 import structlog
 
@@ -420,7 +424,6 @@ def _build_workshop_bridge(
     """
     from pathlib import Path
 
-    from heddle.bus.memory import InMemoryBus
     from heddle.router.dead_letter import DeadLetterConsumer
     from heddle.workshop.config_manager import ConfigManager
 
@@ -472,7 +475,15 @@ def _build_workshop_bridge(
 
         eval_runner = EvalRunner(test_runner, db)
 
-    dead_letter = DeadLetterConsumer(bus=InMemoryBus())
+    # Only construct a DeadLetterConsumer when a live bus is available.
+    # In no-bus (workshop-only) mode the consumer would have no source of
+    # dead-letter messages, so the deadletter.* tools fail explicitly with
+    # "DeadLetterConsumer not configured" instead of silently returning empty.
+    # Only construct a DeadLetterConsumer when a live bus is available.
+    # In no-bus (workshop-only) mode the consumer would have no source of
+    # dead-letter messages, so the deadletter.* tools fail explicitly with
+    # "DeadLetterConsumer not configured" instead of silently returning empty.
+    dead_letter = DeadLetterConsumer(bus=replay_bus) if replay_bus is not None else None
 
     return WorkshopBridge(
         config_manager=config_manager,
@@ -551,11 +562,52 @@ async def _execute_query_direct(
 # ---------------------------------------------------------------------------
 
 
+async def _drain_dead_letter(consumer: DeadLetterConsumer, bus: MessageBus) -> None:
+    """Subscribe to ``heddle.tasks.dead_letter`` and feed the consumer.
+
+    Runs as a background task during the lifetime of the MCP server so
+    Workshop's ``deadletter.list`` / ``deadletter.replay`` tools see live
+    NATS dead-letter traffic.  Cancelled by the runner on shutdown.
+    """
+    sub = await bus.subscribe("heddle.tasks.dead_letter")
+    logger.info("mcp.gateway.dead_letter_subscribed")
+    try:
+        async for data in sub:
+            await consumer.handle_message(data)
+    except asyncio.CancelledError:
+        raise
+    finally:
+        with contextlib.suppress(Exception):
+            await sub.unsubscribe()
+
+
+def _maybe_start_dead_letter_drain(gateway: MCPGateway) -> asyncio.Task[None] | None:
+    """Spawn the dead-letter drain task if the gateway's workshop bridge has one.
+
+    Returns the task (so the runner can cancel it on shutdown), or None if
+    no consumer is configured (workshop-only / no-bus mode).
+    """
+    wb = gateway.workshop_bridge
+    if wb is None or wb.dead_letter is None or not gateway.requires_bus:
+        return None
+    return asyncio.create_task(_drain_dead_letter(wb.dead_letter, gateway.bridge.bus))
+
+
+async def _stop_dead_letter_drain(task: asyncio.Task[None] | None) -> None:
+    """Cancel and await the dead-letter drain task, suppressing CancelledError."""
+    if task is None:
+        return
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+
 def run_stdio(server: FastMCPType, gateway: MCPGateway) -> None:
     """Run the MCP server on stdio transport (blocking)."""
 
     async def _run() -> None:
         bridge_connected = False
+        drain_task: asyncio.Task[None] | None = None
         if gateway.requires_bus:
             await gateway.bridge.connect()
             bridge_connected = True
@@ -563,6 +615,7 @@ def run_stdio(server: FastMCPType, gateway: MCPGateway) -> None:
                 "mcp.gateway.connected",
                 nats_url=gateway.config.get("nats_url"),
             )
+            drain_task = _maybe_start_dead_letter_drain(gateway)
 
         if gateway.resources:
             gateway.resources.snapshot()
@@ -570,6 +623,7 @@ def run_stdio(server: FastMCPType, gateway: MCPGateway) -> None:
         try:
             await server.run_async(transport="stdio")
         finally:
+            await _stop_dead_letter_drain(drain_task)
             if bridge_connected:
                 await gateway.bridge.close()
 
@@ -589,6 +643,7 @@ def run_streamable_http(
 
     async def _run() -> None:
         bridge_connected = False
+        drain_task: asyncio.Task[None] | None = None
         if gateway.requires_bus:
             await gateway.bridge.connect()
             bridge_connected = True
@@ -596,6 +651,7 @@ def run_streamable_http(
                 "mcp.gateway.connected",
                 nats_url=gateway.config.get("nats_url"),
             )
+            drain_task = _maybe_start_dead_letter_drain(gateway)
 
         if gateway.resources:
             gateway.resources.snapshot()
@@ -607,6 +663,7 @@ def run_streamable_http(
                 port=port,
             )
         finally:
+            await _stop_dead_letter_drain(drain_task)
             if bridge_connected:
                 await gateway.bridge.close()
 
