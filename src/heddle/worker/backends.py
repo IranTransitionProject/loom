@@ -71,6 +71,15 @@ class LLMBackend(ABC):
         """
         ...
 
+    async def aclose(self) -> None:  # noqa: B027 — intentional no-op default
+        """Release any I/O resources held by this backend.
+
+        Subclasses that hold open connections (e.g. an ``httpx.AsyncClient``)
+        override this to close them. Idempotent — safe to call more than
+        once. The default is a no-op so test mocks and lightweight
+        subclasses do not need to implement it.
+        """
+
 
 class AnthropicBackend(LLMBackend):
     """Claude API via httpx (Messages API).
@@ -181,6 +190,10 @@ class AnthropicBackend(LLMBackend):
             "gen_ai_request_temperature": temperature,
             "gen_ai_request_max_tokens": max_tokens,
         }
+
+    async def aclose(self) -> None:
+        """Close the underlying ``httpx.AsyncClient``."""
+        await self.client.aclose()
 
 
 class OllamaBackend(LLMBackend):
@@ -298,6 +311,10 @@ class OllamaBackend(LLMBackend):
             "gen_ai_request_temperature": temperature,
             "gen_ai_request_max_tokens": max_tokens,
         }
+
+    async def aclose(self) -> None:
+        """Close the underlying ``httpx.AsyncClient``."""
+        await self.client.aclose()
 
 
 class OpenAICompatibleBackend(LLMBackend):
@@ -463,6 +480,10 @@ class OpenAICompatibleBackend(LLMBackend):
             "gen_ai_request_temperature": temperature,
             "gen_ai_request_max_tokens": max_tokens,
         }
+
+    async def aclose(self) -> None:
+        """Close the underlying ``httpx.AsyncClient``."""
+        await self.client.aclose()
 
 
 class LMStudioBackend(OpenAICompatibleBackend):

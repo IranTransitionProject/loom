@@ -15,14 +15,17 @@ from __future__ import annotations
 import asyncio
 import inspect
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import click
+import structlog
 
 from heddle.cli.config import DEFAULT_CONFIG_PATH, resolve_config
 
 if TYPE_CHECKING:
     from heddle.contrib.council.schemas import TranscriptEntry
+
+logger = structlog.get_logger()
 
 
 def _run_async(coro):
@@ -58,7 +61,7 @@ def council(ctx: click.Context, config_path: str) -> None:
     "--no-convergence", is_flag=True, default=False, help="Disable convergence (run all rounds)."
 )
 @click.pass_context
-def run(
+def run(  # noqa: PLR0915 — body is a linear CLI flow, splitting hurts readability
     ctx: click.Context,
     config: str,
     topic: str | None,
@@ -118,7 +121,25 @@ def run(
         _print_turn(entry, verbose=verbose)
 
     runner = CouncilRunner(backends, config=council_config)
-    result = _run_async(runner.run(topic, on_turn=on_turn))
+
+    async def _run_and_close() -> Any:
+        # Run the council and release any cached chatbridge / backend
+        # httpx clients in the same event loop they were bound to.
+        try:
+            return await runner.run(topic, on_turn=on_turn)
+        finally:
+            await runner.aclose()
+            for backend in backends.values():
+                try:
+                    await backend.aclose()
+                except Exception as exc:
+                    logger.warning(
+                        "council.backend_close_failed",
+                        backend=type(backend).__name__,
+                        error=str(exc),
+                    )
+
+    result = _run_async(_run_and_close())
 
     # Synthesis.
     click.echo()

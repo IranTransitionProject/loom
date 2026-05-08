@@ -51,6 +51,14 @@ class EmbeddingProvider(ABC):
         """Return the dimensionality of embeddings produced by this provider."""
         ...
 
+    async def aclose(self) -> None:  # noqa: B027 — intentional no-op default
+        """Release any I/O resources held by this provider.
+
+        Subclasses that hold open connections (e.g. an
+        ``httpx.AsyncClient``) override this to close them. Idempotent —
+        safe to call more than once. Default is a no-op.
+        """
+
 
 class OllamaEmbeddingProvider(EmbeddingProvider):
     """Generate embeddings via Ollama's /api/embed endpoint.
@@ -121,6 +129,10 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
                 "Embedding dimensions not yet known. Call embed() or embed_batch() first."
             )
         return self._dimensions
+
+    async def aclose(self) -> None:
+        """Close the underlying ``httpx.AsyncClient``."""
+        await self._client.aclose()
 
 
 class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
@@ -210,3 +222,7 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
                 "Embedding dimensions not yet known. Call embed() or embed_batch() first."
             )
         return self._dimensions
+
+    async def aclose(self) -> None:
+        """Close the underlying ``httpx.AsyncClient``."""
+        await self._client.aclose()

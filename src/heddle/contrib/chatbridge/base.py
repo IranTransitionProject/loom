@@ -110,3 +110,14 @@ class ChatBridge(ABC):
     async def close_session(self, session_id: str) -> None:
         """Clean up session state."""
         self._sessions.pop(session_id, None)
+
+    async def aclose(self) -> None:
+        """Release any I/O resources held by this bridge.
+
+        Subclasses that hold open connections (e.g. an
+        ``httpx.AsyncClient``) override this to close them.  Idempotent —
+        safe to call more than once.  The default clears any in-memory
+        session state; subclasses that override should call ``super()``
+        last so sessions are cleared after their resources are released.
+        """
+        self._sessions.clear()

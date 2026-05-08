@@ -186,3 +186,83 @@ async def test_sync_processing_backend_propagates_exceptions():
     backend = FailingSyncBackend()
     with pytest.raises(RuntimeError, match="sync failure"):
         await backend.process({}, {})
+
+
+# ---------------------------------------------------------------------------
+# Shutdown lifecycle (ProcessorWorker.disconnect closes its owned backend)
+# ---------------------------------------------------------------------------
+
+
+class _CloseRecordingProcessingBackend(ProcessingBackend):
+    """Minimal ProcessingBackend that records aclose calls."""
+
+    def __init__(self) -> None:
+        self.aclose_called = 0
+
+    async def process(self, payload, config):  # pragma: no cover
+        return {"output": {}, "model_used": None}
+
+    async def aclose(self) -> None:
+        self.aclose_called += 1
+
+
+@pytest.mark.asyncio
+async def test_processor_worker_disconnect_closes_backend(tmp_path):
+    """ProcessorWorker.disconnect() must aclose its single backend."""
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(yaml.dump(PROCESSOR_CONFIG))
+
+    backend = _CloseRecordingProcessingBackend()
+    worker = ProcessorWorker("proc-1", str(config_file), backend)
+    worker._bus.close = AsyncMock()
+
+    await worker.disconnect()
+
+    assert backend.aclose_called == 1
+    worker._bus.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_processor_worker_disconnect_continues_when_backend_aclose_raises(
+    tmp_path,
+):
+    """Backend aclose failure is logged but does not propagate.
+
+    Disconnect happens during shutdown — exceptions from the backend's
+    cleanup must not mask the bus disconnect or crash the actor.
+    """
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(yaml.dump(PROCESSOR_CONFIG))
+
+    class FlakyBackend(_CloseRecordingProcessingBackend):
+        async def aclose(self) -> None:
+            self.aclose_called += 1
+            raise RuntimeError("backend cleanup boom")
+
+    backend = FlakyBackend()
+    worker = ProcessorWorker("proc-1", str(config_file), backend)
+    worker._bus.close = AsyncMock()
+
+    # No exception is raised — the warning is logged and disconnect completes.
+    await worker.disconnect()
+
+    assert backend.aclose_called == 1
+    worker._bus.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_processor_worker_disconnect_closes_backend_when_bus_close_raises(
+    tmp_path,
+):
+    """Bus failure must not skip backend cleanup."""
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(yaml.dump(PROCESSOR_CONFIG))
+
+    backend = _CloseRecordingProcessingBackend()
+    worker = ProcessorWorker("proc-1", str(config_file), backend)
+    worker._bus.close = AsyncMock(side_effect=RuntimeError("bus exploded"))
+
+    with pytest.raises(RuntimeError, match="bus exploded"):
+        await worker.disconnect()
+
+    assert backend.aclose_called == 1

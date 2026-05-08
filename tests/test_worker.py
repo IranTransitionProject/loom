@@ -293,3 +293,109 @@ async def test_llm_worker_loads_knowledge_sources(tmp_path):
     assert "background knowledge" in sys_prompt
     # Original system prompt should still be there
     assert "You are a test worker" in sys_prompt
+
+
+# ---------------------------------------------------------------------------
+# Shutdown lifecycle (LLMWorker.disconnect closes its owned backends)
+# ---------------------------------------------------------------------------
+
+
+class _CloseRecordingBackend:
+    """Minimal LLMBackend stand-in that records aclose() calls.
+
+    Not registered as an :class:`LLMBackend` subclass on purpose: we
+    only exercise the disconnect path, which uses duck-typed
+    ``aclose``.
+    """
+
+    def __init__(self) -> None:
+        self.aclose_called = 0
+
+    async def complete(self, *a, **kw):  # pragma: no cover — not exercised
+        return {
+            "content": "",
+            "model": "x",
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "tool_calls": None,
+            "stop_reason": "end_turn",
+        }
+
+    async def aclose(self) -> None:
+        self.aclose_called += 1
+
+
+@pytest.mark.asyncio
+async def test_llm_worker_disconnect_closes_all_backends(tmp_path):
+    """LLMWorker.disconnect() must aclose every backend in self.backends."""
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(yaml.dump(LLM_CONFIG))
+
+    local = _CloseRecordingBackend()
+    standard = _CloseRecordingBackend()
+    backends = {"local": local, "standard": standard}
+    worker = LLMWorker("llm-1", str(config_file), backends)
+    # Stub out the bus side of disconnect — the lifecycle test is
+    # focused on backend cleanup, not NATS plumbing.
+    worker._bus.close = AsyncMock()
+
+    await worker.disconnect()
+
+    assert local.aclose_called == 1
+    assert standard.aclose_called == 1
+    worker._bus.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_llm_worker_disconnect_continues_when_backend_aclose_raises(
+    tmp_path, caplog
+):
+    """A failure in one backend's aclose must not prevent the others from closing.
+
+    The disconnect contract is best-effort: each backend is closed
+    independently and failures are logged at warning level.
+    """
+    import logging
+
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(yaml.dump(LLM_CONFIG))
+
+    class FlakyBackend(_CloseRecordingBackend):
+        async def aclose(self) -> None:
+            self.aclose_called += 1
+            raise RuntimeError("client already closed")
+
+    flaky = FlakyBackend()
+    healthy = _CloseRecordingBackend()
+    worker = LLMWorker(
+        "llm-1",
+        str(config_file),
+        {"local": flaky, "standard": healthy},
+    )
+    worker._bus.close = AsyncMock()
+
+    with caplog.at_level(logging.WARNING):
+        await worker.disconnect()
+
+    assert flaky.aclose_called == 1
+    assert healthy.aclose_called == 1, (
+        "second backend must still be closed after the first one raises"
+    )
+
+
+@pytest.mark.asyncio
+async def test_llm_worker_disconnect_closes_backends_even_if_bus_close_raises(tmp_path):
+    """A bus-close failure must NOT swallow the backend-cleanup pass."""
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(yaml.dump(LLM_CONFIG))
+
+    backend = _CloseRecordingBackend()
+    worker = LLMWorker("llm-1", str(config_file), {"local": backend})
+    worker._bus.close = AsyncMock(side_effect=RuntimeError("bus exploded"))
+
+    with pytest.raises(RuntimeError, match="bus exploded"):
+        await worker.disconnect()
+
+    # The contract: backends are closed in the finally block, so
+    # they get closed even when the bus disconnect raises.
+    assert backend.aclose_called == 1

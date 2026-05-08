@@ -102,3 +102,8 @@ class AnthropicChatBridge(ChatBridge):
         if session:
             info.created_at = session.created_at
         return info
+
+    async def aclose(self) -> None:
+        """Close the underlying ``httpx.AsyncClient`` and clear sessions."""
+        await self._client.aclose()
+        await super().aclose()

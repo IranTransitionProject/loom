@@ -110,6 +110,13 @@ def create_app(  # noqa: PLR0915
         yield
         if _mdns_advertiser is not None:
             await _mdns_advertiser.stop()
+        # Release httpx clients held by LLM backends.  The names below
+        # are bound by the time lifespan's teardown runs (FastAPI calls
+        # the lifespan generator only after create_app() returns).
+        try:
+            await test_runner.aclose()
+        except Exception as exc:
+            logger.warning("workshop.backends_close_failed", error=str(exc))
 
     app = FastAPI(title="Heddle Workshop", docs_url=None, redoc_url=None, lifespan=lifespan)
 

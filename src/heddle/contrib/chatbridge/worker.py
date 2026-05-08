@@ -124,3 +124,9 @@ class ChatBridgeBackend(SyncProcessingBackend):
             "model_used": response.model,
             "token_usage": response.token_usage,
         }
+
+    async def aclose(self) -> None:
+        """Close the wrapped :class:`ChatBridge` (releases httpx clients)."""
+        close = getattr(self._bridge, "aclose", None)
+        if close is not None:
+            await close()

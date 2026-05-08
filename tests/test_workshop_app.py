@@ -418,6 +418,79 @@ class TestLifespan:
         mock_advertiser.start.assert_awaited_once()
         mock_advertiser.stop.assert_awaited_once()
 
+    def test_lifespan_closes_test_runner_on_shutdown(self, tmp_path):
+        """Shutdown must invoke ``test_runner.aclose()`` so backend httpx
+        clients are released.  Without this, every workshop restart
+        leaks sockets and tasks against any backend that was wired up
+        from environment vars.
+        """
+        import unittest.mock as mock
+
+        configs_dir = tmp_path / "configs"
+        (configs_dir / "workers").mkdir(parents=True)
+        (configs_dir / "orchestrators").mkdir()
+
+        from heddle.workshop.app import create_app
+
+        # Patch WorkerTestRunner so we capture the instance the
+        # workshop creates and can assert aclose() was awaited on it.
+        # mDNS is also stubbed because the real zeroconf advertiser
+        # blocks the event loop in test contexts (matches the pattern
+        # used by ``test_lifespan_mdns_*``).
+        with (
+            mock.patch.dict("sys.modules", {"heddle.discovery.mdns": None}),
+            mock.patch("heddle.workshop.app.WorkerTestRunner") as mock_runner_cls,
+        ):
+            instance = mock.MagicMock()
+            instance.aclose = mock.AsyncMock()
+            mock_runner_cls.return_value = instance
+
+            app = create_app(
+                configs_dir=str(configs_dir),
+                db_path=":memory:",
+                apps_dir=str(tmp_path / "apps"),
+            )
+
+            with TestClient(app) as c:
+                c.get("/health")
+            # TestClient.__exit__ runs the lifespan teardown.
+
+        instance.aclose.assert_awaited_once()
+
+    def test_lifespan_swallows_test_runner_aclose_failure(self, tmp_path):
+        """A flaky aclose() on the test runner must not crash shutdown.
+
+        Workshop shutdown is best-effort — the lifespan teardown logs
+        the error and continues.
+        """
+        import unittest.mock as mock
+
+        configs_dir = tmp_path / "configs"
+        (configs_dir / "workers").mkdir(parents=True)
+        (configs_dir / "orchestrators").mkdir()
+
+        from heddle.workshop.app import create_app
+
+        with (
+            mock.patch.dict("sys.modules", {"heddle.discovery.mdns": None}),
+            mock.patch("heddle.workshop.app.WorkerTestRunner") as mock_runner_cls,
+        ):
+            instance = mock.MagicMock()
+            instance.aclose = mock.AsyncMock(side_effect=RuntimeError("flaky"))
+            mock_runner_cls.return_value = instance
+
+            app = create_app(
+                configs_dir=str(configs_dir),
+                db_path=":memory:",
+                apps_dir=str(tmp_path / "apps"),
+            )
+
+            # No exception should escape the lifespan.
+            with TestClient(app) as c:
+                c.get("/health")
+
+        instance.aclose.assert_awaited_once()
+
 
 # ---------------------------------------------------------------------------
 # Worker validate (lines 178-197)

@@ -44,3 +44,7 @@ class RedisCheckpointStore(CheckpointStore):
         if isinstance(result, bytes):
             return result.decode()
         return result
+
+    async def aclose(self) -> None:
+        """Close the underlying Redis client connection pool."""
+        await self._redis.aclose()

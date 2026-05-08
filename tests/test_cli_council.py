@@ -103,11 +103,13 @@ def test_run_with_topic_string(tmp_path):
     mock_result = _make_mock_result()
     mock_runner = MagicMock()
     mock_runner.run = AsyncMock(return_value=mock_result)
+    mock_runner.aclose = AsyncMock()
+    backend = MagicMock(aclose=AsyncMock())
 
     with (
         patch(
             "heddle.worker.backends.build_backends_from_env",
-            return_value={"standard": MagicMock()},
+            return_value={"standard": backend},
         ),
         patch("heddle.contrib.council.runner.CouncilRunner", return_value=mock_runner),
     ):
@@ -121,6 +123,10 @@ def test_run_with_topic_string(tmp_path):
     assert "The team agreed" in result.output
     assert "2 round(s)" in result.output
     mock_runner.run.assert_called_once()
+    # Lifecycle assertions: shutdown must release both runner-cached
+    # bridges and any owned backend httpx clients.
+    mock_runner.aclose.assert_awaited_once()
+    backend.aclose.assert_awaited_once()
 
 
 def test_run_with_topic_file(tmp_path):
@@ -134,11 +140,12 @@ def test_run_with_topic_file(tmp_path):
     mock_result = _make_mock_result(topic="Should we migrate to Kubernetes?")
     mock_runner = MagicMock()
     mock_runner.run = AsyncMock(return_value=mock_result)
+    mock_runner.aclose = AsyncMock()
 
     with (
         patch(
             "heddle.worker.backends.build_backends_from_env",
-            return_value={"standard": MagicMock()},
+            return_value={"standard": MagicMock(aclose=AsyncMock())},
         ),
         patch("heddle.contrib.council.runner.CouncilRunner", return_value=mock_runner),
     ):
@@ -163,11 +170,12 @@ def test_run_with_output(tmp_path):
     mock_result = _make_mock_result()
     mock_runner = MagicMock()
     mock_runner.run = AsyncMock(return_value=mock_result)
+    mock_runner.aclose = AsyncMock()
 
     with (
         patch(
             "heddle.worker.backends.build_backends_from_env",
-            return_value={"standard": MagicMock()},
+            return_value={"standard": MagicMock(aclose=AsyncMock())},
         ),
         patch("heddle.contrib.council.runner.CouncilRunner", return_value=mock_runner),
     ):
@@ -194,11 +202,12 @@ def test_run_with_rounds_override(tmp_path):
     mock_result = _make_mock_result()
     mock_runner = MagicMock()
     mock_runner.run = AsyncMock(return_value=mock_result)
+    mock_runner.aclose = AsyncMock()
 
     with (
         patch(
             "heddle.worker.backends.build_backends_from_env",
-            return_value={"standard": MagicMock()},
+            return_value={"standard": MagicMock(aclose=AsyncMock())},
         ),
         patch("heddle.contrib.council.config.load_council_config") as mock_load,
         patch("heddle.contrib.council.runner.CouncilRunner", return_value=mock_runner),
@@ -231,11 +240,12 @@ def test_run_with_no_convergence(tmp_path):
     mock_result = _make_mock_result()
     mock_runner = MagicMock()
     mock_runner.run = AsyncMock(return_value=mock_result)
+    mock_runner.aclose = AsyncMock()
 
     with (
         patch(
             "heddle.worker.backends.build_backends_from_env",
-            return_value={"standard": MagicMock()},
+            return_value={"standard": MagicMock(aclose=AsyncMock())},
         ),
         patch("heddle.contrib.council.config.load_council_config") as mock_load,
         patch("heddle.contrib.council.runner.CouncilRunner", return_value=mock_runner),
@@ -333,3 +343,70 @@ def test_validate_shows_tier_availability(tmp_path):
 
     assert result.exit_code == 0, result.output
     assert "standard" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle — aclose must run even when the council raises
+# ---------------------------------------------------------------------------
+
+
+def test_run_closes_resources_when_council_run_raises(tmp_path):
+    """If CouncilRunner.run() raises, the CLI must still aclose the runner
+    and every backend.  Without the try/finally wrapper, a failed run
+    would silently leak httpx clients (the previous code path had this
+    bug — this test pins the fix).
+    """
+    cfg = tmp_path / "council.yaml"
+    cfg.write_text(_make_council_config_yaml())
+
+    mock_runner = MagicMock()
+    mock_runner.run = AsyncMock(side_effect=RuntimeError("council blew up"))
+    mock_runner.aclose = AsyncMock()
+    backend = MagicMock(aclose=AsyncMock())
+
+    with (
+        patch(
+            "heddle.worker.backends.build_backends_from_env",
+            return_value={"standard": backend},
+        ),
+        patch("heddle.contrib.council.runner.CouncilRunner", return_value=mock_runner),
+    ):
+        result = CliRunner().invoke(
+            council,
+            ["run", str(cfg), "--topic", "Anything"],
+        )
+
+    # The exception bubbles up — what matters is cleanup ran first.
+    assert result.exit_code != 0
+    mock_runner.aclose.assert_awaited_once()
+    backend.aclose.assert_awaited_once()
+
+
+def test_run_continues_cleanup_when_one_backend_aclose_raises(tmp_path):
+    """A flaky backend.aclose() must not stop other backends from being closed."""
+    cfg = tmp_path / "council.yaml"
+    cfg.write_text(_make_council_config_yaml())
+
+    mock_result = _make_mock_result()
+    mock_runner = MagicMock()
+    mock_runner.run = AsyncMock(return_value=mock_result)
+    mock_runner.aclose = AsyncMock()
+    flaky = MagicMock(aclose=AsyncMock(side_effect=RuntimeError("flaky")))
+    healthy = MagicMock(aclose=AsyncMock())
+
+    with (
+        patch(
+            "heddle.worker.backends.build_backends_from_env",
+            return_value={"standard": flaky, "frontier": healthy},
+        ),
+        patch("heddle.contrib.council.runner.CouncilRunner", return_value=mock_runner),
+    ):
+        result = CliRunner().invoke(
+            council,
+            ["run", str(cfg), "--topic", "Anything"],
+        )
+
+    assert result.exit_code == 0, result.output
+    mock_runner.aclose.assert_awaited_once()
+    flaky.aclose.assert_awaited_once()
+    healthy.aclose.assert_awaited_once()

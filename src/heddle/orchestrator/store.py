@@ -37,6 +37,14 @@ class CheckpointStore(ABC):
         """Retrieve a value, or None if missing/expired."""
         ...
 
+    async def aclose(self) -> None:  # noqa: B027 — intentional no-op default
+        """Release any I/O resources held by this store.
+
+        Subclasses that hold open client connections (e.g. Redis)
+        override this to close them.  Idempotent — safe to call more
+        than once.  Default is a no-op.
+        """
+
 
 class InMemoryCheckpointStore(CheckpointStore):
     """In-memory checkpoint store for testing and local development.

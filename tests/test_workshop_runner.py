@@ -253,6 +253,71 @@ class TestWorkerTestRunner:
         assert result.latency_ms >= 0
 
 
+class TestWorkerTestRunnerAclose:
+    """WorkerTestRunner.aclose() must close every owned backend."""
+
+    @pytest.mark.asyncio
+    async def test_aclose_calls_aclose_on_all_backends(self):
+        class _Spy(LLMBackend):
+            def __init__(self):
+                self.aclose_called = 0
+
+            async def complete(self, *a, **kw):  # pragma: no cover
+                return {
+                    "content": "",
+                    "model": "x",
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                }
+
+            async def aclose(self):
+                self.aclose_called += 1
+
+        local, standard = _Spy(), _Spy()
+        runner = WorkerTestRunner({"local": local, "standard": standard})
+
+        await runner.aclose()
+
+        assert local.aclose_called == 1
+        assert standard.aclose_called == 1
+
+    @pytest.mark.asyncio
+    async def test_aclose_continues_when_one_backend_raises(self):
+        """A failure on one backend must not prevent the others from closing.
+
+        This matters during workshop shutdown: a stuck httpx client on
+        one provider should not strand the others.
+        """
+
+        class _Spy(LLMBackend):
+            def __init__(self, fail=False):
+                self.aclose_called = 0
+                self._fail = fail
+
+            async def complete(self, *a, **kw):  # pragma: no cover
+                return {
+                    "content": "",
+                    "model": "x",
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                }
+
+            async def aclose(self):
+                self.aclose_called += 1
+                if self._fail:
+                    raise RuntimeError("flaky aclose")
+
+        flaky = _Spy(fail=True)
+        healthy = _Spy()
+        runner = WorkerTestRunner({"local": flaky, "standard": healthy})
+
+        # Must not raise.
+        await runner.aclose()
+
+        assert flaky.aclose_called == 1
+        assert healthy.aclose_called == 1
+
+
 class TestWorkerTestResult:
     def test_success_when_all_good(self):
         r = WorkerTestResult(output={"k": "v"}, error=None)

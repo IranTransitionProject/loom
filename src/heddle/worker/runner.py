@@ -262,6 +262,27 @@ class LLMWorker(TaskWorker):
         super().__init__(actor_id, config_path, nats_url)
         self.backends = backends
 
+    async def disconnect(self) -> None:
+        """Disconnect from the bus and close all owned LLM backends.
+
+        Backends are closed best-effort: a failure on one does not
+        prevent the others from being closed, and bus disconnection
+        runs first so an exception here cannot leak the NATS connection.
+        """
+        try:
+            await super().disconnect()
+        finally:
+            for tier, backend in self.backends.items():
+                try:
+                    await backend.aclose()
+                except Exception as e:
+                    logger.warning(
+                        "worker.backend_close_failed",
+                        tier=tier,
+                        backend=type(backend).__name__,
+                        error=str(e),
+                    )
+
     async def process(self, payload: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
         """Build prompt, call LLM with tool-use loop, and parse structured output."""
         # 1. Build prompt

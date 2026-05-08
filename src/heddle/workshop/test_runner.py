@@ -75,6 +75,23 @@ class WorkerTestRunner:
     def __init__(self, backends: dict[str, LLMBackend]) -> None:
         self.backends = backends
 
+    async def aclose(self) -> None:
+        """Close all owned LLM backends (releases httpx clients).
+
+        Best-effort: a failure on one backend does not prevent the
+        others from being closed.
+        """
+        for tier, backend in self.backends.items():
+            try:
+                await backend.aclose()
+            except Exception as e:
+                logger.warning(
+                    "workshop.backend_close_failed",
+                    tier=tier,
+                    backend=type(backend).__name__,
+                    error=str(e),
+                )
+
     async def run(  # noqa: PLR0912, PLR0915
         self,
         config: dict[str, Any],

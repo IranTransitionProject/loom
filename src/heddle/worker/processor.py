@@ -76,6 +76,15 @@ class ProcessingBackend(ABC):
         """
         ...
 
+    async def aclose(self) -> None:  # noqa: B027 — intentional no-op default
+        """Release any I/O resources held by this backend.
+
+        Subclasses that wrap stateful clients (DB connections, HTTP
+        clients, dynamically-loaded ChatBridges) override this to close
+        them.  Idempotent — safe to call more than once.  The default
+        is a no-op.
+        """
+
 
 class SyncProcessingBackend(ProcessingBackend):
     """Base class for backends wrapping synchronous, CPU-bound libraries.
@@ -152,6 +161,20 @@ class ProcessorWorker(TaskWorker):
     ) -> None:
         super().__init__(actor_id, config_path, nats_url)
         self.backend = backend
+
+    async def disconnect(self) -> None:
+        """Disconnect from the bus and close the owned processing backend."""
+        try:
+            await super().disconnect()
+        finally:
+            try:
+                await self.backend.aclose()
+            except Exception as e:
+                logger.warning(
+                    "processor.backend_close_failed",
+                    backend=type(self.backend).__name__,
+                    error=str(e),
+                )
 
     async def process(self, payload: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
         """Delegate processing to the backend and return the result."""
