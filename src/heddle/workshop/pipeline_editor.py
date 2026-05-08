@@ -130,7 +130,12 @@ class PipelineEditor:
             if stage["name"] == stage_name:
                 stage["worker_type"] = new_worker_type
                 if new_tier is not None:
-                    stage["model_tier"] = new_tier
+                    # Field name must match what PipelineOrchestrator reads
+                    # at dispatch time: ``stage.get("tier", "local")``.
+                    # Writing ``model_tier`` here was a silent contract drift —
+                    # the Workshop appeared to swap tier but the runtime kept
+                    # defaulting to ``local``.
+                    stage["tier"] = new_tier
                 config["pipeline_stages"] = stages
                 return config
 

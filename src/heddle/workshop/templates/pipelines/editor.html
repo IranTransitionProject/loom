@@ -19,7 +19,7 @@
                 {% for s in config.pipeline_stages %}
                     {% if s.name == stage_name %}
                 <br><kbd>{{ s.worker_type }}</kbd>
-                    {% if s.get('model_tier') %}<br><small>{{ s.model_tier }}</small>{% endif %}
+                    {% if s.get('tier') %}<br><small>{{ s.tier }}</small>{% endif %}
                     {% endif %}
                 {% endfor %}
                 {% if graph.dependencies.get(stage_name) %}
@@ -51,7 +51,7 @@
         <label for="stage_yaml_insert">Stage definition (YAML)</label>
         <textarea name="stage_yaml" id="stage_yaml_insert" rows="6" placeholder='name: new_stage
 worker_type: summarizer
-model_tier: local
+tier: local
 input_mapping:
   text: "goal.context.text"'></textarea>
         <button type="submit">Insert</button>
@@ -105,7 +105,7 @@ input_mapping:
         <label for="stage_yaml_branch">Branch stage (YAML, must only reference goal.* paths)</label>
         <textarea name="stage_yaml" id="stage_yaml_branch" rows="6" placeholder='name: parallel_task
 worker_type: image_extractor
-model_tier: local
+tier: local
 input_mapping:
   file_ref: "goal.context.file_ref"'></textarea>
         <button type="submit">Add Branch</button>

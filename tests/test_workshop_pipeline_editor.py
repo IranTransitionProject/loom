@@ -20,13 +20,13 @@ def _pipeline_config(stages=None):
             {
                 "name": "extract",
                 "worker_type": "extractor",
-                "model_tier": "local",
+                "tier": "local",
                 "input_mapping": {"file_ref": "goal.context.file_ref"},
             },
             {
                 "name": "classify",
                 "worker_type": "classifier",
-                "model_tier": "local",
+                "tier": "local",
                 "input_mapping": {"text": "extract.output.text"},
             },
         ],
@@ -192,11 +192,18 @@ class TestSwapWorker:
         assert stage["worker_type"] == "new_extractor"
 
     def test_swap_with_tier(self):
+        """swap_worker must write ``tier`` — the field PipelineOrchestrator reads.
+
+        Writing ``model_tier`` here would be silently ignored at runtime
+        (pipeline.py reads ``stage.get("tier", "local")``), making the
+        Workshop's tier swap a no-op.
+        """
         config = _pipeline_config()
         result = PipelineEditor.swap_worker(config, "extract", "new_ext", new_tier="standard")
         stage = next(s for s in result["pipeline_stages"] if s["name"] == "extract")
         assert stage["worker_type"] == "new_ext"
-        assert stage["model_tier"] == "standard"
+        assert stage["tier"] == "standard"
+        assert "model_tier" not in stage
 
     def test_swap_nonexistent_raises(self):
         config = _pipeline_config()
