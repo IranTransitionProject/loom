@@ -25,6 +25,14 @@ from heddle.core.config import load_config
 
 logger = structlog.get_logger()
 
+# Cap on the length of the description-fallback when an MCP tool has no
+# explicit ``description`` and we're forced to use the first line of the
+# worker's ``system_prompt``.  Without a cap, hundred-line prompts (and
+# anything embedded near the top — prompt-injection guards, credentials,
+# proprietary instructions) leaked to every MCP client that called
+# ``list_tools``.
+_DESCRIPTION_FALLBACK_MAX = 200
+
 
 # ---------------------------------------------------------------------------
 # Public types (plain dicts matching mcp.types.Tool shape)
@@ -78,11 +86,22 @@ def discover_worker_tools(
             continue
 
         tool_name = entry.get("name", cfg.get("name", "unknown_worker"))
-        description = (
-            entry.get("description")
-            or cfg.get("description")
-            or _first_line(cfg.get("system_prompt", ""))
-        )
+        description = entry.get("description") or cfg.get("description")
+        if not description:
+            # No explicit description configured.  Fall back to the first
+            # line of the system_prompt — but capped, and only after warning
+            # the operator.  The prior unconditional reveal could leak
+            # prompt content (occasionally including credentials, prompt-
+            # injection guards, or proprietary instructions) to every MCP
+            # client that listed tools.
+            description = _first_line(cfg.get("system_prompt", ""))
+            if len(description) > _DESCRIPTION_FALLBACK_MAX:
+                description = description[: _DESCRIPTION_FALLBACK_MAX - 1].rstrip() + "…"
+            logger.warning(
+                "mcp.discovery.description_fallback_used",
+                tool_name=tool_name,
+                hint="set 'description' in the worker config or MCP gateway entry",
+            )
         input_schema = cfg.get("input_schema", {"type": "object"})
 
         # Ensure the schema has the required top-level structure.
