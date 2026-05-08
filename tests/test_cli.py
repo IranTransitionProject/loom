@@ -1245,8 +1245,12 @@ def test_mdns_runs_and_registers_services():
     sys.modules["heddle.discovery.mdns"] = mock_mdns_module
 
     try:
-        # Make asyncio.sleep raise CancelledError immediately so the command exits
-        with patch("asyncio.sleep", side_effect=asyncio.CancelledError):
+        # Make the indefinite-block construct raise CancelledError immediately
+        # so the command exits.  ``heddle mdns`` blocks via
+        # ``asyncio.Event().wait()`` (was ``asyncio.sleep(float("inf"))`` —
+        # changed for uvloop / Windows compatibility), so we patch the
+        # Event class to short-circuit.
+        with patch("asyncio.Event.wait", side_effect=asyncio.CancelledError):
             result = runner.invoke(
                 cli,
                 [
@@ -1291,7 +1295,7 @@ def test_mdns_with_mcp_port():
     sys.modules["heddle.discovery.mdns"] = mock_mdns_module
 
     try:
-        with patch("asyncio.sleep", side_effect=asyncio.CancelledError):
+        with patch("asyncio.Event.wait", side_effect=asyncio.CancelledError):
             result = runner.invoke(
                 cli,
                 [

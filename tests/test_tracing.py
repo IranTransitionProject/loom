@@ -144,6 +144,23 @@ class TestExtractTraceContext:
 
 
 class TestInitTracing:
+    @pytest.fixture(autouse=True)
+    def _reset_init_flag(self):
+        """Reset the module-level idempotency guard between tests.
+
+        ``init_tracing`` was made idempotent so a second call is a no-op
+        (``_TRACING_INITIALIZED = True`` after the first success).  Each
+        test in this class mocks the OTel SDK and asserts that the
+        ``set_tracer_provider`` call happened — which only runs on the
+        first invocation.  Reset the flag before each test so they don't
+        bleed across one another.
+        """
+        from heddle.tracing import otel as _otel
+
+        _otel._TRACING_INITIALIZED = False
+        yield
+        _otel._TRACING_INITIALIZED = False
+
     def test_returns_false_when_no_otel(self):
         with patch("heddle.tracing.otel._HAS_OTEL", False):
             assert init_tracing() is False
