@@ -89,7 +89,8 @@ class TestCollectAll:
             timeout=5.0,
         )
 
-        results = await stream.collect_all()
+        async with stream:
+            results = await stream.collect_all()
         assert len(results) == 3
         assert stream.all_collected
         assert not stream.timed_out
@@ -117,7 +118,8 @@ class TestCollectAll:
             timeout=5.0,
         )
 
-        results = await stream.collect_all()
+        async with stream:
+            results = await stream.collect_all()
         assert len(results) == 1
         assert results[0].task_id == task.task_id
         assert results[0].status == TaskStatus.COMPLETED
@@ -136,7 +138,8 @@ class TestCollectAll:
             timeout=5.0,
         )
 
-        results = await stream.collect_all()
+        async with stream:
+            results = await stream.collect_all()
         assert results == []
         assert stream.all_collected
 
@@ -169,7 +172,8 @@ class TestTimeout:
             timeout=0.3,
         )
 
-        results = await stream.collect_all()
+        async with stream:
+            results = await stream.collect_all()
         assert len(results) == 1
         assert stream.timed_out
         assert not stream.all_collected
@@ -190,7 +194,8 @@ class TestTimeout:
             timeout=0.0,
         )
 
-        results = await stream.collect_all()
+        async with stream:
+            results = await stream.collect_all()
         assert results == []
         assert stream.timed_out
 
@@ -230,7 +235,8 @@ class TestFiltering:
             timeout=5.0,
         )
 
-        results = await stream.collect_all()
+        async with stream:
+            results = await stream.collect_all()
         assert len(results) == 1
         assert results[0].task_id == expected_task.task_id
         await _bg
@@ -263,7 +269,8 @@ class TestFiltering:
             timeout=5.0,
         )
 
-        results = await stream.collect_all()
+        async with stream:
+            results = await stream.collect_all()
         assert len(results) == 1
         await _bg
 
@@ -292,7 +299,8 @@ class TestFiltering:
             timeout=5.0,
         )
 
-        results = await stream.collect_all()
+        async with stream:
+            results = await stream.collect_all()
         assert len(results) == 1
         assert results[0].task_id == task.task_id
         await _bg
@@ -329,7 +337,8 @@ class TestCallbacks:
             on_result=on_result,
         )
 
-        await stream.collect_all()
+        async with stream:
+            await stream.collect_all()
         assert len(callback_log) == 3
         # Counts should be 1/3, 2/3, 3/3
         assert callback_log[0][1:] == (1, 3)
@@ -361,7 +370,8 @@ class TestCallbacks:
             on_result=stop_after_two,
         )
 
-        results = await stream.collect_all()
+        async with stream:
+            results = await stream.collect_all()
         assert len(results) == 2
         assert stream.early_exited
         assert not stream.timed_out
@@ -393,7 +403,8 @@ class TestCallbacks:
             on_result=sync_callback,
         )
 
-        await stream.collect_all()
+        async with stream:
+            await stream.collect_all()
         assert called == [task.task_id]
         await _bg
 
@@ -423,7 +434,8 @@ class TestCallbacks:
         )
 
         # Should not raise — callback error is swallowed.
-        results = await stream.collect_all()
+        async with stream:
+            results = await stream.collect_all()
         assert len(results) == 2
         await _bg
 
@@ -454,13 +466,14 @@ class TestStreamingIteration:
             timeout=5.0,
         )
 
-        yielded = [result.task_id async for result in stream]
+        async with stream:
+            yielded = [result.task_id async for result in stream]
         assert len(yielded) == 3
         await _bg
 
     @pytest.mark.asyncio
     async def test_cannot_iterate_twice(self):
-        """ResultStream raises RuntimeError on second iteration."""
+        """ResultStream raises RuntimeError on second iteration within a started context."""
         bus = InMemoryBus()
         await bus.connect()
 
@@ -471,9 +484,32 @@ class TestStreamingIteration:
             timeout=1.0,
         )
 
-        await stream.collect_all()
+        async with stream:
+            await stream.collect_all()
 
-        with pytest.raises(RuntimeError, match="already been consumed"):
+            with pytest.raises(RuntimeError, match="already been consumed"):
+                await stream.collect_all()
+
+    @pytest.mark.asyncio
+    async def test_iteration_outside_async_with_raises(self):
+        """Iterating without an active subscription is a ``RuntimeError``.
+
+        This is the publish-before-subscribe race tripwire: callers MUST
+        enter the ``async with`` block (or call ``start()``) before
+        iterating, otherwise fast workers' results would be lost
+        silently.
+        """
+        bus = InMemoryBus()
+        await bus.connect()
+
+        stream = ResultStream(
+            bus=bus,
+            subject="heddle.results.no-with",
+            expected_task_ids={"task-x"},
+            timeout=0.1,
+        )
+
+        with pytest.raises(RuntimeError, match="must be started"):
             await stream.collect_all()
 
 
@@ -531,7 +567,8 @@ class TestProperties:
             timeout=0.3,
         )
 
-        await stream.collect_all()
+        async with stream:
+            await stream.collect_all()
         assert stream.pending_ids == frozenset({tasks[2].task_id})
         await _bg
 
@@ -571,7 +608,8 @@ class TestFailedResults:
             timeout=5.0,
         )
 
-        results = await stream.collect_all()
+        async with stream:
+            results = await stream.collect_all()
         assert len(results) == 1
         assert results[0].status == TaskStatus.FAILED
         assert results[0].error == "Worker crashed"

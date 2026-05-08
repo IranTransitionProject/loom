@@ -258,8 +258,6 @@ class CouncilOrchestrator(BaseActor):
         msg = task.model_dump(mode="json")
         inject_trace_context(msg)
 
-        await self.publish("heddle.tasks.incoming", msg)
-
         log.debug(
             "council.task_dispatched",
             task_id=task.task_id,
@@ -267,7 +265,15 @@ class CouncilOrchestrator(BaseActor):
             agent=agent_name,
         )
 
-        result = await self._wait_for_result(task.task_id, goal.goal_id, timeout)
+        # Subscribe BEFORE publishing.  NATS is at-most-once and a fast
+        # worker can publish onto heddle.results.{goal_id} between the
+        # publish and the subscription if this ordering is inverted.
+        result = await self._dispatch_and_wait_for_result(
+            task=task,
+            task_data=msg,
+            goal_id=goal.goal_id,
+            timeout=timeout,
+        )
 
         if result is None:
             return TranscriptEntry(
@@ -312,24 +318,30 @@ class CouncilOrchestrator(BaseActor):
             timestamp=datetime.now(UTC),
         )
 
-    async def _wait_for_result(
+    async def _dispatch_and_wait_for_result(
         self,
-        task_id: str,
+        task: TaskMessage,
+        task_data: dict[str, Any],
         goal_id: str,
         timeout: float,
     ) -> TaskResult | None:
-        """Wait for a specific TaskResult on the goal's result subject.
+        """Subscribe → publish → wait, in that order.
 
-        Same pattern as :meth:`PipelineOrchestrator._wait_for_result`.
+        See :meth:`PipelineOrchestrator._dispatch_and_wait_for_result`
+        for the full rationale; this is the council-NATS-mode mirror
+        of that helper.  Subscribe-before-publish is mandatory because
+        NATS is at-most-once.
         """
-        result_future: asyncio.Future[TaskResult] = asyncio.get_running_loop().create_future()
+        result_future: asyncio.Future[TaskResult] = (
+            asyncio.get_running_loop().create_future()
+        )
         subject = f"heddle.results.{goal_id}"
 
         sub = await self._bus.subscribe(subject)
 
         async def _consume() -> None:
             async for data in sub:
-                if data.get("task_id") == task_id:
+                if data.get("task_id") == task.task_id:
                     with contextlib.suppress(asyncio.InvalidStateError):
                         result_future.set_result(TaskResult(**data))
                     break
@@ -337,11 +349,14 @@ class CouncilOrchestrator(BaseActor):
         consume_task = asyncio.create_task(_consume())
 
         try:
+            await self.publish("heddle.tasks.incoming", task_data)
             return await asyncio.wait_for(result_future, timeout=timeout)
         except TimeoutError:
             return None
         finally:
             consume_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await consume_task
             await sub.unsubscribe()
 
     async def _synthesize(

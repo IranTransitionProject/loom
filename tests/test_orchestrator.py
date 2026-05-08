@@ -1004,11 +1004,23 @@ class TestCollectResultsEarlyExit:
                     result.model_dump(mode="json"),
                 )
 
-            pub_task = asyncio.create_task(publisher())
+            # _collect_results now requires a started ResultStream
+            # (the subscribe-before-publish race fix).  Build one,
+            # enter it, dispatch the publisher, then collect.
+            from heddle.orchestrator.stream import ResultStream
 
-            results = await actor._collect_results(goal_state, log, on_result=stop_after_first)
+            stream = ResultStream(
+                bus=bus,
+                subject=f"heddle.results.{goal.goal_id}",
+                expected_task_ids={task.task_id},
+                timeout=5.0,
+                on_result=stop_after_first,
+            )
 
-            await pub_task
+            async with stream:
+                pub_task = asyncio.create_task(publisher())
+                results = await actor._collect_results(stream, goal_state, log)
+                await pub_task
 
             # We should have gotten exactly 1 result (the one we published).
             assert len(results) == 1

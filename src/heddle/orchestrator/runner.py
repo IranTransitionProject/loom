@@ -71,7 +71,7 @@ from heddle.core.messages import (
 )
 from heddle.orchestrator.checkpoint import CheckpointManager
 from heddle.orchestrator.decomposer import GoalDecomposer
-from heddle.orchestrator.stream import ResultCallback, ResultStream
+from heddle.orchestrator.stream import ResultStream
 from heddle.orchestrator.synthesizer import ResultSynthesizer
 from heddle.tracing import get_tracer
 
@@ -347,31 +347,47 @@ class OrchestratorActor(BaseActor):
                 )
                 subtasks = subtasks[: self._max_concurrent_tasks]
 
-            # -- 3. Dispatch --
-            with _tracer.start_as_current_span(
-                "orchestrator.dispatch",
-                attributes={
-                    "orchestrator.goal_id": goal.goal_id,
-                    "orchestrator.subtask_count": len(subtasks),
-                },
-            ):
-                await self._dispatch_subtasks(goal_state, subtasks, log)
+            # -- 3. Subscribe → dispatch → collect.
+            # Subscription is opened BEFORE dispatch.  NATS is at-most-once,
+            # so a fast worker can publish its result onto
+            # ``heddle.results.{goal_id}`` between dispatch and the moment
+            # we subscribe — losing that result and forcing the goal to
+            # time out.  The ``async with`` block makes the ordering
+            # explicit and is enforced by ResultStream (iterating without
+            # entering the context raises).
+            expected_ids = {t.task_id for t in subtasks}
+            stream = ResultStream(
+                bus=self._bus,
+                subject=f"heddle.results.{goal.goal_id}",
+                expected_task_ids=expected_ids,
+                timeout=self._task_timeout,
+            )
+            async with stream:
+                with _tracer.start_as_current_span(
+                    "orchestrator.dispatch",
+                    attributes={
+                        "orchestrator.goal_id": goal.goal_id,
+                        "orchestrator.subtask_count": len(subtasks),
+                    },
+                ):
+                    await self._dispatch_subtasks(goal_state, subtasks, log)
 
-            # -- 4. Collect results --
-            with _tracer.start_as_current_span(
-                "orchestrator.collect",
-                attributes={
-                    "orchestrator.goal_id": goal.goal_id,
-                    "orchestrator.expected_count": len(goal_state.dispatched_tasks),
-                    "orchestrator.timeout_seconds": self._task_timeout,
-                },
-            ) as collect_span:
-                results = await self._collect_results(goal_state, log)
-                collect_span.set_attribute("orchestrator.collected_count", len(results))
-                collect_span.set_attribute(
-                    "orchestrator.success_count",
-                    sum(1 for r in results if r.status == TaskStatus.COMPLETED),
-                )
+                with _tracer.start_as_current_span(
+                    "orchestrator.collect",
+                    attributes={
+                        "orchestrator.goal_id": goal.goal_id,
+                        "orchestrator.expected_count": len(goal_state.dispatched_tasks),
+                        "orchestrator.timeout_seconds": self._task_timeout,
+                    },
+                ) as collect_span:
+                    results = await self._collect_results(stream, goal_state, log)
+                    collect_span.set_attribute(
+                        "orchestrator.collected_count", len(results)
+                    )
+                    collect_span.set_attribute(
+                        "orchestrator.success_count",
+                        sum(1 for r in results if r.status == TaskStatus.COMPLETED),
+                    )
 
             # -- 5. Synthesize --
             with _tracer.start_as_current_span(
@@ -489,61 +505,52 @@ class OrchestratorActor(BaseActor):
 
     async def _collect_results(
         self,
+        stream: ResultStream,
         goal_state: GoalState,
         log: Any,
-        on_result: ResultCallback | None = None,
     ) -> list[TaskResult]:
-        """Subscribe to ``heddle.results.{goal_id}`` and collect worker results.
+        """Iterate an already-started :class:`ResultStream`, recording results.
 
-        Uses :class:`ResultStream` to yield results as they arrive from the
-        bus, rather than blocking until all subtasks complete.  Each result
-        is matched by ``task_id`` against the set of dispatched tasks.
+        The stream MUST already be subscribed (i.e. inside an
+        ``async with stream:`` block opened by the caller before any
+        subtasks were published).  This split is intentional — it
+        prevents the publish-before-subscribe race by construction:
+        a caller that forgets ``async with`` will hit a ``RuntimeError``
+        on the first iteration rather than silently losing results.
 
         Collection completes when:
 
-        - All dispatched tasks have returned results, OR
-        - The configurable timeout expires, OR
-        - The ``on_result`` callback signals early exit.
+        - All expected results have arrived, OR
+        - The stream's configured timeout expires, OR
+        - The stream's ``on_result`` callback signals early exit.
 
-        On timeout or early exit, whatever results have been collected so far
-        are returned.  The synthesizer handles partial results gracefully.
+        On timeout or early exit, whatever results have been collected
+        so far are returned.  The synthesizer handles partial results
+        gracefully.
 
         Parameters
         ----------
+        stream : ResultStream
+            A stream constructed by the caller and already entered
+            (``await stream.start()`` or ``async with stream:``).
         goal_state : GoalState
-            The active goal's state container.
+            The active goal's state container.  Updated in place as
+            results arrive.
         log : Any
             Bound structlog logger.
-        on_result : ResultCallback | None
-            Optional callback invoked as each result arrives.  Signature:
-            ``async (result, collected, expected) -> bool | None``.
-            Return ``True`` to stop collecting early.
 
         Returns:
         -------
         list[TaskResult]
-            Collected results (may be fewer than dispatched on timeout).
+            Collected results (may be fewer than expected on timeout
+            or early exit).
         """
-        goal = goal_state.goal
-        expected_task_ids = set(goal_state.dispatched_tasks.keys())
-
         log.info(
             "orchestrator.collecting",
-            expected=len(expected_task_ids),
+            expected=stream.expected_count,
             timeout_seconds=self._task_timeout,
         )
 
-        subject = f"heddle.results.{goal.goal_id}"
-
-        stream = ResultStream(
-            bus=self._bus,
-            subject=subject,
-            expected_task_ids=expected_task_ids,
-            timeout=self._task_timeout,
-            on_result=on_result,
-        )
-
-        # Stream results, updating goal_state as each arrives.
         async for result in stream:
             goal_state.collected_results[result.task_id] = result
             log.info(

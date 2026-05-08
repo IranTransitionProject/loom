@@ -354,11 +354,17 @@ class PipelineOrchestrator(BaseActor):
             stage_log.info("pipeline.stage_dispatching", worker_type=stage["worker_type"])
             task_data = task.model_dump(mode="json")
             inject_trace_context(task_data)
-            await self.publish("heddle.tasks.incoming", task_data)
-
-            # Wait for result.
             stage_timeout = stage.get("timeout_seconds", timeout)
-            result = await self._wait_for_result(task.task_id, goal.goal_id, stage_timeout)
+            # Subscribe BEFORE publishing.  NATS is at-most-once — if a
+            # fast worker publishes its result before we have an active
+            # subscription on heddle.results.{goal_id}, the result is
+            # dropped and the stage will time out for no good reason.
+            result = await self._dispatch_and_wait_for_result(
+                task=task,
+                task_data=task_data,
+                goal_id=goal.goal_id,
+                timeout=stage_timeout,
+            )
 
             if result is None:
                 last_error = PipelineTimeoutError(
@@ -708,26 +714,35 @@ class PipelineOrchestrator(BaseActor):
     # Result waiting and publishing
     # ------------------------------------------------------------------
 
-    async def _wait_for_result(
+    async def _dispatch_and_wait_for_result(
         self,
-        task_id: str,
+        task: TaskMessage,
+        task_data: dict[str, Any],
         goal_id: str,
         timeout: float,
     ) -> TaskResult | None:
-        """
-        Wait for a specific TaskResult by subscribing to the results subject.
+        """Subscribe → publish → wait, in that order.
 
-        Subscribes to heddle.results.{goal_id}, filters by task_id,
-        and returns the matching result (or None on timeout).
+        The subscribe-before-publish ordering is mandatory: NATS is
+        at-most-once, so a worker that finishes before the
+        ``heddle.results.{goal_id}`` subscription is established will
+        drop its result on the floor and the caller will time out.
+        Bundling the three steps into one method makes the ordering
+        impossible to invert at the call site.
+
+        Returns the matching :class:`TaskResult` or ``None`` on timeout.
         """
-        result_future: asyncio.Future[TaskResult] = asyncio.get_running_loop().create_future()
+        result_future: asyncio.Future[TaskResult] = (
+            asyncio.get_running_loop().create_future()
+        )
         subject = f"heddle.results.{goal_id}"
 
+        # Step 1: subscribe FIRST.
         sub = await self._bus.subscribe(subject)
 
         async def _consume() -> None:
             async for data in sub:
-                if data.get("task_id") == task_id:
+                if data.get("task_id") == task.task_id:
                     with contextlib.suppress(asyncio.InvalidStateError):
                         result_future.set_result(TaskResult(**data))
                     break
@@ -735,11 +750,20 @@ class PipelineOrchestrator(BaseActor):
         consume_task = asyncio.create_task(_consume())
 
         try:
+            # Step 2: now safe to publish — subscription is live.
+            await self.publish("heddle.tasks.incoming", task_data)
+            # Step 3: wait for the matching result (or timeout).
             return await asyncio.wait_for(result_future, timeout=timeout)
         except TimeoutError:
             return None
         finally:
+            # Cancel + AWAIT the consumer so it has a chance to exit
+            # cleanly before we drop the subscription.  Cancelling
+            # without awaiting (the previous shape) raced with
+            # ``unsubscribe()`` on the same subscription object.
             consume_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await consume_task
             await sub.unsubscribe()
 
     async def _publish_pipeline_result(

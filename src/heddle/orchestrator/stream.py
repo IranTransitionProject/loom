@@ -5,20 +5,35 @@ Provides ``ResultStream``, an async iterator that yields ``TaskResult``
 objects as they arrive from the message bus — rather than blocking until
 all results are collected.
 
+Lifecycle (publish-before-subscribe race avoidance)::
+
+    stream = ResultStream(bus, subject, expected_ids, timeout)
+    async with stream:                # subscribes
+        await dispatch_subtasks(...)  # safe to publish now
+        results = await stream.collect_all()
+
+Subscribing BEFORE the caller publishes any task whose result we expect
+is mandatory — NATS is at-most-once.  If a fast worker publishes its
+result onto ``heddle.results.{goal_id}`` before we have an active
+subscription, that result is lost and the goal will time out.  The
+``async with`` block makes the ordering explicit at every call site.
+
 Two consumption modes:
 
     1. **Batch** (backward compatible with pre-Strategy-A code)::
 
-           stream = ResultStream(bus, subject, expected_ids, timeout)
-           results = await stream.collect_all()
+           async with ResultStream(bus, subject, expected_ids, timeout) as stream:
+               await dispatch(...)
+               results = await stream.collect_all()
 
-    2. **Incremental** (new — enables progress callbacks and early exit)::
+    2. **Incremental** — enables progress callbacks and early exit::
 
-           stream = ResultStream(bus, subject, expected_ids, timeout,
-                                 on_result=my_progress_callback)
-           async for result in stream:
-               # process each result as it arrives
-               ...
+           async with ResultStream(bus, subject, ids, timeout,
+                                   on_result=my_progress_callback) as stream:
+               await dispatch(...)
+               async for result in stream:
+                   # process each result as it arrives
+                   ...
 
 The ``on_result`` callback is invoked for every arriving result with the
 signature ``(result, collected_count, expected_count) -> bool | None``.
@@ -32,6 +47,10 @@ This module is used by:
 
 Design decisions:
 
+- **Subscribe-before-publish enforced**: callers must use ``async with``
+  (or explicit ``start()``).  Iterating without entering the context
+  raises a :class:`RuntimeError` rather than silently lazy-subscribing —
+  the lazy form was the original race and is now treated as a bug.
 - **Single-use**: a ``ResultStream`` can only be iterated once (it owns
   the bus subscription lifecycle).
 - **Callback errors are non-fatal**: if ``on_result`` raises, the error
@@ -53,8 +72,9 @@ from heddle.core.messages import TaskResult
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+    from types import TracebackType
 
-    from heddle.bus.base import MessageBus
+    from heddle.bus.base import MessageBus, Subscription
 
 logger = structlog.get_logger()
 
@@ -165,6 +185,12 @@ class ResultStream:
         self._timed_out: bool = False
         self._early_exited: bool = False
         self._consumed: bool = False
+        # Subscription lifecycle.  ``_sub`` is set by ``start()``/``__aenter__``
+        # and cleared by ``aclose()``/``__aexit__``.  Iterating without
+        # entering the context raises (see ``__aiter__``) — this is the
+        # publish-before-subscribe race fix: callers MUST subscribe
+        # before they publish any task whose result we expect.
+        self._sub: Subscription | None = None
 
     # ------------------------------------------------------------------
     # Read-only state inspection
@@ -209,16 +235,66 @@ class ResultStream:
     # Consumption API
     # ------------------------------------------------------------------
 
+    async def start(self) -> ResultStream:
+        """Subscribe to the bus subject.
+
+        MUST be called before the caller publishes any task whose result
+        is expected on this subject — NATS is at-most-once.  Prefer
+        ``async with stream:`` (which calls ``start`` on ``__aenter__``)
+        to make the ordering explicit at the call site.
+
+        Idempotent — calling twice is an error.  Returns ``self`` to
+        allow ``stream = await ResultStream(...).start()`` if the caller
+        prefers that style.
+        """
+        if self._sub is not None:
+            raise RuntimeError("ResultStream.start() called twice")
+        self._sub = await self._bus.subscribe(self._subject)
+        return self
+
+    async def aclose(self) -> None:
+        """Release the subscription.  Idempotent.
+
+        Safe to call from a ``finally`` block; the second call is a
+        no-op.
+        """
+        if self._sub is not None:
+            sub = self._sub
+            self._sub = None
+            await sub.unsubscribe()
+
+    async def __aenter__(self) -> ResultStream:
+        """Subscribe so the caller can publish without losing fast results."""
+        await self.start()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        """Release the subscription regardless of how the block exits."""
+        await self.aclose()
+
     async def collect_all(self) -> list[TaskResult]:
         """Consume the stream fully, returning all collected results as a list.
 
-        This is the backward-compatible entry point — it behaves identically
-        to the pre-Strategy-A ``_collect_results()`` method.
+        Must be called from inside an ``async with`` block (or after an
+        explicit ``start()``).
         """
         return [result async for result in self]
 
     def __aiter__(self) -> AsyncIterator[TaskResult]:
         """Return the async iterator (self — delegates to _stream)."""
+        if self._sub is None:
+            raise RuntimeError(
+                "ResultStream must be started before iteration. "
+                "Use 'async with stream:' or 'await stream.start()' "
+                "BEFORE publishing tasks whose results you expect — "
+                "subscribing afterwards loses any result that the worker "
+                "publishes between dispatch and the first iteration."
+            )
         if self._consumed:
             raise RuntimeError(
                 "ResultStream has already been consumed. "
@@ -230,10 +306,16 @@ class ResultStream:
     async def _stream(self) -> AsyncIterator[TaskResult]:
         """Internal async generator that drives the collection loop.
 
-        Subscribes to the bus subject, reads messages one at a time,
-        filters/deduplicates, invokes callbacks, and yields results.
+        Reads messages from the subscription owned by ``start()`` /
+        ``__aenter__``, filters/deduplicates, invokes callbacks, and
+        yields results.  The subscription is NOT released here; the
+        ``async with`` block owns the unsubscribe (in ``aclose``).
         """
-        sub = await self._bus.subscribe(self._subject)
+        # Bound here so a concurrent aclose() during iteration does not
+        # pull the rug; we hold a local reference to the live sub.
+        sub = self._sub
+        if sub is None:  # pragma: no cover — guarded by __aiter__
+            raise RuntimeError("ResultStream._stream called before start()")
         deadline = asyncio.get_running_loop().time() + self._timeout
 
         log = logger.bind(
@@ -333,7 +415,8 @@ class ResultStream:
                 yield result
 
         finally:
-            await sub.unsubscribe()
+            # Subscription cleanup belongs to ``aclose()``/``__aexit__`` —
+            # the caller's ``async with`` block owns the unsubscribe.
             log.debug(
                 "result_stream.finished",
                 collected=self.collected_count,
