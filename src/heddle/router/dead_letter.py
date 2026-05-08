@@ -215,7 +215,7 @@ class DeadLetterConsumer(BaseActor):
                 await bus.publish(INCOMING_SUBJECT, entry.original_task)
                 self._entries.pop(i)
 
-                # Record in audit log
+                # Record in audit log (bounded FIFO — Invariant 12).
                 record = ReplayRecord(
                     entry_id=entry_id,
                     task_id=entry.task_id,
@@ -223,6 +223,9 @@ class DeadLetterConsumer(BaseActor):
                     original_reason=entry.reason,
                 )
                 self._replay_log.append(record)
+                if len(self._replay_log) > self.max_size:
+                    # Oldest record is at the front; keep the most recent max_size.
+                    self._replay_log = self._replay_log[-self.max_size :]
 
                 logger.info(
                     "dead_letter.replayed",

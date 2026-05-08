@@ -464,6 +464,41 @@ class TestReplayLog:
         await consumer.replay("nonexistent-id", bus)
         assert consumer.replay_count() == 0
 
+    @pytest.mark.asyncio
+    async def test_replay_log_bounded_fifo(self):
+        """Pin Invariant 12: ``_replay_log`` is a bounded FIFO.
+
+        Without the cap the audit log grows unboundedly and a long-running
+        router leaks memory.  Drives more than ``max_size`` replays through
+        the public path and asserts the cap is enforced AND that the OLDEST
+        records are evicted (not the newest).
+        """
+        bus = InMemoryBus()
+        await bus.connect()
+        consumer = DeadLetterConsumer(bus=bus, max_size=5)
+
+        # Store + replay max_size + 10 = 15 cycles.  Each replay appends one
+        # record to ``_replay_log`` and pops the entry from ``_entries``.
+        for i in range(15):
+            entry = consumer.store(
+                {"n": i},
+                f"reason-{i}",
+                task_id=f"t-{i}",
+                worker_type="w",
+            )
+            ok = await consumer.replay(entry.id, bus)
+            assert ok
+
+        # Cap enforced.
+        assert len(consumer._replay_log) == 5
+        assert consumer.replay_count() == 5
+
+        # Oldest evicted: only entries 10..14 remain (most recent 5).
+        # ``replay_log()`` returns most-recent-first, so the first item is i=14.
+        log = consumer.replay_log(limit=100)
+        task_ids = [r["task_id"] for r in log]
+        assert task_ids == ["t-14", "t-13", "t-12", "t-11", "t-10"]
+
 
 # ---------------------------------------------------------------------------
 # Integration: full flow via bus
