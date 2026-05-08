@@ -2,9 +2,20 @@
 
 Tests the HTTP layer for baseline management, dead-letter replay log,
 and eval scoring integration.  Uses FastAPI's TestClient with mock backends.
+
+Lifespan tests pre-import ``create_app`` at module level so ``duckdb``
+(loaded transitively) lands in ``sys.modules`` BEFORE any per-test
+``mock.patch.dict("sys.modules", ...)`` snapshot is taken.  When the
+patch context exits it would otherwise restore the snapshot and remove
+``duckdb`` from ``sys.modules``, breaking the next test's re-import.
+This is the same pattern documented in
+``tests/test_workshop_security.py``.
 """
 
 from __future__ import annotations
+
+import unittest.mock as mock
+from contextlib import contextmanager
 
 import pytest
 from fastapi.testclient import TestClient
@@ -361,39 +372,72 @@ class TestBuildExtraConfigDirs:
 # ---------------------------------------------------------------------------
 
 
-class TestLifespan:
-    def test_lifespan_mdns_import_error_is_swallowed(self, tmp_path):
-        """If heddle[mdns] is not installed, lifespan should not raise."""
-        import unittest.mock as mock
+@contextmanager
+def _lifespan_workshop(tmp_path, *, mdns_module=None, runner_cls_patch=None):
+    """Build a workshop app for lifespan tests with shared mdns / runner stubs.
 
-        configs_dir = tmp_path / "configs"
-        (configs_dir / "workers").mkdir(parents=True)
-        (configs_dir / "orchestrators").mkdir()
+    Centralises the boilerplate that previously appeared four times in
+    ``TestLifespan``: temp ``configs/`` directory, ``mock.patch.dict`` for
+    ``heddle.discovery.mdns`` (so the real zeroconf advertiser does not
+    block the event loop), optional ``WorkerTestRunner`` patch, and the
+    ``TestClient`` lifespan dance.
 
-        from heddle.workshop.app import create_app
+    Yields the ``TestClient`` so the test can hit routes; the runner-class
+    patch (if any) is exposed via ``client._runner_cls`` for assertions.
 
-        # Patch the import inside lifespan to simulate ImportError
-        with mock.patch.dict("sys.modules", {"heddle.discovery.mdns": None}):
+    Args:
+        tmp_path: pytest's per-test temp directory.
+        mdns_module: value to insert at ``sys.modules["heddle.discovery.mdns"]``.
+            ``None`` simulates ``ImportError`` (the real mdns code path is
+            ``import heddle.discovery.mdns`` which raises when the value
+            is ``None``).  A ``MagicMock`` simulates the package being
+            available with a stubbed advertiser.
+        runner_cls_patch: optional ``MagicMock`` already configured to be
+            returned by ``mock.patch("heddle.workshop.app.WorkerTestRunner")``.
+            ``None`` skips the runner patch entirely.
+    """
+    configs_dir = tmp_path / "configs"
+    (configs_dir / "workers").mkdir(parents=True)
+    (configs_dir / "orchestrators").mkdir()
+
+    patches: list = [mock.patch.dict("sys.modules", {"heddle.discovery.mdns": mdns_module})]
+    runner_patcher = None
+    if runner_cls_patch is not None:
+        runner_patcher = mock.patch(
+            "heddle.workshop.app.WorkerTestRunner",
+            return_value=runner_cls_patch,
+        )
+        patches.append(runner_patcher)
+
+    with patches[0]:
+        if runner_patcher is not None:
+            with runner_patcher:
+                app = create_app(
+                    configs_dir=str(configs_dir),
+                    db_path=":memory:",
+                    apps_dir=str(tmp_path / "apps"),
+                )
+                with TestClient(app) as client:
+                    yield client
+        else:
             app = create_app(
                 configs_dir=str(configs_dir),
                 db_path=":memory:",
                 apps_dir=str(tmp_path / "apps"),
             )
-            # The app should start without error even when mdns import fails
-            from fastapi.testclient import TestClient
+            with TestClient(app) as client:
+                yield client
 
-            with TestClient(app) as c:
-                resp = c.get("/health")
-                assert resp.status_code == 200
+
+class TestLifespan:
+    def test_lifespan_mdns_import_error_is_swallowed(self, tmp_path):
+        """If heddle[mdns] is not installed, lifespan should not raise."""
+        with _lifespan_workshop(tmp_path, mdns_module=None) as c:
+            resp = c.get("/health")
+            assert resp.status_code == 200
 
     def test_lifespan_mdns_advertiser_started_and_stopped(self, tmp_path):
         """If mDNS is available, advertiser should be started and stopped."""
-        import unittest.mock as mock
-
-        configs_dir = tmp_path / "configs"
-        (configs_dir / "workers").mkdir(parents=True)
-        (configs_dir / "orchestrators").mkdir()
-
         mock_advertiser = mock.AsyncMock()
         mock_advertiser.start = mock.AsyncMock()
         mock_advertiser.stop = mock.AsyncMock()
@@ -402,18 +446,8 @@ class TestLifespan:
         mock_mdns_module = mock.MagicMock()
         mock_mdns_module.HeddleServiceAdvertiser.return_value = mock_advertiser
 
-        from heddle.workshop.app import create_app
-
-        with mock.patch.dict("sys.modules", {"heddle.discovery.mdns": mock_mdns_module}):
-            app = create_app(
-                configs_dir=str(configs_dir),
-                db_path=":memory:",
-                apps_dir=str(tmp_path / "apps"),
-            )
-            from fastapi.testclient import TestClient
-
-            with TestClient(app) as c:
-                c.get("/health")
+        with _lifespan_workshop(tmp_path, mdns_module=mock_mdns_module) as c:
+            c.get("/health")
 
         mock_advertiser.start.assert_awaited_once()
         mock_advertiser.stop.assert_awaited_once()
@@ -424,35 +458,11 @@ class TestLifespan:
         leaks sockets and tasks against any backend that was wired up
         from environment vars.
         """
-        import unittest.mock as mock
+        instance = mock.MagicMock()
+        instance.aclose = mock.AsyncMock()
 
-        configs_dir = tmp_path / "configs"
-        (configs_dir / "workers").mkdir(parents=True)
-        (configs_dir / "orchestrators").mkdir()
-
-        from heddle.workshop.app import create_app
-
-        # Patch WorkerTestRunner so we capture the instance the
-        # workshop creates and can assert aclose() was awaited on it.
-        # mDNS is also stubbed because the real zeroconf advertiser
-        # blocks the event loop in test contexts (matches the pattern
-        # used by ``test_lifespan_mdns_*``).
-        with (
-            mock.patch.dict("sys.modules", {"heddle.discovery.mdns": None}),
-            mock.patch("heddle.workshop.app.WorkerTestRunner") as mock_runner_cls,
-        ):
-            instance = mock.MagicMock()
-            instance.aclose = mock.AsyncMock()
-            mock_runner_cls.return_value = instance
-
-            app = create_app(
-                configs_dir=str(configs_dir),
-                db_path=":memory:",
-                apps_dir=str(tmp_path / "apps"),
-            )
-
-            with TestClient(app) as c:
-                c.get("/health")
+        with _lifespan_workshop(tmp_path, mdns_module=None, runner_cls_patch=instance) as c:
+            c.get("/health")
             # TestClient.__exit__ runs the lifespan teardown.
 
         instance.aclose.assert_awaited_once()
@@ -463,31 +473,12 @@ class TestLifespan:
         Workshop shutdown is best-effort — the lifespan teardown logs
         the error and continues.
         """
-        import unittest.mock as mock
+        instance = mock.MagicMock()
+        instance.aclose = mock.AsyncMock(side_effect=RuntimeError("flaky"))
 
-        configs_dir = tmp_path / "configs"
-        (configs_dir / "workers").mkdir(parents=True)
-        (configs_dir / "orchestrators").mkdir()
-
-        from heddle.workshop.app import create_app
-
-        with (
-            mock.patch.dict("sys.modules", {"heddle.discovery.mdns": None}),
-            mock.patch("heddle.workshop.app.WorkerTestRunner") as mock_runner_cls,
-        ):
-            instance = mock.MagicMock()
-            instance.aclose = mock.AsyncMock(side_effect=RuntimeError("flaky"))
-            mock_runner_cls.return_value = instance
-
-            app = create_app(
-                configs_dir=str(configs_dir),
-                db_path=":memory:",
-                apps_dir=str(tmp_path / "apps"),
-            )
-
-            # No exception should escape the lifespan.
-            with TestClient(app) as c:
-                c.get("/health")
+        # No exception should escape the lifespan.
+        with _lifespan_workshop(tmp_path, mdns_module=None, runner_cls_patch=instance) as c:
+            c.get("/health")
 
         instance.aclose.assert_awaited_once()
 
