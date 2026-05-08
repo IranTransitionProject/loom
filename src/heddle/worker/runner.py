@@ -34,6 +34,51 @@ _FENCE_RE = re.compile(r"^```(?:json|ya?ml)?\s*\n?(.*?)\n?\s*```$", re.DOTALL)
 _FENCE_SEARCH_RE = re.compile(r"```(?:json|ya?ml)?\s*\n?(.*?)\n?\s*```", re.DOTALL)
 
 
+def _find_first_balanced_object(text: str) -> str | None:
+    r"""Return the first brace-balanced JSON object substring in ``text``.
+
+    Walks character-by-character tracking brace depth while honouring
+    JSON string literals (so braces inside ``"..."`` don't count).  The
+    naive ``\{.*\}`` regex used previously was greedy: with two JSON
+    objects or prose containing stray braces it captured a single
+    ill-formed superstring spanning from the first ``{`` to the LAST
+    ``}``.  This walk returns just the first balanced object — the
+    correct behaviour for "extract a JSON object from a noisy LLM
+    response".
+
+    Returns ``None`` if no balanced ``{...}`` block exists.
+    """
+    start = -1
+    depth = 0
+    in_string = False
+    escape = False
+    for i, ch in enumerate(text):
+        if escape:
+            escape = False
+            continue
+        if in_string:
+            if ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+            continue
+        if ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            if depth == 0:
+                # Stray ``}`` before any ``{`` — keep scanning for a real opener.
+                continue
+            depth -= 1
+            if depth == 0 and start >= 0:
+                return text[start : i + 1]
+    return None
+
+
 def _extract_json(raw: str) -> dict:
     """Extract a structured dict from an LLM response (JSON or YAML).
 
@@ -66,11 +111,13 @@ def _extract_json(raw: str) -> dict:
         except json.JSONDecodeError:
             pass
 
-    # 3. Extract the first { ... } JSON block from anywhere in the response
-    obj_match = re.search(r"\{.*\}", stripped, re.DOTALL)
-    if obj_match:
+    # 3. Extract the first balanced { ... } JSON block from anywhere in the response.
+    #    Uses a brace-aware scan instead of a greedy regex — see
+    #    ``_find_first_balanced_object`` for the why.
+    obj_text = _find_first_balanced_object(stripped)
+    if obj_text:
         try:
-            return json.loads(obj_match.group(0))
+            return json.loads(obj_text)
         except json.JSONDecodeError:
             pass
 
@@ -306,7 +353,12 @@ class LLMWorker(TaskWorker):
             if knowledge_text:
                 system_prompt = knowledge_text + "\n\n" + system_prompt
 
-        # 1c. File-ref resolution — read workspace files and inject content
+        # 1c. File-ref resolution — read workspace files and inject content.
+        #     Failures here MUST fail the task: silently continuing produced
+        #     LLM output for inputs the worker never actually saw, which the
+        #     orchestrator then trusted as "successful processing of file X".
+        #     Re-raising lets ``TaskWorker.handle_message`` publish a FAILED
+        #     ``TaskResult`` with the offending file path in ``error``.
         workspace_dir = self.config.get("workspace_dir")
         file_ref_fields = self.config.get("resolve_file_refs", [])
         if workspace_dir and file_ref_fields:
@@ -319,11 +371,16 @@ class LLMWorker(TaskWorker):
                         content = ws.read_json(payload[field])
                         payload[f"{field}_content"] = content
                     except (ValueError, FileNotFoundError, json.JSONDecodeError) as e:
-                        logger.warning(
+                        logger.error(
                             "worker.file_ref_resolution_failed",
                             field=field,
+                            file_ref=payload[field],
                             error=str(e),
                         )
+                        raise ValueError(
+                            f"Failed to resolve file_ref '{payload[field]}' "
+                            f"for field '{field}': {e}"
+                        ) from e
 
         user_message = json.dumps(payload, indent=2)
 

@@ -245,6 +245,87 @@ async def test_llm_worker_resolves_file_refs(tmp_path):
     assert user_msg["file_ref_content"] == extracted_data
 
 
+@pytest.mark.asyncio
+async def test_llm_worker_fails_task_when_file_ref_missing(tmp_path):
+    """B4: missing file_ref must FAIL the task, not silently call the LLM.
+
+    Before the fix, ``ValueError``/``FileNotFoundError``/``JSONDecodeError``
+    were logged at WARNING and execution continued without ``_content``.
+    The worker would then call the LLM with input the orchestrator never
+    asked it to handle, and publish a COMPLETED ``TaskResult`` for a file
+    that didn't exist.  This test pins:
+      - the task status is FAILED
+      - the missing filename is in ``error`` so operators can diagnose
+      - the LLM backend was NEVER invoked (no silent processing)
+    """
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    # Intentionally do NOT create the file the payload references.
+
+    config = {
+        **LLM_CONFIG,
+        "workspace_dir": str(workspace),
+        "resolve_file_refs": ["file_ref"],
+        "input_schema": {
+            "type": "object",
+            "required": ["file_ref"],
+            "properties": {
+                "file_ref": {"type": "string"},
+                "file_ref_content": {"type": "object"},
+            },
+        },
+    }
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(yaml.dump(config))
+
+    llm_called = {"count": 0}
+
+    class TripwireBackend:
+        async def complete(self, system_prompt, user_message, max_tokens=2000, **kwargs):
+            llm_called["count"] += 1
+            return {
+                "content": json.dumps({"summary": "should never be called", "key_points": []}),
+                "model": "tripwire",
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "tool_calls": None,
+                "stop_reason": "end_turn",
+            }
+
+    backends = {"local": TripwireBackend()}
+    worker = LLMWorker("llm-1", str(config_file), backends)
+
+    published: list[dict] = []
+
+    async def capture(subject: str, data: dict) -> None:
+        published.append({"subject": subject, "data": data})
+
+    worker.publish = capture
+
+    task = TaskMessage(
+        worker_type="test_llm_worker",
+        payload={"file_ref": "missing_file.json"},
+        model_tier=ModelTier.LOCAL,
+        parent_task_id="goal-456",
+    ).model_dump(mode="json")
+
+    await worker.handle_message(task)
+
+    # Exactly one TaskResult was published, on the parent's results subject,
+    # and it is FAILED with the missing filename surfaced in ``error``.
+    assert len(published) == 1
+    assert published[0]["subject"] == "heddle.results.goal-456"
+    result = TaskResult(**published[0]["data"])
+    assert result.status == TaskStatus.FAILED
+    assert "missing_file.json" in (result.error or "")
+    assert "file_ref" in (result.error or "")  # field name mentioned
+
+    # Adjacent contract: LLM backend MUST NOT be invoked when input
+    # resolution fails — otherwise we'd burn tokens and silently corrupt
+    # downstream state.
+    assert llm_called["count"] == 0
+
+
 # --- Knowledge injection tests ---
 
 

@@ -211,19 +211,52 @@ class TestLLMQuirks:
         result = _extract_json(raw)
         assert result == {"ok": True}
 
-    def test_multiple_json_blocks_greedy_match(self):
-        """When prose contains multiple JSON objects, the greedy {.*}
-        regex captures from the first { to the last }, which spans both
-        objects and is invalid JSON. This falls through to YAML, which
-        also fails, so ValueError is expected."""
+    def test_multiple_json_blocks_returns_first_balanced(self):
+        """B3 fix: with two JSON objects in prose, the brace-balanced scan
+        returns the FIRST balanced object.  The previous greedy ``\\{.*\\}``
+        regex spanned both objects into an ill-formed superstring and bounced
+        through to the YAML fallback (also failing), so the worker raised
+        ``ValueError`` on a perfectly recoverable response.  Returning the
+        first object matches "the LLM produced its answer, then narrated"
+        — the common case."""
         raw = 'First: {"a": 1} and second: {"b": 2}'
-        with pytest.raises(ValueError):
-            _extract_json(raw)
+        assert _extract_json(raw) == {"a": 1}
 
     def test_single_json_block_in_prose_succeeds(self):
         """A single JSON object surrounded by prose is extracted fine."""
         raw = 'The result is {"a": 1}. That is all.'
         assert _extract_json(raw) == {"a": 1}
+
+    def test_prose_with_stray_brace_before_json(self):
+        """B3 adjacent contract: stray ``}`` in prose before the real JSON
+        object must NOT confuse the balanced scan into capturing garbage.
+        The pre-fix greedy regex did not have this failure mode (it always
+        anchored at first ``{``), but a naive depth scanner that decrements
+        below zero would.  Pin the guard."""
+        raw = 'Note: closing brace } is fine. Result: {"answer": 42}'
+        assert _extract_json(raw) == {"answer": 42}
+
+    def test_brace_inside_string_literal_does_not_unbalance(self):
+        """B3 adjacent contract: braces inside JSON string values must not
+        affect depth tracking.  A simpler scanner that ignores strings
+        would call ``{"text": "}"}`` unbalanced after the first ``}``."""
+        raw = 'Output: {"text": "has } and { inside"} and trailing prose.'
+        assert _extract_json(raw) == {"text": "has } and { inside"}
+
+    def test_nested_object_with_following_object_returns_outer_first(self):
+        """B3: nested ``{}`` inside the first object don't terminate it,
+        and a later second object is ignored — the FIRST balanced outer
+        block wins."""
+        raw = '{"outer": {"inner": 1}} then {"second": 2}'
+        result = _extract_json(raw)
+        assert result == {"outer": {"inner": 1}}
+
+    def test_escaped_quote_in_string_does_not_close_string_state(self):
+        """B3 adjacent contract: ``\\"`` inside a string literal doesn't
+        end the string, so braces after it are still treated as inside-string."""
+        raw = '{"q": "she said \\"hi {nested}\\" loud"}'
+        result = _extract_json(raw)
+        assert result["q"] == 'she said "hi {nested}" loud'
 
 
 # --- Regex edge cases ---
