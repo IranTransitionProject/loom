@@ -345,6 +345,89 @@ def test_validate_shows_tier_availability(tmp_path):
     assert "standard" in result.output
 
 
+def test_validate_reads_user_config_for_tier_availability(tmp_path):
+    """Pin: ``validate`` applies the user config file to the environment (B5).
+
+    Before the fix, ``apply_config_to_env`` was only invoked inside ``run``,
+    so ``validate`` read ``os.getenv("OLLAMA_URL")`` raw and ignored
+    ``~/.heddle/config.yaml``.  An operator who set ``ollama_url`` in the
+    config file (no env vars) saw the local tier reported as
+    "not configured" even though backends would actually start.
+
+    Test setup:
+      - User config YAML with ``ollama_url`` only, no env vars.
+      - Council config requiring the ``local`` tier.
+      - ``OLLAMA_URL`` cleared from the environment for the invocation.
+
+    Pre-fix output: ``local: ✗ (not configured)``.
+    Post-fix output: ``local: ✓``.
+    """
+    import os
+
+    user_cfg = tmp_path / "user-config.yaml"
+    user_cfg.write_text("backends:\n  ollama_url: http://localhost:11434\n")
+
+    council_cfg = tmp_path / "council.yaml"
+    council_cfg.write_text(
+        "name: local_council\n"
+        "protocol: round_robin\n"
+        "max_rounds: 2\n"
+        "convergence:\n"
+        "  method: none\n"
+        "agents:\n"
+        "  - name: agent_a\n"
+        "    worker_type: reviewer\n"
+        "    tier: local\n"
+        "    role: Reviewer\n"
+        "  - name: agent_b\n"
+        "    worker_type: reviewer\n"
+        "    tier: local\n"
+        "    role: Critic\n"
+        "facilitator:\n"
+        "  tier: local\n"
+    )
+
+    with patch.dict("os.environ", {}, clear=False):
+        # Ensure the env var is absent for the invocation; ``patch.dict``
+        # snapshots state on enter and restores on exit, so this pop is safe.
+        os.environ.pop("OLLAMA_URL", None)
+
+        result = CliRunner().invoke(
+            council,
+            ["--config-path", str(user_cfg), "validate", str(council_cfg)],
+        )
+
+    assert result.exit_code == 0, result.output
+    # Output mentions the local tier.
+    assert "local:" in result.output
+    # Pre-fix, local would be marked "not configured".  Post-fix it is ✓.
+    assert "not configured" not in result.output
+
+
+def test_validate_user_config_does_not_override_explicit_env(tmp_path):
+    """Adjacent contract: explicit env vars still win over the user config.
+
+    ``apply_config_to_env`` uses ``setdefault``, so a config-file value
+    must NOT clobber an env var the operator exported.  Without this
+    behaviour the lift would silently override CLI/env intent.
+    """
+    import os
+
+    user_cfg = tmp_path / "user-config.yaml"
+    user_cfg.write_text("backends:\n  ollama_url: http://config-value:11434\n")
+
+    council_cfg = tmp_path / "council.yaml"
+    council_cfg.write_text(_make_council_config_yaml())
+
+    with patch.dict("os.environ", {"OLLAMA_URL": "http://env-wins:11434"}, clear=False):
+        CliRunner().invoke(
+            council,
+            ["--config-path", str(user_cfg), "validate", str(council_cfg)],
+        )
+        # After the group ran, the env-set value must still be in place.
+        assert os.environ["OLLAMA_URL"] == "http://env-wins:11434"
+
+
 # ---------------------------------------------------------------------------
 # Lifecycle — aclose must run even when the council raises
 # ---------------------------------------------------------------------------

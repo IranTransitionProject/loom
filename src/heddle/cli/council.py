@@ -42,8 +42,14 @@ def _run_async(coro):
 @click.pass_context
 def council(ctx: click.Context, config_path: str) -> None:
     """Multi-agent council deliberation — no NATS needed."""
+    from heddle.cli.config import apply_config_to_env
+
     ctx.ensure_object(dict)
     ctx.obj["config"] = resolve_config(config_path=config_path)
+    # Lifted from ``run`` so ``validate`` (and future siblings) see config-file
+    # backend settings via the env vars that ``build_backends_from_env`` and
+    # the tier-availability checks in ``validate`` both read.
+    apply_config_to_env(ctx.obj["config"])
 
 
 # ---------------------------------------------------------------------------
@@ -60,9 +66,7 @@ def council(ctx: click.Context, config_path: str) -> None:
 @click.option(
     "--no-convergence", is_flag=True, default=False, help="Disable convergence (run all rounds)."
 )
-@click.pass_context
 def run(  # noqa: PLR0915 — body is a linear CLI flow, splitting hurts readability
-    ctx: click.Context,
     config: str,
     topic: str | None,
     output: str | None,
@@ -77,7 +81,6 @@ def run(  # noqa: PLR0915 — body is a linear CLI flow, splitting hurts readabi
     The topic can be provided via --topic (as a string or file path),
     or will be prompted interactively if omitted.
     """
-    from heddle.cli.config import apply_config_to_env
     from heddle.contrib.council.config import load_council_config
     from heddle.contrib.council.runner import CouncilRunner
     from heddle.worker.backends import build_backends_from_env
@@ -97,9 +100,8 @@ def run(  # noqa: PLR0915 — body is a linear CLI flow, splitting hurts readabi
     if no_convergence:
         council_config.convergence.method = "none"
 
-    # Build backends from env.
-    user_config = ctx.obj["config"]
-    apply_config_to_env(user_config)
+    # Build backends from env.  ``council`` group has already lifted user-config
+    # settings into the environment so ``build_backends_from_env`` sees them.
     backends = build_backends_from_env()
 
     if not backends:
