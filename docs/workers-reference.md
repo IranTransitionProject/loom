@@ -26,7 +26,7 @@ Compresses text into a structured summary with key points.
 | Field | Value |
 |---|---|
 | Config | `configs/workers/summarizer.yaml` |
-| Tier | `local` (Ollama) |
+| Tier | `local` (LM Studio or Ollama) |
 | Timeout | 30s |
 
 **Input:**
@@ -61,7 +61,7 @@ Assigns text to one of provided categories with confidence scoring.
 | Field | Value |
 |---|---|
 | Config | `configs/workers/classifier.yaml` |
-| Tier | `local` (Ollama) |
+| Tier | `local` (LM Studio or Ollama) |
 | Timeout | 20s |
 
 **Input:**
@@ -139,7 +139,7 @@ Multi-language translation with automatic source language detection.
 | Field | Value |
 |---|---|
 | Config | `configs/workers/translator.yaml` |
-| Tier | `local` (Ollama) |
+| Tier | `local` (LM Studio or Ollama) |
 | Timeout | 60s |
 
 **Input:**
@@ -177,7 +177,7 @@ RAG pipelines: retrieve chunks via vector search, pass them as context.
 | Field | Value |
 |---|---|
 | Config | `configs/workers/qa.yaml` |
-| Tier | `local` (Ollama) |
+| Tier | `local` (LM Studio or Ollama) |
 | Timeout | 45s |
 
 **Input:**

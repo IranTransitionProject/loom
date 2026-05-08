@@ -1,6 +1,6 @@
 # Core
 
-The `loom.core` package contains the foundational abstractions that all Heddle
+The `heddle.core` package contains the foundational abstractions that all Heddle
 components build on: actors, messages, configuration, I/O contracts, app
 manifests, and workspace file management.
 

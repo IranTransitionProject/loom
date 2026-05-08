@@ -1,6 +1,6 @@
 # Contrib Modules
 
-The `loom.contrib` package contains optional integrations that extend Heddle's
+The `heddle.contrib` package contains optional integrations that extend Heddle's
 capabilities. Each module requires its own optional dependency extra.
 
 | Module | Extra | Purpose |

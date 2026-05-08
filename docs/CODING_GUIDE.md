@@ -470,8 +470,9 @@ class TestExecuteStage:
 
 ### Coverage
 
-- Minimum threshold: **70%** (enforced in CI via `fail_under`).
-- Target: **85%+** for core modules (`core/`, `worker/`, `orchestrator/`,
+- Minimum threshold: **89%** (enforced in CI via `fail_under` in
+  `[tool.coverage.report]`).
+- Target: **90%+** for core modules (`core/`, `worker/`, `orchestrator/`,
   `router/`, `bus/`).
 - Use `# pragma: no cover` only for truly unreachable code (e.g.,
   `if __name__ == "__main__"` guards, `TYPE_CHECKING` blocks).

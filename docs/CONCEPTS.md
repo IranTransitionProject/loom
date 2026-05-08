@@ -71,7 +71,7 @@ Heddle supports three tiers of AI model. Each step can use a different one:
 
 | Tier | What it is | Best for | Cost |
 |------|-----------|----------|------|
-| **Local** | Runs on your machine via Ollama | Simple tasks (chunking, classification) | Free |
+| **Local** | Runs on your machine via LM Studio or Ollama (LM Studio wins when both are set) | Simple tasks (chunking, classification) | Free |
 | **Standard** | Claude Sonnet (cloud API) | Most analytical tasks | Per-token |
 | **Frontier** | Claude Opus (cloud API) | Complex reasoning, synthesis | Per-token |
 

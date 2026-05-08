@@ -51,7 +51,7 @@ Five things heddle aims to do that nothing else combines today:
 1. **AI-workflow shape** — not just inference, but workers + pipelines +
    councils, all as first-class units of compute that can ship across nodes.
 2. **Heterogeneity-native capacity model** — Apple Silicon's unified memory
-   + Neural Engine + heterogeneous cores get a real vocabulary, not "CPU +
+   - Neural Engine + heterogeneous cores get a real vocabulary, not "CPU +
    memory + GPU#" lowest-common-denominator.
 3. **Privacy-aware routing** — workloads are tagged; tags constrain
    placement. A "personal-data" workload never leaves the local cluster.

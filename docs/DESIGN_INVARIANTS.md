@@ -102,7 +102,8 @@ integer, and workers receive wrong types.
 depend on which. A path like `stages.source_process.output.claims` creates a
 dependency on the `source_process` stage. Paths starting with `goal.*` have no
 inter-stage dependency. Kahn's topological sort groups independent stages into
-execution levels that run concurrently via `asyncio.gather`.
+execution levels that run concurrently via `asyncio.wait(FIRST_COMPLETED)`
+(see Invariant 16 for the implementation rationale).
 
 **Why:** Explicit `depends_on` annotations are error-prone and redundant — the
 data flow already encodes the dependency graph. Auto-inference means pipeline
@@ -499,7 +500,7 @@ These are things that must never happen, regardless of how reasonable they sound
 
 ## Part III — Council & Multi-Agent Invariants
 
-### 16. Council transcript is managed by the orchestrator, not by workers
+### 29. Council transcript is managed by the orchestrator, not by workers
 
 Workers participating in a council discussion remain fully stateless.
 The multi-round loop, transcript accumulation, and context injection
@@ -516,7 +517,7 @@ processes round 2, and replica B would have no memory of round 1.
 instance variable produces correct results in single-replica testing
 and incoherent debates in production.
 
-### 17. Transcript visibility is a security boundary, not a convenience
+### 30. Transcript visibility is a security boundary, not a convenience
 
 The `sees_transcript_from` field on each agent config is a hard filter —
 not a hint. When agent C's visibility is set to `["A"]`, agent C never
@@ -530,7 +531,7 @@ must not know who wrote which position.
 **How it fails:** Leaking full transcripts to all agents defeats the
 purpose of structured debate and introduces anchoring bias.
 
-### 18. ChatBridge session state lives in the bridge, not in Heddle
+### 31. ChatBridge session state lives in the bridge, not in Heddle
 
 ChatBridge adapters maintain per-session conversation history
 internally (or in the external provider's API). The `ChatBridgeBackend`
@@ -547,7 +548,7 @@ Claude, GPT-4, Ollama, or a human.
 orchestrator would couple Heddle's lifecycle management to external
 provider session semantics.
 
-### 19. Convergence checks must be side-effect-free
+### 32. Convergence checks must be side-effect-free
 
 Convergence detectors (`position_stability`, `llm_judge`) read the
 transcript and produce a score. They never modify the transcript,

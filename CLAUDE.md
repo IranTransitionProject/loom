@@ -21,7 +21,7 @@ src/heddle/
   contrib/      # duckdb, lancedb, redis, rag, docproc, council, chatbridge, subprocess
   cli/          # Click CLI entry points
 configs/        # Worker/orchestrator/scheduler/MCP/council YAML configs
-tests/          # 82 test files, 1844 unit tests (90% coverage)
+tests/          # unit tests (90%+ coverage, no NATS required)
 ```
 
 ## Non-negotiable design rules

@@ -77,13 +77,17 @@ src/heddle/
 │   └── mdns.py           # HeddleServiceAdvertiser — mDNS/Bonjour LAN service advertisement
 │
 ├── mcp/
-│   ├── config.py           # MCP gateway YAML config loading + validation
-│   ├── discovery.py        # Tool definition generators (worker/pipeline/query → MCP tools)
-│   ├── bridge.py           # MCPBridge — MCP tool calls → NATS dispatch + result collection
-│   ├── resources.py        # WorkspaceResources — workspace files as MCP resources
-│   ├── server.py           # create_server(), MCPGateway, run_stdio(), run_streamable_http()
+│   ├── config.py             # MCP gateway YAML config loading + validation
+│   ├── discovery.py          # Tool definition generators (worker/pipeline/query → MCP tools)
+│   ├── bridge.py             # MCPBridge — MCP tool calls → NATS dispatch + result collection
+│   ├── resources.py          # WorkspaceResources — workspace files as MCP resources
+│   ├── server.py             # create_server(), MCPGateway, run_stdio(), run_streamable_http()
+│   ├── workshop_discovery.py # workshop.* and session.* MCP tool definitions
+│   ├── workshop_bridge.py    # WorkshopBridge — in-process workshop tool dispatch
+│   ├── session_bridge.py     # SessionBridge — in-process session lifecycle dispatch
+│   ├── session_registry.py   # Session registry (active session bookkeeping)
 │   ├── council_discovery.py  # council.* MCP tool definitions
-│   └── council_bridge.py    # CouncilBridge — in-process council session dispatch
+│   └── council_bridge.py     # CouncilBridge — in-process council session dispatch
 │
 ├── workshop/
 │   ├── test_runner.py   # WorkerTestRunner — execute worker configs against LLM backends directly
@@ -97,7 +101,13 @@ src/heddle/
 │   └── static/          # CSS styles
 │
 ├── cli/
-│   ├── main.py          # Click CLI: worker, processor, pipeline, orchestrator, scheduler, router, submit, mcp, workshop, ui, mdns, dead-letter
+│   ├── main.py          # Click CLI root: worker, processor, pipeline, orchestrator, scheduler, router, submit, mcp, workshop, ui, mdns, dead-letter (group)
+│   ├── setup.py         # `heddle setup` — interactive config wizard
+│   ├── new.py           # `heddle new worker|pipeline` — config scaffolding
+│   ├── validate.py      # `heddle validate` — config file validation
+│   ├── rag.py           # `heddle rag` group — ingest, search, stats, serve
+│   ├── council.py       # `heddle council` group — run, validate
+│   ├── config.py        # ~/.heddle/config.yaml loading + apply_config_to_env
 │   └── preflight.py     # Pre-flight checks: NATS connectivity, env vars, config readability
 │
 └── contrib/

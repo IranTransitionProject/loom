@@ -6,3 +6,8 @@
 # MD042: Empty link — used for status badges with no target URL
 # MD057: Cross-repo relative links unresolvable in CI (repos checked out in isolation)
 disable = ["MD013", "MD036", "MD042", "MD057"]
+
+# .claude/ holds Claude Code agent and command definitions, not project docs.
+# These files use YAML frontmatter (so MD041 trips on a level-1 heading
+# missing from line 1) and are not part of the mkdocs-published surface.
+exclude = [".claude/"]

@@ -50,6 +50,10 @@ plugins:
             show_signature_annotations: true
             separate_signature: true
 
+# Internal build/tooling docs that should not appear in the published site.
+exclude_docs: |
+  diagrams/README.md
+
 markdown_extensions:
   - admonition
   - pymdownx.details
@@ -90,6 +94,8 @@ nav:
   - Architecture:
     - Overview: ARCHITECTURE.md
     - Design Invariants: DESIGN_INVARIANTS.md
+  - Vision:
+    - Ad-Hoc Clusters: vision/AD_HOC_CLUSTERS.md
   - Deployment:
     - Local Deployment: LOCAL_DEPLOYMENT.md
     - Application Deployment: APP_DEPLOYMENT.md

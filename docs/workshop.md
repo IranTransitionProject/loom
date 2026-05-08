@@ -419,11 +419,14 @@ uv run heddle workshop [OPTIONS]
 | `--db-path` | `~/.heddle/workshop.duckdb` | DuckDB database path |
 | `--nats-url` | None | NATS URL for live metrics (optional) |
 | `--apps-dir` | `~/.heddle/apps` | Root directory for deployed app bundles |
-| `--rag-db-path` | None | Vector store path for RAG dashboard (e.g. `/tmp/rag.duckdb`) |
-| `--rag-store-class` | None | Vector store class (e.g. `heddle.contrib.lancedb.store.LanceDBVectorStore`) |
-| `--rag-channel-registry` | None | Path to channel registry YAML (e.g. `itp_telegram_channels.yaml`) |
 
 The CLI command creates the app via `create_app()` and runs it under Uvicorn.
+
+> RAG-specific configuration (`rag_db_path`, `rag_store_class`,
+> `rag_channel_registry`) is exposed only as `create_app()` constructor
+> arguments and is wired up by the `heddle rag serve` command — not by
+> `heddle workshop`. See [CLI Reference](CLI_REFERENCE.md#heddle-rag-serve)
+> for the RAG-aware variant.
 
 ### LLM backend resolution
 

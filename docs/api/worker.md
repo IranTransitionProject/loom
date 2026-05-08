@@ -1,6 +1,6 @@
 # Worker
 
-The `loom.worker` package implements the two types of Heddle workers:
+The `heddle.worker` package implements the two types of Heddle workers:
 
 - **LLM Workers** (`runner.py`) — call language models with system prompts,
   tool-use loops, and JSON parsing. Used for summarization, classification,

@@ -27,6 +27,8 @@ whether they need a running NATS server.
 | `heddle ui` | Terminal dashboard (TUI) | Yes |
 | `heddle mdns` | mDNS service discovery | No |
 | `heddle dead-letter monitor` | Dead-letter queue consumer | Yes |
+| `heddle council run` | Multi-agent council deliberation | No |
+| `heddle council validate` | Validate a council config | No |
 
 ---
 
@@ -369,9 +371,9 @@ heddle mcp --config PATH [OPTIONS]
 | Option | Default | Description |
 |---|---|---|
 | `--config` | *(required)* | MCP config YAML |
-| `--transport` | `stdio` | Transport: `stdio` or `sse` |
-| `--host` | `127.0.0.1` | Bind address (SSE only) |
-| `--port` | `8000` | Port (SSE only) |
+| `--transport` | `stdio` | Transport: `stdio` or `streamable-http` |
+| `--host` | `127.0.0.1` | Bind address (streamable-http only) |
+| `--port` | `8000` | Port (streamable-http only) |
 | `--skip-preflight` | `false` | Skip connectivity checks |
 
 ### heddle dead-letter monitor
@@ -392,16 +394,17 @@ heddle dead-letter monitor [OPTIONS]
 ## Pre-flight Checks
 
 Infrastructure commands (`worker`, `processor`, `pipeline`, `orchestrator`,
-`scheduler`, `router`, `mcp`) run three pre-flight checks before starting:
+`scheduler`, `router`, `mcp`) run pre-flight checks before starting:
 
-1. **NATS connectivity** -- verifies the NATS server is reachable and the
-   JetStream API is available.
-2. **Model availability** -- for LLM workers, confirms the configured model is
-   loaded in LM Studio or Ollama (or that the API key is set for cloud models).
-3. **Stream/subject setup** -- ensures the required NATS streams and subjects
-   exist, creating them if necessary.
+1. **Config readability** (hard fail) -- the config YAML at `--config` must
+   exist and be readable.
+2. **NATS connectivity** (hard fail) -- verifies the NATS server at
+   `--nats-url` accepts a connection.
+3. **Environment variables** (warnings only) -- emits per-tier warnings when
+   `LM_STUDIO_URL` / `OLLAMA_URL` / `ANTHROPIC_API_KEY` aren't set for the
+   model tier the command will use.
 
-Pass `--skip-preflight` to bypass all three checks. Useful in CI or when you
+Pass `--skip-preflight` to bypass these checks. Useful in CI or when you
 know the infrastructure is already running.
 
 ---

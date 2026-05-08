@@ -96,7 +96,7 @@ Run Heddle as launchd background services that start on login.
 
 ### Prerequisites
 
-- Python 3.11+ with loom installed: `pip install heddle-ai[workshop]`
+- Python 3.11+ with Heddle installed: `pip install heddle-ai[workshop]`
 - NATS server: `brew install nats-server` or Docker
 
 ### Install
@@ -146,7 +146,7 @@ Run Heddle as Windows services using NSSM.
 
 ### Prerequisites
 
-- Python 3.11+ with loom installed: `pip install heddle-ai[workshop]`
+- Python 3.11+ with Heddle installed: `pip install heddle-ai[workshop]`
 - NSSM: `choco install nssm`
 - NATS server: `choco install nats-server` or Docker
 
