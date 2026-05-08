@@ -567,9 +567,15 @@ class TestTimerAndFireTimes:
         # New next_fire must be in the future, not ~9 increments back.
         assert entry.next_fire > now
         # And must align with the original cadence (some integer number of
-        # intervals past the stale next_fire).
+        # intervals past the stale next_fire).  ``time.monotonic()`` is a
+        # float, so the subtraction here accumulates ~1e-14 of rounding;
+        # round before the modulo to keep the assertion deterministic
+        # across CI runners (this previously flaked on GitHub Actions
+        # 3.11 with ``offset == 100.00000000000001``).
         offset = entry.next_fire - (now - 95.0)
-        assert offset % 10 == 0, f"catch-up broke cadence: offset {offset} not a multiple of 10"
+        assert round(offset, 6) % 10 == 0, (
+            f"catch-up broke cadence: offset {offset} not a multiple of 10"
+        )
 
     def test_advance_next_fire_cron(self, tmp_path):
         schedules = [_goal_schedule(cron="*/5 * * * *")]
