@@ -34,6 +34,37 @@ import structlog
 logger = structlog.get_logger()
 
 
+def _detect_lan_ip() -> str:
+    """Return a non-loopback IPv4 address advertisable on the LAN.
+
+    ``socket.gethostbyname(socket.gethostname())`` is unreliable: on
+    Debian / Ubuntu it returns ``127.0.1.1`` (the conventional
+    ``/etc/hosts`` entry for the machine name), so the advertised
+    service is unreachable from peers.  Use ``ifaddr`` (already a
+    transitive dep via ``zeroconf``) to enumerate adapters and pick a
+    non-loopback IPv4.
+
+    Falls back to ``gethostbyname(gethostname())`` if ``ifaddr`` isn't
+    importable or finds no usable address — preserves prior behaviour
+    on platforms where the legacy path was already correct.
+    """
+    try:
+        import ifaddr  # type: ignore[import-not-found]
+    except ImportError:
+        return socket.gethostbyname(socket.gethostname())
+
+    for adapter in ifaddr.get_adapters():
+        for ip in adapter.ips:
+            if not isinstance(ip.ip, str):
+                continue  # IPv6 entries are tuples; skip
+            if ip.ip.startswith("127."):
+                continue
+            return ip.ip
+
+    # No non-loopback adapter found — fall back to the legacy lookup.
+    return socket.gethostbyname(socket.gethostname())
+
+
 class HeddleServiceAdvertiser:
     """Advertise Heddle services via mDNS/Bonjour on the local network.
 
@@ -104,10 +135,7 @@ class HeddleServiceAdvertiser:
         from zeroconf import ServiceInfo
 
         # Resolve the host address
-        if host is None or host in ("0.0.0.0", ""):
-            host_addr = socket.gethostbyname(socket.gethostname())
-        else:
-            host_addr = host
+        host_addr = _detect_lan_ip() if host is None or host in ("0.0.0.0", "") else host
 
         info = ServiceInfo(
             service_type,
