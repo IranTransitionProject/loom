@@ -272,12 +272,30 @@ class JudgePanelScorer(Scorer):
         if "winner" not in data:
             return None
 
+        # Coerce rubric values one at a time so a single non-numeric entry
+        # doesn't void the whole verdict.  Pre-fix: ``{k: float(v) for ...}``
+        # ran inside the same try/except as the whole ``JudgeVerdict``
+        # construction, so one bad rubric value made ``_parse_verdict``
+        # return ``None`` — discarding winner, margin, and reasoning that
+        # had parsed correctly.
+        rubric_raw = data.get("rubric") or {}
+        rubric: dict[str, float] = {}
+        for k, v in rubric_raw.items():
+            try:
+                rubric[k] = float(v)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "scorer.verdict.rubric_value_skipped",
+                    key=str(k),
+                    value=str(v),
+                )
+
         try:
             return JudgeVerdict(
                 judge_model=judge_model,
                 winner=str(data["winner"]),
                 margin=float(data.get("margin", 0.0)),
-                rubric={k: float(v) for k, v in (data.get("rubric") or {}).items()},
+                rubric=rubric,
                 reasoning=str(data.get("reasoning", "")),
             )
         except (TypeError, ValueError):
