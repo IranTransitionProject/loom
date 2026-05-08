@@ -109,11 +109,14 @@ class TaskWorker(BaseActor):
         except Exception as e:
             log.error("worker.exception", error=str(e))
             await self._publish_result(task, TaskStatus.FAILED, error=str(e))
-
-        # Reset — worker holds NO state from this task.
-        # This is a design invariant, not a suggestion. Any instance variables
-        # set during process() must not affect subsequent invocations.
-        await self.reset()
+        finally:
+            # Reset — worker holds NO state from this task.
+            # This is a design invariant, not a suggestion. Any instance
+            # variables set during process() must not affect subsequent
+            # invocations.  ``finally`` ensures reset runs even when the
+            # try-block exits early via ``return`` on input/output
+            # validation failure, or when ``_publish_result`` raises.
+            await self.reset()
 
     @abstractmethod
     async def process(self, payload: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:

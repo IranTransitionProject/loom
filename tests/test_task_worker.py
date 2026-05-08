@@ -39,6 +39,27 @@ class BadOutputWorker(TaskWorker):
         }
 
 
+class StatefulBadOutputWorker(TaskWorker):
+    """Mutates instance state in process(), then returns invalid output.
+
+    Used to pin the worker-statelessness invariant after the
+    output-validation-failure path: process() ran, state was mutated,
+    output validation rejected the result. ``reset()`` must still run.
+    """
+
+    async def process(self, payload, metadata):
+        self.scratch.append(payload.get("text", ""))
+        return {
+            "output": {"wrong_field": "oops"},
+            "model_used": None,
+            "token_usage": None,
+        }
+
+    async def reset(self):
+        self.reset_count += 1
+        self.scratch = []
+
+
 # --- Fixtures ---
 
 ECHO_CONFIG = {
@@ -140,6 +161,34 @@ async def test_task_worker_process_exception(tmp_path):
     result = TaskResult(**worker.publish.call_args[0][1])
     assert result.status == TaskStatus.FAILED
     assert "intentional failure" in result.error
+
+
+@pytest.mark.asyncio
+async def test_task_worker_resets_after_invalid_output(tmp_path):
+    """reset() runs even when output validation rejects a mutated state.
+
+    Pins Invariant 1 (worker statelessness): after process() runs, reset()
+    must execute regardless of whether output validation passes. Without
+    a try/finally around the body, the early ``return`` on output-validation
+    failure bypasses reset() and leaks process()-mutated state into the
+    next task.
+    """
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(_yaml_dump(ECHO_CONFIG))
+
+    worker = StatefulBadOutputWorker("test-worker", str(config_file))
+    worker.scratch = []
+    worker.reset_count = 0
+    worker.publish = AsyncMock()
+
+    await worker.handle_message(_make_task({"text": "hello"}))
+
+    # process() ran and mutated state; output failed validation; reset must still run.
+    result = TaskResult(**worker.publish.call_args[0][1])
+    assert result.status == TaskStatus.FAILED
+    assert "Output validation" in result.error
+    assert worker.reset_count == 1
+    assert worker.scratch == []
 
 
 @pytest.mark.asyncio
