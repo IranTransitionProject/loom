@@ -57,6 +57,27 @@ async def test_close_without_connection_is_noop():
     await bus.close()
 
 
+@pytest.mark.asyncio
+async def test_publish_subscribe_request_before_connect_raise_runtime_error():
+    """C2: bus operations before connect() must raise a clear RuntimeError.
+
+    Pre-fix the underlying ``self._nc`` was ``None`` and the call site
+    raised ``AttributeError: 'NoneType' object has no attribute 'publish'``
+    (or 'subscribe' / 'request'), which is opaque in error logs.  The
+    ``_require_connected`` guard surfaces a message naming the bus URL.
+    """
+    bus = NATSBus("nats://test:4222")
+
+    with pytest.raises(RuntimeError, match=r"not connected"):
+        await bus.publish("subj", {"x": 1})
+
+    with pytest.raises(RuntimeError, match=r"nats://test:4222"):
+        await bus.subscribe("subj")
+
+    with pytest.raises(RuntimeError, match=r"not connected"):
+        await bus.request("subj", {"x": 1}, timeout=0.1)
+
+
 # ---------------------------------------------------------------------------
 # NATSBus — publish
 # ---------------------------------------------------------------------------

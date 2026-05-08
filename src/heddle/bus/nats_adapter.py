@@ -46,9 +46,10 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger()
 
-# Reconnection defaults — exponential backoff with cap.
+# Reconnection defaults — fixed-interval retry (nats-py
+# ``reconnect_time_wait`` is a constant per-attempt sleep, not an
+# exponential backoff).  1s x 60 attempts ~ 60s total recovery window.
 _RECONNECT_INITIAL_WAIT = 1  # seconds
-_RECONNECT_MAX_WAIT = 30  # seconds
 _RECONNECT_MAX_ATTEMPTS = 60
 
 # Errors that mean the subscription will never deliver another message.
@@ -154,6 +155,19 @@ class NATSBus(MessageBus):
         self.url = url
         self._nc: NATSClient | None = None
 
+    def _require_connected(self) -> NATSClient:
+        """Return the live NATS client or raise a clear error.
+
+        Without this guard, calls to :meth:`publish` / :meth:`subscribe` /
+        :meth:`request` before :meth:`connect` raised
+        ``AttributeError: 'NoneType' object has no attribute …`` — opaque
+        and easy to miss in error logs.  This raises ``RuntimeError`` with
+        the offending bus URL so the misuse is obvious.
+        """
+        if self._nc is None:
+            raise RuntimeError(f"NATSBus({self.url!r}) is not connected — call connect() first")
+        return self._nc
+
     async def connect(self) -> None:
         """Connect to the NATS server with reconnection and event logging.
 
@@ -188,7 +202,8 @@ class NATSBus(MessageBus):
         the message is silently dropped. NATS JetStream would add
         persistence but is not yet configured.
         """
-        await self._nc.publish(subject, json.dumps(data).encode())
+        nc = self._require_connected()
+        await nc.publish(subject, json.dumps(data).encode())
 
     async def subscribe(
         self,
@@ -199,10 +214,11 @@ class NATSBus(MessageBus):
 
         Queue group enables competing consumers for horizontal scaling.
         """
+        nc = self._require_connected()
         if queue_group:
-            nats_sub = await self._nc.subscribe(subject, queue=queue_group)
+            nats_sub = await nc.subscribe(subject, queue=queue_group)
         else:
-            nats_sub = await self._nc.subscribe(subject)
+            nats_sub = await nc.subscribe(subject)
         return NATSSubscription(nats_sub)
 
     async def request(self, subject: str, data: dict[str, Any], timeout: float = 30.0) -> dict:
@@ -212,7 +228,8 @@ class NATSBus(MessageBus):
         use cases like health checks or synchronous worker queries.
         Raises nats.errors.TimeoutError if no reply within timeout.
         """
-        resp = await self._nc.request(
+        nc = self._require_connected()
+        resp = await nc.request(
             subject,
             json.dumps(data).encode(),
             timeout=timeout,
