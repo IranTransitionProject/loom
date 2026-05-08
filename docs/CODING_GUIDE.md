@@ -347,6 +347,36 @@ For long methods or complex logic, use section comment headers:
 Keep these consistent: 70-char dashes, no blank line before the first line
 after the header.
 
+### Lint suppressions (`# noqa`)
+
+Every `# noqa` should carry its **why** inline. The rule code alone is not
+self-documenting — six months later it's unclear whether the suppression is
+load-bearing or stale.
+
+```python
+# Good — rule + reason
+async def aclose(self) -> None:  # noqa: B027 — intentional no-op default for ABC
+global _TRACING_INITIALIZED  # noqa: PLW0603 — module-level singleton flag is the simplest idempotency guard
+
+# Bad — bare suppression
+async def on_reload(self) -> None:  # noqa: B027
+```
+
+**Established suppressions in this codebase**, why they exist, and what would
+break if they were removed:
+
+| Rule | Where | Reason | Removing it breaks |
+|------|-------|--------|---------------------|
+| `B027` | ABC `aclose` defaults (worker/backends, worker/processor, worker/embeddings, orchestrator/store) | Empty async no-op is the *intended* default — concrete subclasses without I/O state should not be required to override. The contract test in `tests/test_async_client_lifecycle.py` calls `aclose` on every backend — those calls only succeed if the ABC defines the method as a real coroutine. | Test mocks and lightweight subclasses; the lifecycle contract test starts requiring stub overrides everywhere. |
+| `B027` | `BaseActor.on_reload` (core/actor.py) | Hot-reload hook — the default is "do nothing" so actors that don't read config from disk inherit the no-op. | Any actor that doesn't override `on_reload` would need an explicit empty-body subclass. |
+| `PLW0603` | `_TRACING_INITIALIZED` in tracing/otel.py | Module-level singleton flag is the simplest idempotency guard for `init_tracing`. The function is the only writer; encapsulating it in a class adds indirection without payoff. | Re-entrant `init_tracing` calls would re-trigger the OTel "Overriding TracerProvider not allowed" warning. |
+| `PLR0912` / `PLR0915` | Long config validators and CLI run commands | Linear top-down flow that's clearer as one function than as a chain of helpers — splitting hurts readability without reducing complexity. | Config validation paths become harder to audit — the noqa is a deliberate choice over a refactor. |
+| `ARG001` | FastAPI route handlers in `workshop/app.py` | FastAPI requires the `request: Request` parameter even when the body doesn't use it. | Removing the parameter changes the route signature and breaks dependency injection. |
+
+When you add a new suppression, append a `—` followed by the reason on the
+same line, and (if the reason has subtle implications) consider adding a row
+to the table above.
+
 ---
 
 ## Error Handling
@@ -518,6 +548,30 @@ topological sort to detect cycles at config load time.
 - **One logical change per commit.** Don't mix refactors with features.
 - Run `uv run ruff check src/ && uv run pytest tests/ -v -m "not integration"`
   before pushing.
+
+### Pre-push checklist for lifecycle-critical code
+
+The full pytest suite (~40s) is **mandatory before push** when a change
+touches any of:
+
+- async-blocking primitives (`asyncio.sleep`, `asyncio.Event`, `asyncio.wait`,
+  cancellation, timeouts)
+- module-level singleton state (init_tracing, lazy global caches)
+- the bus (`bus/`, `MessageBus` ABC) — pre-connect / connect / close ordering
+- actor lifecycle (`core/actor.py`, `worker/base.py`, orchestrator `handle_message`)
+- CLI entry points (`cli/main.py`) that block until SIGINT/SIGTERM
+- mocks-as-test-double surface in `tests/test_*.py`
+
+These areas have non-local interactions that file-scoped tests miss.
+Mutation tests catch the bug being fixed; only the full suite catches
+adjacent tests that depended on the *previous* behaviour. Two CI runs
+(`513391c` test flake hidden by an unrelated job, `0ef39a2` mdns CLI
+test hung for 1h36m) were caused by skipping this step.
+
+When `replace_all=True` on test mocks doesn't cover every site
+(different surrounding context per call), grep the entire test tree for
+the old pattern after the production change to be sure no stale mock
+survives.
 
 ---
 

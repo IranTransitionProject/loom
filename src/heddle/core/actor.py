@@ -145,7 +145,7 @@ class BaseActor(ABC):
                     span.record_exception(e)
                     logger.error("actor.error", actor_id=self.actor_id, error=str(e))
 
-    async def on_reload(self) -> None:  # noqa: B027
+    async def on_reload(self) -> None:  # noqa: B027 — intentional no-op default for ABC
         """Config reload hook — called when a control reload message arrives.
 
         Subclasses override this to re-read their config from disk.
