@@ -265,6 +265,25 @@ the Workshop and MCP bridge see each stage complete in real time.
 opaque — all three stages appear to complete simultaneously at the moment the
 slowest one finishes. The latency is the same; only the observability differs.
 
+### 17. Subscribe before publish for orchestrator → worker request-reply
+
+When an orchestrator dispatches a task and waits for the matching result
+over NATS, it subscribes to `heddle.results.{goal_id}` **before** publishing
+on `heddle.tasks.incoming`. The shared helper
+`heddle.orchestrator.dispatch.dispatch_and_wait_for_result` codifies the
+subscribe → publish → wait sequence, and both `PipelineOrchestrator` and
+`CouncilOrchestrator` route through it.
+
+**Why:** NATS is at-most-once. If the worker finishes between `publish` and
+`subscribe`, the result is delivered to nobody and the orchestrator times
+out with no error on the worker side. Subscribing first guarantees the
+subscription is live before any worker can respond.
+
+**How it fails:** A publish-then-subscribe orchestrator races every fast
+worker. The symptom is a caller timeout while the worker logs a successful
+completion — intermittent, load-dependent, and one of the hardest classes
+of bug to reproduce.
+
 ---
 
 ## Part II — Application Design Patterns
@@ -274,7 +293,7 @@ building pipelines with epistemic constraints, blind audits, or information
 barriers. They are not Heddle framework code — they are design principles that
 emerge from how the framework is meant to be used.
 
-### 17. Knowledge silo isolation is an epistemic quarantine, not a convenience grouping
+### 18. Knowledge silo isolation is an epistemic quarantine, not a convenience grouping
 
 When an application uses knowledge silos to implement information barriers
 (e.g., between analytical workers and audit workers), silos marked as
@@ -297,7 +316,7 @@ warning, no indication that the audit is compromised.
 so they can be more informed. This is precisely the wrong thing to do. Blind
 auditors must be knowledge-deprived by design.
 
-### 18. Neutralization stages are audit firewalls, not text processors
+### 19. Neutralization stages are audit firewalls, not text processors
 
 When a pipeline implements blind auditing, a neutralization stage strips
 domain-specific vocabulary before blind auditors see the text. The neutralizer
@@ -316,7 +335,7 @@ superficially generic, carries the structural fingerprint of domain conclusions.
 - Removing the neutralizer entirely and sending raw text to auditors exposes
   every domain-specific term as a vector for framework contamination.
 
-### 19. Blind auditors should have tiered knowledge deprivation
+### 20. Blind auditors should have tiered knowledge deprivation
 
 Not all audit nodes in a blind audit pipeline should be equally blind. Different
 audit functions require different levels of knowledge deprivation:
@@ -334,7 +353,7 @@ it less adversarial. Adding domain content to structured auditors makes them
 confirmatory. Adding domain content to synthesis nodes makes blind-spot
 detection useless (it validates decisions against the framework that produced them).
 
-### 20. Neutralization maps must be computed per-run, not pre-cached
+### 21. Neutralization maps must be computed per-run, not pre-cached
 
 When a neutralizer produces a reverse map (neutral term -> original domain term),
 that map must be computed per document, not pre-cached globally.
@@ -347,7 +366,7 @@ produces incorrect de-neutralization.
 documents that don't use all terms. Worse, it maps neutral terms back to wrong
 domain terms when there are many-to-one mappings.
 
-### 21. Quality gates should be content-driven, not intent-driven
+### 22. Quality gates should be content-driven, not intent-driven
 
 When a pipeline uses flags to trigger escalation (e.g., routing to a more
 expensive audit tier), the flag should be set based on the analytical worker's
@@ -362,7 +381,7 @@ button.
 can bypass the audit pipeline by not requesting escalation. Conversely,
 important analytical shifts skip audit because the user didn't ask for review.
 
-### 22. Escalation thresholds gate expensive operations
+### 23. Escalation thresholds gate expensive operations
 
 When an adversarial challenge node produces a high-strength challenge that
 triggers escalation (e.g., to manual review with an alternate LLM provider),
@@ -376,7 +395,7 @@ routine challenges don't.
 trust ("the system always escalates"). Too high: genuine analytical failures
 pass through to publication.
 
-### 23. Context flows through messages, not worker state
+### 24. Context flows through messages, not worker state
 
 Session identifiers, request context, and inter-stage metadata must flow
 through `input_mapping` template references, not through worker instance state.
@@ -393,7 +412,7 @@ through a stateless execution chain.
 - If context is added to worker instance state instead of flowing through
   messages, multi-replica deployments lose context tracking.
 
-### 24. Behavioral monitors must be isolated from analytical content
+### 25. Behavioral monitors must be isolated from analytical content
 
 When a pipeline includes a behavioral monitoring worker (e.g., monitoring
 analyst fatigue, tunnel vision, or cognitive bias), that worker must NOT
@@ -409,7 +428,7 @@ analytical disagreements as behavioral anomalies. "User spent 40 minutes on
 entity X" gets flagged as tunnel vision even if entity X genuinely requires
 deep analysis.
 
-### 25. Universal silos must never contain domain-specific analytical content
+### 26. Universal silos must never contain domain-specific analytical content
 
 If a silo is shared across all workers — including blind auditors — it must
 contain only procedural and epistemic discipline rules (source evaluation
@@ -424,7 +443,7 @@ silo as "standing guidance." Now every blind auditor knows what the framework
 considers important. Audit independence is destroyed through the one silo
 everyone trusts.
 
-### 26. There is no "improve the audit by giving auditors more information"
+### 27. There is no "improve the audit by giving auditors more information"
 
 This is the most frequently proposed and most damaging class of "improvement"
 to blind audit pipelines. The information asymmetry between sighted and blind
@@ -436,7 +455,7 @@ auditor who has not read the conclusions will challenge them on logical and
 perspectival grounds. Both are necessary. Merging them destroys the one you
 can't get any other way.
 
-### 27. YAML configs are the right medium for what they describe
+### 28. YAML configs are the right medium for what they describe
 
 Heddle application configs are typically 80% natural-language system prompts and
 20% structural configuration (schemas, mappings, silo assignments). A Python
@@ -452,7 +471,7 @@ Python strings (escaping hell, no syntax highlighting, harder to diff). It
 also removes the ability for non-developer domain experts to review and
 suggest changes to worker behavior.
 
-### 28. Single-writer processors must be truly single-instance
+### 29. Single-writer processors must be truly single-instance
 
 When a processor worker uses `serialize_writes=True` for a single-writer store
 (DuckDB, file-based databases), the application must ensure exactly one instance
@@ -500,7 +519,7 @@ These are things that must never happen, regardless of how reasonable they sound
 
 ## Part III — Council & Multi-Agent Invariants
 
-### 29. Council transcript is managed by the orchestrator, not by workers
+### 30. Council transcript is managed by the orchestrator, not by workers
 
 Workers participating in a council discussion remain fully stateless.
 The multi-round loop, transcript accumulation, and context injection
@@ -517,7 +536,7 @@ processes round 2, and replica B would have no memory of round 1.
 instance variable produces correct results in single-replica testing
 and incoherent debates in production.
 
-### 30. Transcript visibility is a security boundary, not a convenience
+### 31. Transcript visibility is a security boundary, not a convenience
 
 The `sees_transcript_from` field on each agent config is a hard filter —
 not a hint. When agent C's visibility is set to `["A"]`, agent C never
@@ -531,7 +550,7 @@ must not know who wrote which position.
 **How it fails:** Leaking full transcripts to all agents defeats the
 purpose of structured debate and introduces anchoring bias.
 
-### 31. ChatBridge session state lives in the bridge, not in Heddle
+### 32. ChatBridge session state lives in the bridge, not in Heddle
 
 ChatBridge adapters maintain per-session conversation history
 internally (or in the external provider's API). The `ChatBridgeBackend`
@@ -548,7 +567,7 @@ Claude, GPT-4, Ollama, or a human.
 orchestrator would couple Heddle's lifecycle management to external
 provider session semantics.
 
-### 32. Convergence checks must be side-effect-free
+### 33. Convergence checks must be side-effect-free
 
 Convergence detectors (`position_stability`, `llm_judge`) read the
 transcript and produce a score. They never modify the transcript,
