@@ -8,7 +8,7 @@ NOTE: Importing heddle.cli.main triggers a global structlog.configure() call.
 We save and restore the structlog config to prevent pollution of other tests.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import click
 import pytest
@@ -1181,7 +1181,10 @@ def test_preflight_nats_fail():
 
     with (
         patch("heddle.cli.main.check_config_readable", return_value=(True, "ok")),
-        patch("heddle.cli.main._run_async", return_value=(False, "Connection refused")),
+        patch(
+            "heddle.cli.main.check_nats_connectivity",
+            AsyncMock(return_value=(False, "Connection refused")),
+        ),
         pytest.raises(click.Abort),
     ):
         _run_preflight("nats://localhost:4222", config="good.yaml")
@@ -1193,7 +1196,10 @@ def test_preflight_nats_ok_with_env_warnings(capsys):
 
     with (
         patch("heddle.cli.main.check_config_readable", return_value=(True, "ok")),
-        patch("heddle.cli.main._run_async", return_value=(True, "NATS connected")),
+        patch(
+            "heddle.cli.main.check_nats_connectivity",
+            AsyncMock(return_value=(True, "NATS connected")),
+        ),
         patch(
             "heddle.cli.main.check_env_vars",
             return_value=["ANTHROPIC_API_KEY not set"],
@@ -1210,7 +1216,10 @@ def test_preflight_nats_ok_no_env_check():
 
     with (
         patch("heddle.cli.main.check_config_readable", return_value=(True, "ok")),
-        patch("heddle.cli.main._run_async", return_value=(True, "NATS connected")),
+        patch(
+            "heddle.cli.main.check_nats_connectivity",
+            AsyncMock(return_value=(True, "NATS connected")),
+        ),
         patch("heddle.cli.main.check_env_vars") as mock_env,
     ):
         _run_preflight(
