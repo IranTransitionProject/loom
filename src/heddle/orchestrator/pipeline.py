@@ -464,8 +464,6 @@ class PipelineOrchestrator(BaseActor):
             for task in done:
                 exc = task.exception()
                 if exc is not None:
-                    # Record first error but let remaining stages finish
-                    # (they're already running).
                     if first_error is None:
                         first_error = exc
                     continue
@@ -480,6 +478,16 @@ class PipelineOrchestrator(BaseActor):
                     completed=completed_stage_count,
                     total=total_stage_count,
                 )
+
+            # On first error, cancel any still-running peers in this level
+            # and drain their cancellations.  Without this, a failed level
+            # blocked on the slowest sibling — wasting time and tokens on
+            # work whose results would be discarded anyway.
+            if first_error is not None and pending:
+                for t in pending:
+                    t.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+                pending = set()
 
         # After all tasks in the level are done, propagate the first error.
         if first_error is not None:

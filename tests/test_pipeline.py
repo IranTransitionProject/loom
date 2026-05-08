@@ -562,6 +562,81 @@ class TestParallelExecution:
         assert "B" in final["error"]
 
     @pytest.mark.asyncio
+    async def test_failure_cancels_running_peers_in_same_level(self, tmp_path):
+        """C4: when a parallel stage fails, still-running peers are cancelled.
+
+        Pre-fix the level waited on every dispatched stage (``while pending:
+        asyncio.wait(FIRST_COMPLETED)``) — a fast failure had to sit through
+        the slowest sibling's full per-stage timeout before the pipeline
+        could abort.  This wasted wall-clock time and (for LLM stages)
+        burned tokens whose results would be discarded.
+
+        Test shape: two parallel stages, B fails immediately, A is *never*
+        given a result.  With cancellation, the pipeline aborts in well
+        under the per-stage timeout.  Without cancellation, the pipeline
+        hangs until A's stage timeout elapses (set to 4s here so the bug
+        is observable in a 2s wait_for).
+        """
+        stages = [
+            {
+                "name": "A",
+                "worker_type": "workerA",
+                "tier": "local",
+                "input_mapping": {"x": "goal.context.x"},
+            },
+            {
+                "name": "B",
+                "worker_type": "workerB",
+                "tier": "local",
+                "input_mapping": {"y": "goal.context.y"},
+            },
+        ]
+        # 4s per-stage timeout — A would hang this long without cancellation.
+        orch, bus = _make_pipeline_orchestrator(tmp_path, stages, timeout=4)
+        await bus.connect()
+
+        goal = OrchestratorGoal(
+            instruction="cancel-test",
+            context={"x": "1", "y": "2"},
+        )
+
+        task_sub = await bus.subscribe("heddle.tasks.incoming")
+        result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
+
+        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+
+        # Both A and B dispatched concurrently.
+        dispatched = {}
+        for _ in range(2):
+            data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
+            dispatched[data["metadata"]["stage_name"]] = data
+
+        # B fails immediately; A is intentionally NEVER given a result.
+        b_result = TaskResult(
+            task_id=dispatched["B"]["task_id"],
+            worker_type="workerB",
+            status=TaskStatus.FAILED,
+            error="B blew up",
+            processing_time_ms=10,
+        )
+        await bus.publish(
+            f"heddle.results.{goal.goal_id}",
+            b_result.model_dump(mode="json"),
+        )
+
+        # The pipeline must abort well before A's 4s per-stage timeout.
+        # ``wait_for(timeout=2)`` is generous: the cancellation path is
+        # immediate, but the orchestrator still does a graceful shutdown.
+        await asyncio.wait_for(pipeline_task, timeout=2)
+
+        final = await asyncio.wait_for(
+            _wait_for_pipeline_result(result_sub, goal.goal_id),
+            timeout=2,
+        )
+        assert final["status"] == TaskStatus.FAILED.value
+        assert "B" in final["error"]
+
+    @pytest.mark.asyncio
     async def test_sequential_pipeline_unchanged(self, tmp_path):
         """A fully sequential pipeline still works correctly."""
         stages = [
