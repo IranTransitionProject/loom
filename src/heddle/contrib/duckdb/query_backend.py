@@ -100,18 +100,42 @@ class DuckDBQueryBackend(SyncProcessingBackend):
         default_order_by: str = "rowid",
         embedding_column: str = "embedding",
     ) -> None:
+        from heddle.contrib._sql_security import (
+            validate_sql_identifier,
+            validate_sql_identifier_list,
+        )
+
         self.db_path = Path(db_path)
-        self.table_name = table_name
+        # Validate identifier-shaped fields at construction so a typo
+        # in YAML (or worse, a crafted value) fails fast rather than
+        # silently corrupting an interpolated query.  ``stats_aggregates``
+        # and ``default_order_by`` are intentionally free-form SQL
+        # (callers ship things like ``"COUNT(*) AS n"``); we don't
+        # validate those — they're a documented power-user surface.
+        self.table_name = validate_sql_identifier(table_name, field="table_name")
+        self.id_column = validate_sql_identifier(id_column, field="id_column")
+        self.embedding_column = validate_sql_identifier(
+            embedding_column, field="embedding_column"
+        )
+        if full_text_column is not None:
+            self.full_text_column = validate_sql_identifier(
+                full_text_column, field="full_text_column"
+            )
+        else:
+            self.full_text_column = None
+        # ``fts_fields`` is comma-separated, e.g. "full_text,summary".
+        # Each name must be a valid identifier.  We re-join after
+        # validation so the stored value is the canonical
+        # whitespace-trimmed form.
+        self.fts_fields = ",".join(
+            validate_sql_identifier_list(fts_fields, field="fts_fields")
+        )
         self.result_columns = result_columns or ["id"]
         self.json_columns = json_columns or set()
-        self.id_column = id_column
-        self.full_text_column = full_text_column
-        self.fts_fields = fts_fields
         self.filter_fields = filter_fields or {}
         self.stats_groups = stats_groups or set()
         self.stats_aggregates = stats_aggregates or ["COUNT(*) AS record_count"]
         self.default_order_by = default_order_by
-        self.embedding_column = embedding_column
 
     def _get_handlers(self) -> dict[str, Callable]:
         """Return action→handler mapping.

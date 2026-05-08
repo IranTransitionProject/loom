@@ -74,10 +74,18 @@ class DuckDBVectorTool(SyncToolProvider):
         ollama_url: str | None = None,
         max_results: int = 10,
     ) -> None:
+        from heddle.contrib._sql_security import validate_sql_identifier
+
         self.db_path = db_path
-        self.table_name = table_name
+        # Identifiers flow into ``DESCRIBE`` and ``SELECT ... FROM
+        # {table}`` statements as f-string interpolations.  Validate at
+        # construction so misconfigured YAML rejects loudly instead of
+        # silently corrupting (or hijacking) queries.
+        self.table_name = validate_sql_identifier(table_name, field="table_name")
+        self.embedding_column = validate_sql_identifier(
+            embedding_column, field="embedding_column"
+        )
         self._result_columns = result_columns
-        self.embedding_column = embedding_column
         self.tool_name = tool_name
         self.description = description
         self.embedding_model = embedding_model

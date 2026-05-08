@@ -29,6 +29,7 @@ from typing import Any
 import duckdb
 import structlog
 
+from heddle.contrib._sql_security import validate_sql_identifier
 from heddle.worker.tools import SyncToolProvider
 
 logger = structlog.get_logger()
@@ -56,7 +57,11 @@ class DuckDBViewTool(SyncToolProvider):
         max_results: int = 20,
     ) -> None:
         self.db_path = db_path
-        self.view_name = view_name
+        # Validate at construction so misconfigured YAML fails loudly
+        # at startup rather than silently breaking (or worse, executing
+        # an injected DDL fragment) later when ``DESCRIBE {view_name}``
+        # is interpolated.
+        self.view_name = validate_sql_identifier(view_name, field="view_name")
         self.description = description
         self.max_results = max_results
         self._columns: list[dict[str, str]] = []

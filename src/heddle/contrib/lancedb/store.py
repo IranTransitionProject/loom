@@ -22,6 +22,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from heddle.contrib._sql_security import escape_sql_string_literal
 from heddle.contrib.rag.schemas.embedding import EmbeddedChunk, SimilarityResult
 from heddle.contrib.rag.vectorstore.base import VectorStore
 
@@ -322,8 +323,16 @@ class LanceDBVectorStore(VectorStore):
         if self._table is None:
             return None
 
+        # ``chunk_id`` is user data (not an identifier) flowing into a
+        # LanceDB single-quoted string literal.  Escape ``'`` → ``''``
+        # so a quote in the id can't break out of the literal.
         try:
-            results = self._table.search().where(f"chunk_id = '{chunk_id}'").limit(1).to_list()
+            results = (
+                self._table.search()
+                .where(f"chunk_id = '{escape_sql_string_literal(chunk_id)}'")
+                .limit(1)
+                .to_list()
+            )
         except Exception:
             return None
 
@@ -348,7 +357,9 @@ class LanceDBVectorStore(VectorStore):
 
         before = self._table.count_rows()
         try:
-            self._table.delete(f"chunk_id = '{chunk_id}'")
+            self._table.delete(
+                f"chunk_id = '{escape_sql_string_literal(chunk_id)}'"
+            )
         except Exception as exc:
             logger.warning("Delete failed for chunk %s: %s", chunk_id, exc)
             return False
@@ -361,7 +372,9 @@ class LanceDBVectorStore(VectorStore):
 
         before = self._table.count_rows()
         try:
-            self._table.delete(f"source_global_id = '{source_global_id}'")
+            self._table.delete(
+                f"source_global_id = '{escape_sql_string_literal(source_global_id)}'"
+            )
         except Exception as exc:
             logger.warning("Delete by source failed for %s: %s", source_global_id, exc)
             return 0
