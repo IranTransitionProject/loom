@@ -155,6 +155,42 @@ class TestSessionStatus:
         assert "services" in result
         assert result["sessions"] == [{"session_id": "s1"}]
 
+    @pytest.mark.asyncio
+    async def test_status_on_non_git_framework(self, tmp_path):
+        """Framework directory without .git must not raise NameError.
+
+        Pins the contract that ``_session_status`` returns ``git_clean=None``
+        and ``dirty_files=0`` when the framework is not a git repo, rather
+        than raising ``NameError`` on ``dirty_count``.
+        """
+        fw = tmp_path / "framework"
+        fw.mkdir()  # intentionally NO .git subdirectory
+        ws = tmp_path / "workspace"
+        ws.mkdir()
+        bridge = SessionBridge(
+            framework_dir=fw,
+            workspace_dir=ws,
+            nats_url="nats://127.0.0.1:19999",
+            ollama_url="http://127.0.0.1:19999",
+        )
+
+        with (
+            patch(
+                "heddle.mcp.session_registry.get_active_sessions",
+                return_value=[],
+            ),
+            patch.object(bridge, "_check_nats", return_value=(False, "down")),
+            patch.object(bridge, "_check_ollama", return_value=(False, "down")),
+            patch.object(bridge, "_check_duckdb", return_value=(False, "down")),
+        ):
+            result = await bridge.dispatch("status", {})
+
+        assert result["framework"]["git_clean"] is None
+        assert result["framework"]["dirty_files"] == 0
+        assert result["sessions"] == []
+        # Adjacent contract: services dict still populated even when git path is short-circuited.
+        assert set(result["services"]) == {"nats", "ollama", "duckdb"}
+
 
 class TestSyncCheck:
     """Tests for session.sync_check."""

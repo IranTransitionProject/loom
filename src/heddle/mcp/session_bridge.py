@@ -274,6 +274,7 @@ class SessionBridge:
         # Framework git
         fw = self.framework_dir
         git_clean = None
+        dirty_count = 0
         if (fw / ".git").is_dir():
             status = self._git(["status", "--porcelain"])
             dirty_count = len(status.stdout.strip().split("\n")) if status.stdout.strip() else 0
