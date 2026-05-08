@@ -244,6 +244,8 @@ class SessionBridge:
         fw = self.framework_dir
         committed = False
         push_ok = False
+        push_skipped: str | None = None
+        allow_protected = bool(arguments.get("allow_push_to_protected", False))
         if (fw / ".git").is_dir():
             status = self._git(["status", "--porcelain"])
             if status.stdout.strip():
@@ -255,15 +257,36 @@ class SessionBridge:
                 commit = self._git(["commit", "-m", commit_msg])
                 committed = commit.returncode == 0
                 if committed:
-                    push = self._git(["push"])
-                    push_ok = push.returncode == 0
+                    # Refuse to push to a protected branch unless the caller
+                    # opts in.  ``session.end`` previously called ``git push``
+                    # with no branch check, so an analytical session that
+                    # happened to be on ``main`` (e.g. a freshly-cloned
+                    # framework) silently published commits there.
+                    branch_proc = self._git(["rev-parse", "--abbrev-ref", "HEAD"])
+                    branch = branch_proc.stdout.strip() if branch_proc.returncode == 0 else ""
+                    if branch in {"main", "master"} and not allow_protected:
+                        push_skipped = (
+                            f"refused to push to protected branch '{branch}'; "
+                            f"pass allow_push_to_protected=true to override"
+                        )
+                        logger.warning(
+                            "session.push_skipped_protected_branch",
+                            session_id=sid,
+                            branch=branch,
+                        )
+                    else:
+                        push = self._git(["push"])
+                        push_ok = push.returncode == 0
 
-        return {
+        result: dict[str, Any] = {
             "session_id": sid,
             "status": "ended",
             "committed": committed,
             "pushed": push_ok,
         }
+        if push_skipped:
+            result["push_skipped_reason"] = push_skipped
+        return result
 
     async def _session_status(self, arguments: dict[str, Any]) -> dict[str, Any]:
         """Show active sessions and system health."""

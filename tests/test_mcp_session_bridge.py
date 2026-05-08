@@ -123,6 +123,87 @@ class TestSessionEnd:
         assert result["committed"] is True
 
     @pytest.mark.asyncio
+    async def test_end_refuses_push_on_main_branch(self, bridge):
+        """C8: ``session.end`` must NOT ``git push`` while on main/master.
+
+        Pre-fix the push happened unconditionally — an analytical session
+        on a freshly-cloned framework (still on ``main``) silently published
+        commits to the trunk.  The fix checks the current branch and skips
+        the push unless ``allow_push_to_protected=true`` is passed.
+        """
+        push_calls: list[list[str]] = []
+
+        def mock_git_fn(args, cwd=None):
+            m = MagicMock(returncode=0, stderr="")
+            if args[0] == "status":
+                m.stdout = "M data/file.yaml\n"  # something to commit
+            elif args == ["rev-parse", "--abbrev-ref", "HEAD"]:
+                m.stdout = "main\n"
+            elif args[0] == "push":
+                push_calls.append(list(args))
+                m.stdout = ""
+            else:
+                m.stdout = ""
+            return m
+
+        with (
+            patch.object(bridge, "_git", side_effect=mock_git_fn),
+            patch("heddle.mcp.session_registry.unregister_session"),
+            patch(
+                "heddle.mcp.session_registry.get_active_sessions",
+                return_value=[{"session_id": "s1"}],
+            ),
+        ):
+            result = await bridge.dispatch("end", {})
+
+        assert result["status"] == "ended"
+        assert result["committed"] is True
+        assert result["pushed"] is False
+        assert "main" in result.get("push_skipped_reason", "")
+        # Adjacent contract: ``git push`` was actually never invoked.
+        assert push_calls == []
+
+    @pytest.mark.asyncio
+    async def test_end_pushes_on_main_when_explicitly_allowed(self, bridge):
+        """Adjacent contract: explicit opt-in re-enables the push.
+
+        ``allow_push_to_protected=true`` is the escape hatch so the safety
+        check doesn't break operators who legitimately want to push to
+        ``main`` (e.g., maintaining a single-branch fork).
+        """
+        push_calls: list[list[str]] = []
+
+        def mock_git_fn(args, cwd=None):
+            m = MagicMock(returncode=0, stderr="")
+            if args[0] == "status":
+                m.stdout = "M data/file.yaml\n"
+            elif args == ["rev-parse", "--abbrev-ref", "HEAD"]:
+                m.stdout = "main\n"
+            elif args[0] == "push":
+                push_calls.append(list(args))
+                m.stdout = ""
+            else:
+                m.stdout = ""
+            return m
+
+        with (
+            patch.object(bridge, "_git", side_effect=mock_git_fn),
+            patch("heddle.mcp.session_registry.unregister_session"),
+            patch(
+                "heddle.mcp.session_registry.get_active_sessions",
+                return_value=[{"session_id": "s1"}],
+            ),
+        ):
+            result = await bridge.dispatch(
+                "end",
+                {"allow_push_to_protected": True},
+            )
+
+        assert result["pushed"] is True
+        assert "push_skipped_reason" not in result
+        assert push_calls == [["push"]]
+
+    @pytest.mark.asyncio
     async def test_end_no_active_sessions(self, bridge):
         with patch(
             "heddle.mcp.session_registry.get_active_sessions",
