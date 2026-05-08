@@ -108,6 +108,51 @@ class WorkerSimBus(BusRecorder):
             )
 
 
+class MalformedThenValidWorkerSimBus(BusRecorder):
+    """Replies with a malformed result followed by a valid one.
+
+    Pins parse-error resilience in
+    :func:`heddle.orchestrator.dispatch.dispatch_and_wait_for_result`:
+    a malformed result that happens to carry the matching ``task_id``
+    must NOT take down the consumer task.  Without resilience the
+    Pydantic ``ValidationError`` propagates out of ``_consume``,
+    ``result_future`` is never set, and the orchestrator times out
+    even though a valid result was right behind the malformed one.
+    """
+
+    def __init__(self, goal_id: str, output: dict[str, Any]) -> None:
+        super().__init__()
+        self._goal_id = goal_id
+        self._output = output
+
+    async def publish(self, subject: str, data: dict[str, Any]) -> None:
+        await super().publish(subject, data)
+        if subject == "heddle.tasks.incoming":
+            # First: malformed result with matching task_id but
+            # missing required fields and an invalid status enum.
+            await self.publish(
+                f"heddle.results.{self._goal_id}",
+                {"task_id": data["task_id"], "status": "bogus"},
+            )
+            # Second: valid result with the same task_id.  Inline so
+            # the timeout window doesn't matter — both publishes complete
+            # before dispatch_and_wait_for_result gets to ``await
+            # wait_for(result_future, ...)``.
+            valid = TaskResult(
+                task_id=data["task_id"],
+                parent_task_id=data.get("parent_task_id"),
+                worker_type=data["worker_type"],
+                status=TaskStatus.COMPLETED,
+                output=self._output,
+                processing_time_ms=1,
+                token_usage={"prompt_tokens": 0, "completion_tokens": 0},
+            )
+            await self.publish(
+                f"heddle.results.{self._goal_id}",
+                valid.model_dump(mode="json"),
+            )
+
+
 def _assert_subscribe_before_publish(
     calls: list[tuple[str, str]],
     *,
@@ -193,6 +238,39 @@ class TestPipelineOrchestratorOrdering:
         assert result is not None, "fast worker reply was lost — race not fixed"
         assert result.status == TaskStatus.COMPLETED
         assert result.output == {"summary": "fast"}
+
+    @pytest.mark.asyncio
+    async def test_malformed_matching_result_is_skipped(self):
+        """A malformed matching result must not kill the consumer task.
+
+        ``ResultStream`` (orchestrator/stream.py) already logs and
+        skips Pydantic-rejected payloads.  ``dispatch_and_wait_for_result``
+        used to construct ``TaskResult(**data)`` unguarded — the
+        ValidationError propagated out of the consumer task, the
+        future was never set, and the helper timed out even when a
+        valid result followed the malformed one.
+        """
+        from heddle.orchestrator.dispatch import dispatch_and_wait_for_result
+
+        bus = MalformedThenValidWorkerSimBus(
+            goal_id="goal-pipe-malformed", output={"summary": "valid"}
+        )
+        await bus.connect()
+
+        task = TaskMessage(worker_type="summarizer", payload={"text": "hi"})
+        result = await dispatch_and_wait_for_result(
+            bus=bus,
+            task=task,
+            task_data=task.model_dump(mode="json"),
+            goal_id="goal-pipe-malformed",
+            timeout=2.0,
+        )
+
+        assert result is not None, (
+            "valid result after malformed one was lost — parse-error resilience not in place"
+        )
+        assert result.status == TaskStatus.COMPLETED
+        assert result.output == {"summary": "valid"}
 
 
 # ---------------------------------------------------------------------------

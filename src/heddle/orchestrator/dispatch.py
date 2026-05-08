@@ -23,11 +23,16 @@ import asyncio
 import contextlib
 from typing import TYPE_CHECKING, Any
 
+import structlog
+
 from heddle.core.messages import TaskResult
 
 if TYPE_CHECKING:
     from heddle.bus.base import MessageBus
     from heddle.core.messages import TaskMessage
+
+
+logger = structlog.get_logger()
 
 
 _INCOMING_SUBJECT = "heddle.tasks.incoming"
@@ -66,10 +71,27 @@ async def dispatch_and_wait_for_result(
 
     async def _consume() -> None:
         async for data in sub:
-            if data.get("task_id") == task.task_id:
-                with contextlib.suppress(asyncio.InvalidStateError):
-                    result_future.set_result(TaskResult(**data))
-                break
+            if data.get("task_id") != task.task_id:
+                continue
+            # Parse-error resilience: a malformed matching result must
+            # NOT take down the consumer task.  ``ResultStream``
+            # (orchestrator/stream.py) skips Pydantic-rejected payloads
+            # the same way; keeping the two parallel — same skip-and-
+            # continue behaviour, parallel ``*.parse_error`` log keys —
+            # means a future operator can grep both modules with one
+            # query.
+            try:
+                parsed = TaskResult(**data)
+            except Exception as e:
+                logger.warning(
+                    "dispatch.parse_error",
+                    task_id=task.task_id,
+                    error=str(e),
+                )
+                continue
+            with contextlib.suppress(asyncio.InvalidStateError):
+                result_future.set_result(parsed)
+            break
 
     consume_task = asyncio.create_task(_consume())
 
