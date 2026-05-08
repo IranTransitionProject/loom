@@ -15,6 +15,7 @@ All tests use InMemoryBus -- no NATS or external infrastructure required.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import signal
 import time
 
@@ -493,16 +494,84 @@ class TestTimerAndFireTimes:
         assert entry.next_fire <= before + 3600 + 1
 
     def test_advance_next_fire_interval(self, tmp_path):
+        """Advance increments by exactly ``interval_seconds`` (no drift).
+
+        ``_advance_next_fire`` is now relative to the prior ``next_fire``,
+        not to ``time.monotonic()``.  Resetting from ``now`` would add
+        the timer-loop sleep + dispatch latency to every cycle, drifting
+        the schedule indefinitely.  This test pins the increment to the
+        exact interval.
+        """
         schedules = [_task_schedule(interval_seconds=30)]
         config_file = _write_config(tmp_path, schedules)
         actor = SchedulerActor("s3", config_file, bus=InMemoryBus())
 
         entry = actor._schedules[0]
-        before = time.monotonic()
-        actor._advance_next_fire(entry)
-        after = time.monotonic()
+        # Seed a realistic prior fire time slightly in the future so the
+        # catch-up branch is not exercised here (covered separately).
+        entry.next_fire = time.monotonic() + 5.0
+        prev = entry.next_fire
 
-        assert before + 30 <= entry.next_fire <= after + 30
+        actor._advance_next_fire(entry)
+
+        assert entry.next_fire == prev + 30.0, (
+            f"interval drift: expected {prev + 30.0}, got {entry.next_fire}"
+        )
+
+    def test_advance_next_fire_no_drift_over_many_cycles(self, tmp_path):
+        """Drift regression: 1000 cycles of an interval schedule should
+        produce a fire-time exactly N * interval past the start.
+
+        Pre-fix shape (``next_fire = now + interval``) added the
+        sample-clock latency to every iteration, so an "every 60s"
+        schedule could drift to >60s and accumulate over time.  The
+        fixed shape (``next_fire += interval``) keeps cycle time
+        exactly ``interval_seconds`` regardless of dispatch latency.
+        """
+        schedules = [_task_schedule(interval_seconds=0.5)]
+        config_file = _write_config(tmp_path, schedules)
+        actor = SchedulerActor("s_drift", config_file, bus=InMemoryBus())
+
+        entry = actor._schedules[0]
+        # Start far in the future so no catch-up branch fires.
+        start = time.monotonic() + 10_000.0
+        entry.next_fire = start
+
+        for _ in range(1000):
+            actor._advance_next_fire(entry)
+
+        # 1000 increments of 0.5 = 500.0 exactly.  No tolerance — the
+        # whole point is that there is no drift to bound.
+        assert entry.next_fire == start + 500.0, (
+            f"interval schedule drifted: expected {start + 500.0}, "
+            f"got {entry.next_fire} ({entry.next_fire - (start + 500.0)} off)"
+        )
+
+    def test_advance_next_fire_catches_up_after_stall(self, tmp_path):
+        """If the actor stalled and is several intervals behind, the next
+        fire jumps to the next future slot rather than firing back-to-back.
+
+        Avoids flooding downstream consumers after a debugger pause or
+        a slow handler.
+        """
+        schedules = [_task_schedule(interval_seconds=10)]
+        config_file = _write_config(tmp_path, schedules)
+        actor = SchedulerActor("s_catchup", config_file, bus=InMemoryBus())
+
+        entry = actor._schedules[0]
+        now = time.monotonic()
+        entry.next_fire = now - 95.0  # ~9 intervals behind
+
+        actor._advance_next_fire(entry)
+
+        # New next_fire must be in the future, not ~9 increments back.
+        assert entry.next_fire > now
+        # And must align with the original cadence (some integer number of
+        # intervals past the stale next_fire).
+        offset = entry.next_fire - (now - 95.0)
+        assert offset % 10 == 0, (
+            f"catch-up broke cadence: offset {offset} not a multiple of 10"
+        )
 
     def test_advance_next_fire_cron(self, tmp_path):
         schedules = [_goal_schedule(cron="*/5 * * * *")]
@@ -720,3 +789,183 @@ class TestDispatchEdgeCases:
         original_fire = entry.next_fire
         actor._advance_next_fire(entry)
         assert entry.next_fire == original_fire
+
+
+# ---------------------------------------------------------------------------
+# Control-listener / on_reload regression tests
+#
+# An earlier shape of ``SchedulerActor.run()`` overrode the base method
+# but never started the control listener — so ``heddle.control.reload``
+# broadcasts were silently ignored and the scheduler was permanently
+# frozen at startup config.  These tests pin both the listener wiring
+# and the on_reload behaviour.
+# ---------------------------------------------------------------------------
+
+
+class TestSchedulerOnReload:
+    @pytest.mark.asyncio
+    async def test_on_reload_re_reads_config_and_swaps_schedules(self, tmp_path):
+        """on_reload() re-parses the YAML and replaces self._schedules."""
+        config_file = _write_config(
+            tmp_path,
+            [_task_schedule(name="initial", interval_seconds=60)],
+        )
+        actor = SchedulerActor("s-reload", config_file, bus=InMemoryBus())
+        assert [s.name for s in actor._schedules] == ["initial"]
+
+        # Rewrite the config file with a new schedule list.
+        new_yaml = yaml.dump(
+            {
+                "name": "test-scheduler",
+                "schedules": [
+                    _task_schedule(name="renamed", interval_seconds=30),
+                    _goal_schedule(name="added", interval_seconds=120),
+                ],
+            }
+        )
+        from pathlib import Path
+
+        Path(config_file).write_text(new_yaml)
+
+        await actor.on_reload()
+
+        assert [s.name for s in actor._schedules] == ["renamed", "added"]
+        # And the new entries have valid (non-zero, in-the-future) fire times.
+        for entry in actor._schedules:
+            assert entry.next_fire > 0
+
+    @pytest.mark.asyncio
+    async def test_run_starts_control_listener(self, tmp_path):
+        """``run()`` must subscribe to ``heddle.control.reload`` and
+        invoke ``on_reload()`` when a reload broadcast arrives.
+
+        Regression test: the previous ``run()`` override never started
+        the control listener, so config hot-reload was silently
+        disabled.  This test publishes a reload message and asserts
+        ``on_reload`` was awaited.
+        """
+        config_file = _write_config(
+            tmp_path,
+            [_task_schedule(name="x", interval_seconds=600)],
+        )
+        bus = InMemoryBus()
+        await bus.connect()
+        actor = SchedulerActor("s-ctrl", config_file, bus=bus)
+
+        reload_called = asyncio.Event()
+        original_on_reload = actor.on_reload
+
+        async def spy_on_reload():
+            reload_called.set()
+            await original_on_reload()
+
+        actor.on_reload = spy_on_reload  # type: ignore[method-assign]
+
+        # Run the actor in the background.  We can't easily install
+        # signal handlers in a test, so we drive shutdown via _running.
+        run_task = asyncio.create_task(actor.run("heddle.scheduler.s-ctrl"))
+
+        # Give the actor time to subscribe to both the main subject AND
+        # heddle.control.reload before we publish the reload broadcast.
+        # Without the listener wired up, this publish has no subscriber
+        # and the message is dropped — reload_called will never set and
+        # the wait_for below will time out (which is exactly the failure
+        # mode the test catches).
+        try:
+            for _ in range(50):
+                await asyncio.sleep(0.02)
+                if any(
+                    "heddle.control.reload" in subj
+                    for subj in bus._subscribers
+                ):
+                    break
+
+            await bus.publish("heddle.control.reload", {"action": "reload"})
+
+            await asyncio.wait_for(reload_called.wait(), timeout=2.0)
+        finally:
+            actor._running = False
+            if actor._shutdown_event is not None:
+                actor._shutdown_event.set()
+            # Force the subscription loop to exit by closing the bus.
+            await bus.close()
+            with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError):
+                await asyncio.wait_for(run_task, timeout=2.0)
+            if not run_task.done():
+                run_task.cancel()
+                with contextlib.suppress(BaseException):
+                    await run_task
+
+
+# ---------------------------------------------------------------------------
+# Event-loop responsiveness during expansion
+# ---------------------------------------------------------------------------
+
+
+class TestExpansionDoesNotBlockEventLoop:
+    @pytest.mark.asyncio
+    async def test_blocking_expansion_runs_concurrently_with_other_tasks(
+        self, tmp_path, monkeypatch
+    ):
+        """A slow ``expand_from`` callable must not freeze the event loop.
+
+        Regression test for the original quality issue: the expansion
+        function was called inline with ``self._run_expansion(...)``,
+        so any user-defined I/O it performed (DB query, HTTP probe)
+        blocked the timer loop AND any other in-flight coroutine.
+        Now wrapped in ``asyncio.to_thread``, the loop stays responsive.
+
+        We measure wall-clock time of running ``_fire_schedule`` and a
+        sleep concurrently via :func:`asyncio.gather`.  Both take ~0.3s
+        of work each.  With the fix they run in parallel (total ~0.3s);
+        without it the sync ``time.sleep`` inside the expansion blocks
+        the loop and the awaitable ``asyncio.sleep`` cannot make
+        progress until the expansion returns (total ~0.6s).
+        """
+        sleep_seconds = 0.3
+
+        def slow_expansion():
+            time.sleep(sleep_seconds)
+            return [{"k": "v"}]
+
+        # Monkey-patch importlib so the dotted path resolves to our
+        # local function without needing a real module on disk.
+        import importlib
+
+        fake_mod = type("M", (), {"slow_fn": slow_expansion})
+        monkeypatch.setattr(
+            importlib,
+            "import_module",
+            lambda name: fake_mod if name == "fake.mod" else __import__(name),
+        )
+
+        schedules = [
+            {
+                "name": "s_expand",
+                "interval_seconds": 60,
+                "dispatch_type": "task",
+                "task": {"worker_type": "summarizer", "payload": {}},
+                "expand_from": "fake.mod.slow_fn",
+            }
+        ]
+        config_file = _write_config(tmp_path, schedules)
+        bus = InMemoryBus()
+        await bus.connect()
+        actor = SchedulerActor("s_expand", config_file, bus=bus)
+
+        start = time.monotonic()
+        await asyncio.gather(
+            actor._fire_schedule(actor._schedules[0]),
+            asyncio.sleep(sleep_seconds),
+        )
+        elapsed = time.monotonic() - start
+
+        # Concurrent execution: total ≈ max(0.3, 0.3) = 0.3s plus a
+        # little overhead.  Sequential (blocked) execution: ≈ 0.6s.
+        # We assert below the midpoint to leave clear separation
+        # between the two cases.
+        assert elapsed < sleep_seconds * 1.5, (
+            f"event loop was blocked: gather took {elapsed:.3f}s for two "
+            f"concurrent {sleep_seconds}s tasks (expected ~{sleep_seconds}s, "
+            f"sequential would be ~{sleep_seconds * 2}s)"
+        )

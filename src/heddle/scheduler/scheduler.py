@@ -86,6 +86,8 @@ class SchedulerActor(BaseActor):
         bus: MessageBus | None = None,
     ) -> None:
         super().__init__(actor_id, nats_url, bus=bus)
+        # Stored so on_reload() can re-read from the same file.
+        self._config_path = config_path
         self.config = self._load_config(config_path)
         self._schedules: list[ScheduleEntry] = self._parse_schedules(
             self.config.get("schedules", [])
@@ -128,7 +130,15 @@ class SchedulerActor(BaseActor):
     # ------------------------------------------------------------------
 
     async def run(self, subject: str, queue_group: str | None = None) -> None:
-        """Start the scheduler with background timer loop and subscription."""
+        """Start the scheduler with background timer loop and subscription.
+
+        Parallels :meth:`BaseActor.run` but adds a background timer loop
+        alongside the subscription loop and the control listener.  Earlier
+        revisions omitted the control listener, which silently disabled
+        config hot-reload (``heddle.control.reload`` was never observed)
+        — the listener is now started exactly like BaseActor's version
+        so ``on_reload()`` triggers from broadcasts.
+        """
         self._shutdown_event = asyncio.Event()
         self._semaphore = asyncio.Semaphore(self.max_concurrent)
 
@@ -146,9 +156,9 @@ class SchedulerActor(BaseActor):
             schedule_count=len(self._schedules),
         )
 
-        # Launch background timer loop
+        # Launch background timer loop and control listener.
         self._timer_task = asyncio.create_task(self._timer_loop())
-        self._background_tasks: set[asyncio.Task[None]] = set()
+        control_task = asyncio.create_task(self._run_control_listener())
 
         try:
             # Standard subscription loop (mirrors BaseActor.run)
@@ -169,7 +179,34 @@ class SchedulerActor(BaseActor):
                 self._timer_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await self._timer_task
+            control_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await control_task
             await self.disconnect()
+
+    async def on_reload(self) -> None:
+        """Re-read the YAML config and rebuild schedules.
+
+        Existing fire times are reset because the schedule list itself
+        may have changed; the next ``_initialize_fire_times`` happens on
+        the next ``run()``.  Until then, in-flight ``_timer_loop``
+        iterations will still see the old ``_schedules`` reference until
+        we swap it atomically below.
+        """
+        new_config = self._load_config(self._config_path)
+        new_schedules = self._parse_schedules(new_config.get("schedules", []))
+        self.config = new_config
+        # Atomic swap: any timer-loop iteration in flight either sees
+        # the old list (and finishes) or the new list (and starts using
+        # it).  We re-initialize fire times immediately so the timer
+        # loop has valid ``next_fire`` values for any newly-added entries.
+        self._schedules = new_schedules
+        self._initialize_fire_times()
+        logger.info(
+            "scheduler.config_reloaded",
+            config_path=self._config_path,
+            schedule_count=len(self._schedules),
+        )
 
     # ------------------------------------------------------------------
     # Timer loop
@@ -208,15 +245,40 @@ class SchedulerActor(BaseActor):
             )
 
     def _advance_next_fire(self, entry: ScheduleEntry) -> None:
-        """Compute the next fire time after a schedule fires."""
-        now_mono = time.monotonic()
-        now_utc = datetime.now(UTC)
+        """Compute the next fire time after a schedule fires.
 
+        For interval schedules we add ``interval_seconds`` to the
+        previous ``next_fire`` rather than to ``time.monotonic()``.
+        Why: by the time we observe ``now >= entry.next_fire`` and
+        finish dispatching, ``now`` is already past the scheduled
+        instant by some amount (timer-loop sleep + dispatch latency).
+        Resetting from ``now`` adds that lag to every cycle, so an
+        "every 60s" schedule drifts to >60s and accumulates indefinitely.
+        Adding to the prior fire keeps cycle time exactly
+        ``interval_seconds`` even when individual fires are late.
+
+        If we have fallen so far behind that the next scheduled fire is
+        already in the past, we skip forward to the next future slot
+        (rather than firing repeatedly to "catch up", which would
+        flood downstream consumers after a stall).
+
+        Cron schedules consult wall-clock time so they self-correct;
+        we keep the existing shape.
+        """
         if entry.interval_seconds is not None:
-            entry.next_fire = now_mono + entry.interval_seconds
+            entry.next_fire += entry.interval_seconds
+            # If the actor was paused (debugger, slow handler, …) and
+            # we are now several intervals behind, jump to the next
+            # future slot instead of firing back-to-back.
+            now_mono = time.monotonic()
+            if entry.next_fire <= now_mono:
+                missed = (now_mono - entry.next_fire) // entry.interval_seconds + 1
+                entry.next_fire += missed * entry.interval_seconds
         elif entry.cron is not None:
             from croniter import croniter
 
+            now_mono = time.monotonic()
+            now_utc = datetime.now(UTC)
             cron = croniter(entry.cron, now_utc)
             next_dt = cron.get_next(datetime)
             delta = (next_dt - now_utc).total_seconds()
@@ -247,7 +309,15 @@ class SchedulerActor(BaseActor):
 
         try:
             if entry.expand_from:
-                contexts = self._run_expansion(entry.expand_from, entry.name)
+                # The expansion function is sync (per-call import + dict
+                # construction).  It may also do user-defined I/O —
+                # database queries, HTTP probes — so we offload to a
+                # worker thread.  Running it inline blocks the timer
+                # loop, the subscription loop, and any other in-flight
+                # coroutine on this actor for the duration of the call.
+                contexts = await asyncio.to_thread(
+                    self._run_expansion, entry.expand_from, entry.name
+                )
                 if not contexts:
                     logger.info("scheduler.expansion_empty", schedule=entry.name)
                     return
