@@ -29,6 +29,11 @@ from heddle.workshop.db import WorkshopDB
 from heddle.workshop.eval_runner import EvalRunner
 from heddle.workshop.pipeline_editor import PipelineEditor
 from heddle.workshop.rag_manager import RAGManager
+from heddle.workshop.security import (
+    UploadTooLargeError,
+    enforce_same_origin,
+    read_upload_with_size_cap,
+)
 from heddle.workshop.test_runner import WorkerTestRunner
 
 logger = structlog.get_logger()
@@ -119,6 +124,18 @@ def create_app(  # noqa: PLR0915
             logger.warning("workshop.backends_close_failed", error=str(exc))
 
     app = FastAPI(title="Heddle Workshop", docs_url=None, redoc_url=None, lifespan=lifespan)
+
+    # Same-origin enforcement on mutating requests.  The workshop is a
+    # local developer dashboard, but any browser tab the developer has
+    # open can issue cross-origin POSTs to ``http://localhost:8080``
+    # while it's running, mutating config or wiping queues.  The
+    # middleware rejects requests whose ``Origin`` (or ``Referer``
+    # fallback) does not match the request's own host.  Browsers
+    # always send ``Origin`` on cross-origin POSTs and the value
+    # cannot be forged from page JS, so this is the standard CSRF
+    # defence.  Non-browser clients (curl, Heddle CLI) send neither
+    # header and pass through unchanged.
+    app.middleware("http")(enforce_same_origin)
 
     # Static files
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
@@ -520,23 +537,40 @@ def create_app(  # noqa: PLR0915
         if not zip_file.filename or not zip_file.filename.endswith(".zip"):
             return RedirectResponse(url="/apps?error=File+must+be+a+.zip+archive", status_code=303)
 
-        # Write uploaded file to a temp location for processing
+        # Stream the upload to a temp file with a size cap.  Earlier
+        # shape did ``await zip_file.read()`` which materialises the
+        # whole upload in memory and OOMs the worker on multi-GB
+        # POSTs.  ``read_upload_with_size_cap`` streams in 1 MiB
+        # chunks and aborts as soon as the cap is exceeded.
         with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
-            content = await zip_file.read()
-            tmp.write(content)
             tmp_path = Path(tmp.name)
 
         try:
+            try:
+                await read_upload_with_size_cap(zip_file, tmp_path)
+            except UploadTooLargeError as exc:
+                logger.warning(
+                    "workshop.upload_rejected_too_large",
+                    filename=zip_file.filename,
+                    max_bytes=exc.max_bytes,
+                )
+                return RedirectResponse(
+                    url=f"/apps?error=Upload+exceeds+{exc.max_bytes}+bytes",
+                    status_code=303,
+                )
+
             from heddle.workshop.app_manager import AppDeployError
 
-            manifest = app_mgr.deploy_app(tmp_path)
+            try:
+                manifest = app_mgr.deploy_app(tmp_path)
+            except AppDeployError as e:
+                return RedirectResponse(url=f"/apps?error={e}", status_code=303)
+
             # Refresh ConfigManager's extra config dirs
             config_mgr.extra_config_dirs = _build_extra_config_dirs(app_mgr)
             # Notify running actors to reload
             await app_mgr.notify_reload()
             return RedirectResponse(url=f"/apps/{manifest.name}", status_code=303)
-        except AppDeployError as e:
-            return RedirectResponse(url=f"/apps?error={e}", status_code=303)
         finally:
             tmp_path.unlink(missing_ok=True)
 
