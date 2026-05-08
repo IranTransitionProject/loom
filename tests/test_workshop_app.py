@@ -802,6 +802,34 @@ class TestAppDeploy:
         assert resp.status_code == 303
         assert "error" in resp.headers["location"].lower()
 
+    def test_deploy_error_redirect_urlencodes_message(self, client):
+        """AppDeployError messages must be URL-encoded in the redirect.
+
+        ``&`` in an error message would inject an extra query parameter;
+        ``#`` would create a URL fragment.  Both corrupt the redirect.
+        """
+        from urllib.parse import parse_qs, urlparse
+
+        from heddle.workshop import app_manager
+
+        bad_msg = "bad & dangerous # error"
+        with mock.patch.object(
+            app_manager.AppManager,
+            "deploy_app",
+            side_effect=app_manager.AppDeployError(bad_msg),
+        ):
+            resp = client.post(
+                "/apps/deploy",
+                files={"zip_file": ("any.zip", b"PK\x03\x04anything", "application/zip")},
+                follow_redirects=False,
+            )
+
+        assert resp.status_code == 303
+        parsed = urlparse(resp.headers["location"])
+        assert parsed.path == "/apps"
+        assert parsed.fragment == ""  # ``#`` did not escape into a fragment
+        assert parse_qs(parsed.query)["error"] == [bad_msg]
+
 
 # ---------------------------------------------------------------------------
 # App detail (lines 440-444)

@@ -12,6 +12,7 @@ import os
 import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlencode
 
 import structlog
 from fastapi import FastAPI, Request, UploadFile
@@ -564,7 +565,11 @@ def create_app(  # noqa: PLR0915
             try:
                 manifest = app_mgr.deploy_app(tmp_path)
             except AppDeployError as e:
-                return RedirectResponse(url=f"/apps?error={e}", status_code=303)
+                # urlencode the message — error strings can contain ``&``
+                # (would inject extra query params) or ``#`` (would create
+                # a fragment), corrupting the redirect target.
+                qs = urlencode({"error": str(e)})
+                return RedirectResponse(url=f"/apps?{qs}", status_code=303)
 
             # Refresh ConfigManager's extra config dirs
             config_mgr.extra_config_dirs = _build_extra_config_dirs(app_mgr)
