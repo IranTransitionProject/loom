@@ -17,6 +17,7 @@ pass an InMemoryBus instead.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import signal
 import time
 from abc import ABC, abstractmethod
@@ -131,6 +132,54 @@ class BaseActor(ABC):
         if self._shutdown_event:
             self._shutdown_event.set()
 
+    async def _wait_next_message(self) -> dict[str, Any] | None:
+        """Wait for the next bus message or a shutdown signal.
+
+        ``_request_shutdown`` flips ``_running`` and sets
+        ``_shutdown_event``, but ``self._sub.__anext__()`` blocks on
+        the underlying iterator until a message arrives — so an idle
+        actor would stay pending forever after SIGTERM unless we race
+        the wait against the shutdown event explicitly.
+
+        The race is on the *wait* step only.  Once a message is
+        returned, the caller processes it without racing, so a
+        sequential handler is never interrupted by a late shutdown
+        signal (which would have been a behaviour regression vs. the
+        previous ``async for`` shape).
+
+        Returns:
+            The next message dict, or ``None`` if shutdown was
+            signaled or the subscription ended
+            (``StopAsyncIteration``).
+        """
+        next_msg_task = asyncio.create_task(self._sub.__anext__())
+        shutdown_wait = asyncio.create_task(self._shutdown_event.wait())
+        try:
+            done, _ = await asyncio.wait(
+                [next_msg_task, shutdown_wait],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            if not shutdown_wait.done():
+                shutdown_wait.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await shutdown_wait
+
+        # Prefer a delivered message over an event-only signal — if
+        # both fired in the same tick, processing the message is safer
+        # than dropping it.  The caller's ``while self._running`` check
+        # exits cleanly on the next iteration.
+        if next_msg_task in done:
+            try:
+                return next_msg_task.result()
+            except StopAsyncIteration:
+                return None
+
+        next_msg_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, StopAsyncIteration, BaseException):
+            await next_msg_task
+        return None
+
     async def _process_one(self, data: dict[str, Any]) -> None:
         """Process a single message with semaphore-bounded concurrency."""
         ctx = extract_trace_context(data)
@@ -219,8 +268,9 @@ class BaseActor(ABC):
         )
 
         try:
-            async for data in self._sub:
-                if not self._running:
+            while self._running:
+                data = await self._wait_next_message()
+                if data is None:
                     break
                 if self.max_concurrent == 1:
                     # Sequential processing — strict mailbox semantics

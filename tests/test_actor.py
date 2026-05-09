@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import signal
 import time
 from unittest.mock import MagicMock, patch
@@ -333,6 +334,69 @@ async def test_run_handles_cancelled_error():
 # ---------------------------------------------------------------------------
 # 16. run() disconnects even on error
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_shutdown_wakes_blocked_subscription_iterator():
+    """Shutdown signal must wake an idle ``async for`` in run().
+
+    ``_request_shutdown`` only flips ``_running`` and sets
+    ``_shutdown_event``.  The message-loop's ``async for data in
+    self._sub`` blocks on the iterator until a message arrives;
+    without a wake-up race against the shutdown event, signaling
+    SIGTERM into an idle actor leaves ``run()`` pending forever.
+
+    The two existing concurrent-shutdown tests masked this bug by
+    explicitly calling ``actor._sub.unsubscribe()`` after the signal
+    — that ends the ``async for`` via ``StopAsyncIteration`` rather
+    than exercising the production wake-up path.  This test does NOT
+    unsubscribe.  Pre-fix, ``asyncio.wait_for(run_task, 1.0)`` raises
+    ``TimeoutError``; post-fix, ``run()`` returns within tens of
+    milliseconds.
+    """
+    bus = InMemoryBus()
+
+    class IdleActor(BaseActor):
+        async def handle_message(self, data):
+            pass
+
+    actor = IdleActor("idle-shutdown", bus=bus, max_concurrent=2)
+
+    with patch.object(actor, "_install_signal_handlers"):
+        run_task = asyncio.create_task(actor.run("test.idle"))
+        for _ in range(50):
+            if actor._running:
+                break
+            await asyncio.sleep(0.01)
+
+        # Production path: SIGTERM hits the signal handler which calls
+        # ``_request_shutdown``.  In tests we call it directly.  No
+        # manual unsubscribe — that's the bug-masking step.
+        actor._request_shutdown(signal.SIGTERM)
+
+        # Poll for natural completion — do NOT use ``asyncio.wait_for``,
+        # which would cancel the task on timeout and trigger the
+        # ``except CancelledError: pass`` branch in ``run()``.  That
+        # makes the task complete cleanly without ever exercising the
+        # wake-up path, masking the bug.
+        deadline = time.monotonic() + 1.0
+        while not run_task.done() and time.monotonic() < deadline:
+            await asyncio.sleep(0.01)
+
+        completed_naturally = run_task.done()
+
+        # Cleanup: if run() didn't return on its own, end it now so
+        # the test doesn't leak a pending task.
+        if not run_task.done():
+            run_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await run_task
+
+    assert completed_naturally, (
+        "run() did not return within 1s of _request_shutdown(); "
+        "the subscription iterator was not woken up by the shutdown event"
+    )
+    assert not actor._running
 
 
 @pytest.mark.asyncio
