@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import signal
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -332,6 +333,134 @@ async def test_run_handles_cancelled_error():
 # ---------------------------------------------------------------------------
 # 16. run() disconnects even on error
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_concurrent_shutdown_awaits_in_flight_tasks():
+    """Shutdown drains in-flight handlers before disconnecting the bus.
+
+    Pre-fix, ``run()``'s finally block disconnected the bus while
+    ``max_concurrent>1`` background handler tasks were still running.
+    Their ``handle_message`` calls (and any results they tried to
+    publish) raced with bus shutdown — handlers either completed as
+    orphans after ``run()`` returned, or hit close-related errors
+    mid-publish.
+
+    Post-fix, ``run()`` awaits ``_background_tasks`` with a configurable
+    grace period before disconnecting.  Within the grace window,
+    handlers that started before shutdown finish cleanly and their
+    completion is observable BEFORE ``run()`` returns.
+    """
+    bus = InMemoryBus()
+
+    class TimingActor(BaseActor):
+        def __init__(self, *args, handler_delay: float = 0.2, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.handler_finish_times: list[float] = []
+            self.disconnect_time: float | None = None
+            self._handlers_started = 0
+            self.both_started = asyncio.Event()
+            self._handler_delay = handler_delay
+
+        async def handle_message(self, data):
+            self._handlers_started += 1
+            if self._handlers_started >= 2:
+                self.both_started.set()
+            await asyncio.sleep(self._handler_delay)
+            self.handler_finish_times.append(time.monotonic())
+
+        async def disconnect(self):
+            self.disconnect_time = time.monotonic()
+            await super().disconnect()
+
+    actor = TimingActor("drain-test", bus=bus, max_concurrent=2, handler_delay=0.2)
+
+    async def _feed_and_shutdown():
+        for _ in range(50):
+            if actor._running:
+                break
+            await asyncio.sleep(0.01)
+        await bus.publish("test.drain", {"seq": 1})
+        await bus.publish("test.drain", {"seq": 2})
+        # Wait until both handlers are mid-sleep, THEN trigger shutdown.
+        # This is the precondition the bug fires on: in-flight tasks
+        # exist when ``finally`` runs.
+        await actor.both_started.wait()
+        actor._request_shutdown(signal.SIGTERM)
+        # Unblock the message-loop iterator so finally can run.
+        await asyncio.sleep(0.01)
+        if actor._sub:
+            await actor._sub.unsubscribe()
+
+    with patch.object(actor, "_install_signal_handlers"):
+        run_task = asyncio.create_task(actor.run("test.drain"))
+        feeder = asyncio.create_task(_feed_and_shutdown())
+        await asyncio.wait_for(asyncio.gather(run_task, feeder), timeout=5.0)
+
+    # By the time run() returns, both in-flight handlers should have
+    # completed.  Without the drain, they're orphan tasks that may not
+    # have finished yet, so handler_finish_times length is < 2.
+    assert len(actor.handler_finish_times) == 2, (
+        f"Shutdown did not wait for in-flight handlers; only "
+        f"{len(actor.handler_finish_times)}/2 had completed when "
+        f"run() returned"
+    )
+    # Disconnect must have happened AFTER both handlers finished.
+    assert actor.disconnect_time is not None
+    assert actor.disconnect_time >= max(actor.handler_finish_times), (
+        "Bus disconnected before in-flight handlers completed"
+    )
+
+
+@pytest.mark.asyncio
+async def test_concurrent_shutdown_force_cancels_after_grace():
+    """Handlers exceeding the grace timeout are cancelled and logged.
+
+    A handler that doesn't finish within ``shutdown_grace_seconds``
+    is force-cancelled so ``run()`` doesn't block forever.  The
+    cancellation propagates as a ``CancelledError`` inside the
+    handler; the actor logs ``actor.shutdown_force_cancel`` with the
+    count of forced tasks.
+    """
+    bus = InMemoryBus()
+
+    class HungActor(BaseActor):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.handler_started = asyncio.Event()
+            self.cancelled = False
+
+        async def handle_message(self, data):
+            self.handler_started.set()
+            try:
+                await asyncio.sleep(10.0)  # would exceed grace
+            except asyncio.CancelledError:
+                self.cancelled = True
+                raise
+
+    actor = HungActor("force-cancel-test", bus=bus, max_concurrent=2, shutdown_grace_seconds=0.1)
+
+    async def _feed_and_shutdown():
+        for _ in range(50):
+            if actor._running:
+                break
+            await asyncio.sleep(0.01)
+        await bus.publish("test.force", {"seq": 1})
+        await actor.handler_started.wait()
+        actor._request_shutdown(signal.SIGTERM)
+        await asyncio.sleep(0.01)
+        if actor._sub:
+            await actor._sub.unsubscribe()
+
+    with patch.object(actor, "_install_signal_handlers"):
+        run_task = asyncio.create_task(actor.run("test.force"))
+        feeder = asyncio.create_task(_feed_and_shutdown())
+        # Total wait must exceed grace (0.1s) but stay well under
+        # the handler's 10s sleep — confirms the actor shut down
+        # via grace timeout, not by waiting for the sleep.
+        await asyncio.wait_for(asyncio.gather(run_task, feeder), timeout=2.0)
+
+    assert actor.cancelled, "Hung handler was not force-cancelled after grace expired"
 
 
 @pytest.mark.asyncio

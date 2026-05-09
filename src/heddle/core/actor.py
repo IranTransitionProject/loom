@@ -61,9 +61,16 @@ class BaseActor(ABC):
         max_concurrent: int = 1,
         *,
         bus: MessageBus | None = None,
+        shutdown_grace_seconds: float = 5.0,
     ) -> None:
         self.actor_id = actor_id
         self.max_concurrent = max_concurrent
+        # On shutdown, in-flight ``handle_message`` tasks (only created
+        # when ``max_concurrent > 1``) get this many seconds to finish
+        # before they're force-cancelled and the bus is closed.  5s is
+        # tight enough for fast unit tests and loose enough for a
+        # typical local LLM call.  Tune up for slow backends.
+        self.shutdown_grace_seconds = shutdown_grace_seconds
         self._sub: Subscription | None = None
         self._control_sub: Subscription | None = None
         self._running = False
@@ -228,6 +235,38 @@ class BaseActor(ABC):
         finally:
             self._running = False
             control_task.cancel()
+
+            # Drain in-flight handlers before disconnecting the bus.
+            # ``max_concurrent > 1`` fires handlers as background tasks;
+            # without this drain, ``self.disconnect()`` closes the bus
+            # while handlers are mid-publish, dropping their results
+            # and surfacing as caller timeouts.  Within the grace
+            # window, handlers that started before shutdown finish
+            # cleanly; anything still running after the grace is
+            # force-cancelled and logged so operators can see what
+            # was lost.
+            if self._background_tasks:
+                in_flight = list(self._background_tasks)
+                logger.info(
+                    "actor.shutdown_draining",
+                    actor_id=self.actor_id,
+                    in_flight=len(in_flight),
+                    grace_seconds=self.shutdown_grace_seconds,
+                )
+                _, pending = await asyncio.wait(in_flight, timeout=self.shutdown_grace_seconds)
+                if pending:
+                    logger.warning(
+                        "actor.shutdown_force_cancel",
+                        actor_id=self.actor_id,
+                        forced=len(pending),
+                        grace_seconds=self.shutdown_grace_seconds,
+                    )
+                    for t in pending:
+                        t.cancel()
+                    # Await cancellations so we don't leak unfinished
+                    # tasks past run()'s return.
+                    await asyncio.gather(*pending, return_exceptions=True)
+
             await self.disconnect()
 
     @abstractmethod
