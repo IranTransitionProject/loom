@@ -421,6 +421,25 @@ class OrchestratorActor(BaseActor):
                     synthesis.get("confidence", "unknown"),
                 )
 
+            # Annotate synthesis with goal-level timeout context.  The
+            # synthesizer's per-task ``failed`` list already carries the
+            # synthetic FAILED entries for unresponded tasks; this block
+            # gives operators the goal-level numbers (expected, collected,
+            # the configured timeout, and the IDs that didn't respond)
+            # without forcing them to reconstruct it from the failed list.
+            expected_count = len(goal_state.dispatched_tasks)
+            collected_count = len(goal_state.collected_results)
+            if expected_count > collected_count:
+                pending_ids = sorted(
+                    set(goal_state.dispatched_tasks) - set(goal_state.collected_results)
+                )
+                synthesis.setdefault("metadata", {})["timeout"] = {
+                    "expected_count": expected_count,
+                    "collected_count": collected_count,
+                    "timeout_seconds": self._task_timeout,
+                    "pending_task_ids": pending_ids,
+                }
+
             # -- 6. Publish final result --
             elapsed = int((time.monotonic() - goal_state.start_time) * 1000)
             await self._publish_final_result(
@@ -596,7 +615,30 @@ class OrchestratorActor(BaseActor):
                 expected=stream.expected_count,
             )
 
-        return list(stream.collected.values())
+        results = list(stream.collected.values())
+
+        # Synthesize FAILED placeholders for any task that did not respond.
+        # The synthesizer's existing partition treats them as ordinary
+        # failures — they show up in the merge ``failed`` list with the
+        # timeout error — so callers don't need to learn a new code path.
+        # The alternative (a new ``TaskStatus.PARTIAL``) would have rippled
+        # through every site that switches on ``result.status``; using an
+        # existing status with a structured error keeps blast radius small.
+        for pending_id in stream.pending_ids:
+            dispatched = goal_state.dispatched_tasks.get(pending_id)
+            worker_type = dispatched.worker_type if dispatched else "unknown"
+            parent_id = dispatched.parent_task_id if dispatched else None
+            results.append(
+                TaskResult(
+                    task_id=pending_id,
+                    parent_task_id=parent_id,
+                    worker_type=worker_type,
+                    status=TaskStatus.FAILED,
+                    error=f"timeout: worker did not respond within {self._task_timeout}s",
+                )
+            )
+
+        return results
 
     # ------------------------------------------------------------------
     # Step 5: Synthesis

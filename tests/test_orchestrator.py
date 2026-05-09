@@ -739,6 +739,104 @@ class TestFullLifecycle:
         finally:
             os.unlink(config_path)
 
+    @pytest.mark.asyncio
+    async def test_collection_timeout_synthesizes_failed_pending_results(self):
+        """Pending tasks become synthetic FAILED results with timeout metadata.
+
+        Pre-fix, ``_collect_results`` returned only the genuinely-arrived
+        results, the synthesizer's ``failed`` list was empty, and the
+        operator had to dig through ``goal_state.dispatched_tasks`` vs.
+        the published synthesis to figure out which workers timed out.
+        Post-fix, every dispatched-but-unresponded task surfaces in the
+        synthesis output's ``failed`` list, and the goal-level metadata
+        carries ``expected_count`` / ``collected_count`` / ``timeout_seconds``
+        / ``pending_task_ids`` so an operator can triage without
+        cross-referencing.
+        """
+        plan = json.dumps(
+            [{"worker_type": "summarizer", "payload": {"text": f"chunk {i}"}} for i in range(3)]
+        )
+        synthesis = json.dumps({"partial": True, "confidence": "low"})
+        backend = MockOrchestratorBackend(plan, synthesis)
+
+        config_path = _write_config(timeout_seconds=1)
+        try:
+            bus = InMemoryBus()
+            await bus.connect()
+            actor = OrchestratorActor(
+                actor_id="test-timeout-synthetic",
+                config_path=config_path,
+                backend=backend,
+                bus=bus,
+            )
+
+            goal_data = _make_goal_data("Synthetic-timeout pin")
+            goal_id = goal_data["goal_id"]
+            result_sub = await bus.subscribe(f"heddle.results.{goal_id}")
+            worker_sub = await bus.subscribe("heddle.tasks.incoming")
+
+            responded_id: dict[str, str] = {}
+
+            async def one_responder():
+                data = await worker_sub.__anext__()
+                task = TaskMessage(**data)
+                responded_id["task_id"] = task.task_id
+                await asyncio.sleep(0.05)
+                result = TaskResult(
+                    task_id=task.task_id,
+                    parent_task_id=task.parent_task_id,
+                    worker_type=task.worker_type,
+                    status=TaskStatus.COMPLETED,
+                    output={"summary": "first"},
+                    processing_time_ms=10,
+                )
+                await bus.publish(
+                    f"heddle.results.{task.parent_task_id}",
+                    result.model_dump(mode="json"),
+                )
+                await worker_sub.unsubscribe()
+
+            worker_task = asyncio.create_task(one_responder())
+            await actor.handle_message(goal_data)
+            await worker_task
+
+            # Both worker and orchestrator publish to ``heddle.results.{goal_id}``;
+            # filter for the orchestrator's own final result.  The orchestrator's
+            # ``worker_type`` is its config name (``"test-orchestrator"``); workers
+            # use their own type (``"summarizer"``).
+            final = None
+            for _ in range(5):
+                msg = await asyncio.wait_for(result_sub.__anext__(), timeout=3.0)
+                if msg.get("worker_type") == "test-orchestrator":
+                    final = msg
+                    break
+            assert final is not None, "orchestrator never published its final synthesis"
+            assert final["status"] == TaskStatus.COMPLETED.value
+
+            output = final["output"]
+            # The two unresponded tasks became synthetic FAILED entries.
+            failed = output["failed"]
+            assert len(failed) == 2, (
+                f"Expected 2 synthetic FAILED entries for the 2 timed-out tasks; "
+                f"got {len(failed)}: {failed}"
+            )
+            for entry in failed:
+                assert "timeout" in (entry["error"] or "").lower(), entry
+                assert entry["task_id"] != responded_id["task_id"], (
+                    "Synthetic timeout was attributed to the task that DID respond"
+                )
+
+            # Goal-level timeout metadata must be present so the operator
+            # can triage without grepping the failed list.
+            timeout_meta = output["metadata"]["timeout"]
+            assert timeout_meta["expected_count"] == 3
+            assert timeout_meta["collected_count"] == 1
+            assert timeout_meta["timeout_seconds"] == 1
+            assert len(timeout_meta["pending_task_ids"]) == 2
+            assert responded_id["task_id"] not in timeout_meta["pending_task_ids"]
+        finally:
+            os.unlink(config_path)
+
 
 # ---------------------------------------------------------------------------
 # Checkpoint tests
