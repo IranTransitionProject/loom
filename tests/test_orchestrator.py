@@ -837,6 +837,149 @@ class TestFullLifecycle:
         finally:
             os.unlink(config_path)
 
+    @pytest.mark.asyncio
+    async def test_collection_timeout_ignores_late_arriving_result(self):
+        """Late result (after timeout fired) does not displace the synthetic FAILED.
+
+        ``_collect_results`` closes the ResultStream subscription when the
+        timeout fires.  A worker result that arrives AFTER that point
+        lands on a closed channel — the orchestrator must NOT incorporate
+        it into the synthesis, and must NOT publish a second synthesis
+        in reaction to it.  H1b in session-starters/H pins this so a
+        future refactor that adds re-subscription or re-synthesis on
+        late delivery has to update this contract deliberately.
+        """
+        plan = json.dumps(
+            [{"worker_type": "summarizer", "payload": {"text": f"chunk {i}"}} for i in range(3)]
+        )
+        synthesis = json.dumps({"partial": True, "confidence": "low"})
+        backend = MockOrchestratorBackend(plan, synthesis)
+
+        config_path = _write_config(timeout_seconds=1)
+        try:
+            bus = InMemoryBus()
+            await bus.connect()
+            actor = OrchestratorActor(
+                actor_id="test-late-result",
+                config_path=config_path,
+                backend=backend,
+                bus=bus,
+            )
+
+            goal_data = _make_goal_data("Late-result-after-timeout pin")
+            goal_id = goal_data["goal_id"]
+            result_sub = await bus.subscribe(f"heddle.results.{goal_id}")
+            worker_sub = await bus.subscribe("heddle.tasks.incoming")
+
+            on_time_id: dict[str, str] = {}
+            late_id: dict[str, str] = {}
+
+            async def staggered_worker() -> None:
+                # Task 1 — respond before timeout (~50 ms after dispatch).
+                data1 = await worker_sub.__anext__()
+                t1 = TaskMessage(**data1)
+                on_time_id["task_id"] = t1.task_id
+                await asyncio.sleep(0.05)
+                await bus.publish(
+                    f"heddle.results.{t1.parent_task_id}",
+                    TaskResult(
+                        task_id=t1.task_id,
+                        parent_task_id=t1.parent_task_id,
+                        worker_type=t1.worker_type,
+                        status=TaskStatus.COMPLETED,
+                        output={"summary": "on time"},
+                        processing_time_ms=10,
+                    ).model_dump(mode="json"),
+                )
+
+                # Task 2 — accept dispatch, but publish ~200 ms AFTER the
+                # 1 s collection timeout has fired.
+                data2 = await worker_sub.__anext__()
+                t2 = TaskMessage(**data2)
+                late_id["task_id"] = t2.task_id
+                await asyncio.sleep(1.2)
+                await bus.publish(
+                    f"heddle.results.{t2.parent_task_id}",
+                    TaskResult(
+                        task_id=t2.task_id,
+                        parent_task_id=t2.parent_task_id,
+                        worker_type=t2.worker_type,
+                        status=TaskStatus.COMPLETED,
+                        # A distinctive output: if this ever leaks into the
+                        # synthesis, the assertion below will surface it.
+                        output={"summary": "TOO_LATE_SHOULD_BE_IGNORED"},
+                        processing_time_ms=10,
+                    ).model_dump(mode="json"),
+                )
+
+                # Task 3 — drain dispatch, never respond.
+                await worker_sub.__anext__()
+                await worker_sub.unsubscribe()
+
+            worker_task = asyncio.create_task(staggered_worker())
+            await actor.handle_message(goal_data)
+            # Wait for the staggered worker to finish (its sleep extends past
+            # both the orchestrator's timeout and its synthesis publish).
+            await worker_task
+
+            # Collect every orchestrator-originated publish for the goal.
+            # Workers publish to the same subject, so filter by worker_type.
+            orch_publishes: list[dict] = []
+            # 0.5 s grace after worker_task returns gives the orchestrator
+            # plenty of time to do a hypothetical (incorrect) re-publish.
+            deadline = time.monotonic() + 0.5
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                try:
+                    msg = await asyncio.wait_for(result_sub.__anext__(), timeout=remaining)
+                except TimeoutError:
+                    break
+                if msg.get("worker_type") == "test-orchestrator":
+                    orch_publishes.append(msg)
+
+            assert len(orch_publishes) == 1, (
+                f"Orchestrator published its synthesis {len(orch_publishes)} "
+                f"time(s); a late result must not trigger a second publish."
+            )
+
+            final = orch_publishes[0]
+            output = final["output"]
+            failed = output["failed"]
+
+            # Both unresponded-by-timeout tasks (the late one and the
+            # never-respond one) must surface as synthetic FAILED entries.
+            assert len(failed) == 2, (
+                f"Expected 2 synthetic FAILED entries (late + never-responded); "
+                f"got {len(failed)}: {failed}"
+            )
+
+            late_entry = next((e for e in failed if e["task_id"] == late_id["task_id"]), None)
+            assert late_entry is not None, (
+                f"Late task {late_id['task_id']} missing from failed list — "
+                f"its post-timeout result may have leaked into the synthesis. "
+                f"failed = {failed}"
+            )
+            # The synthetic FAILED carries the timeout error string, NOT the
+            # real (post-timeout) worker output.
+            assert "timeout" in (late_entry.get("error") or "").lower(), late_entry
+            assert "TOO_LATE_SHOULD_BE_IGNORED" not in json.dumps(output), (
+                "The late result's output appeared somewhere in the synthesis — "
+                "post-timeout deliveries must be dropped on the closed channel."
+            )
+
+            # The on-time task must not be in failed (its real output should
+            # have made it through to succeeded).
+            assert all(e["task_id"] != on_time_id["task_id"] for e in failed)
+
+            meta = output["metadata"]["timeout"]
+            assert meta["expected_count"] == 3
+            assert meta["collected_count"] == 1
+            assert late_id["task_id"] in meta["pending_task_ids"]
+        finally:
+            os.unlink(config_path)
+
 
 # ---------------------------------------------------------------------------
 # Checkpoint tests
