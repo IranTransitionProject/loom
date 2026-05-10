@@ -139,7 +139,9 @@ branch = true
 
 [tool.coverage.report]
 show_missing = true
-fail_under = 90
+# Total-line coverage gate. Per-package floors are documented in
+# docs/CODING_GUIDE.md (pytest-cov does not natively gate per package).
+fail_under = 91
 exclude_lines = [
     "pragma: no cover",
     "if __name__",
