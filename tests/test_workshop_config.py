@@ -201,6 +201,33 @@ class TestPipelineCRUD:
         errors = mgr.save_pipeline("bad", {"name": "bad"})  # Missing pipeline_stages
         assert len(errors) > 0
 
+    def test_save_worker_rejects_name_mismatch(self, tmp_path):
+        """YAML ``name`` field must match the route/file name."""
+        mgr = ConfigManager(str(tmp_path))
+        errors = mgr.save_worker(
+            "route_name",
+            {"name": "different_yaml_name", "system_prompt": "Do stuff."},
+        )
+        assert errors, "expected mismatch error"
+        assert any("does not match" in e for e in errors), errors
+        # And nothing was written under either name.
+        assert not (tmp_path / "workers" / "route_name.yaml").exists()
+        assert not (tmp_path / "workers" / "different_yaml_name.yaml").exists()
+
+    def test_save_pipeline_rejects_name_mismatch(self, tmp_path):
+        """YAML ``name`` field must match the route/file name."""
+        mgr = ConfigManager(str(tmp_path))
+        errors = mgr.save_pipeline(
+            "route_pipe",
+            {
+                "name": "different_yaml_pipe",
+                "pipeline_stages": [{"name": "s1", "worker_type": "w1"}],
+            },
+        )
+        assert errors, "expected mismatch error"
+        assert any("does not match" in e for e in errors), errors
+        assert not (tmp_path / "orchestrators" / "route_pipe.yaml").exists()
+
 
 # ---------------------------------------------------------------------------
 # Version history

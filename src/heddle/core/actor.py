@@ -120,10 +120,33 @@ class BaseActor(ABC):
         When a signal is received, the actor finishes processing any in-flight
         messages before disconnecting from the bus. This prevents message loss
         during container restarts or manual stops.
+
+        Windows note: :meth:`asyncio.AbstractEventLoop.add_signal_handler`
+        is not available on all Windows event loops (notably
+        :class:`asyncio.ProactorEventLoop`, the default on Windows
+        since Python 3.8).  The repository ships Windows service
+        deployment docs, so a missing signal handler must NOT take
+        down actor startup.  On Windows, shutdown comes via Ctrl+C
+        (which raises :class:`KeyboardInterrupt` →
+        :class:`asyncio.CancelledError` into the run task) rather than
+        a signal handler.
         """
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
-            loop.add_signal_handler(sig, self._request_shutdown, sig)
+            try:
+                loop.add_signal_handler(sig, self._request_shutdown, sig)
+            except NotImplementedError:
+                logger.warning(
+                    "actor.signal_handler_unavailable",
+                    actor_id=self.actor_id,
+                    signal=sig.name,
+                    hint=(
+                        "Event loop does not support signal handlers "
+                        "(typical on Windows ProactorEventLoop). "
+                        "Shutdown will come via KeyboardInterrupt / "
+                        "task cancellation rather than SIGTERM/SIGINT."
+                    ),
+                )
 
     def _request_shutdown(self, sig: signal.Signals) -> None:
         """Signal callback — sets the shutdown event to break the message loop."""

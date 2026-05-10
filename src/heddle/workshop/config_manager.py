@@ -54,6 +54,34 @@ def _validate_config_name(name: str) -> None:
         )
 
 
+def _check_name_matches(config: Any, route_name: str, *, kind: str) -> list[str]:
+    """Return an error list if ``config["name"]`` is set and != route name.
+
+    The schema validators above (``validate_worker_config`` /
+    ``validate_pipeline_config``) already require ``name`` to be
+    present and a string; this check only fires for the case the
+    schema validator passes — name present, type correct, value
+    different from the route/file identity.  In that case the listing
+    view (keyed by filename) and the detail view (often keyed by the
+    YAML name) would silently disagree.  Reject it at save time so
+    the inconsistency cannot persist on disk.
+
+    Returns ``[]`` if the names match or if ``config`` doesn't carry a
+    usable name field — the latter is already a validator error and
+    surfacing it again here would just be noise.
+    """
+    if not isinstance(config, dict):
+        return []
+    config_name = config.get("name")
+    if not isinstance(config_name, str) or config_name == route_name:
+        return []
+    return [
+        f"{kind} config 'name' field ({config_name!r}) does not match "
+        f"the target name ({route_name!r}).  Rename the config "
+        f"(clone or edit the YAML) so both identities agree."
+    ]
+
+
 class ConfigManager:
     """CRUD operations for worker and pipeline YAML configs.
 
@@ -176,11 +204,17 @@ class ConfigManager:
         Returns list of validation errors (empty = success).
         Also saves a version to DB if available.
 
+        The YAML ``name`` field must match the route/file name argument.
+        A mismatch is rejected as a validation error rather than silently
+        accepting both identities — otherwise the listing view (keyed by
+        filename) and the detail view (often keyed by YAML name) drift.
+
         Raises:
             ValueError: If ``name`` is not a safe filename (path traversal).
         """
         _validate_config_name(name)
         errors = validate_worker_config(config)
+        errors.extend(_check_name_matches(config, name, kind="worker"))
         if errors:
             return errors
 
@@ -337,11 +371,15 @@ class ConfigManager:
 
         Returns list of validation errors (empty = success).
 
+        The YAML ``name`` field must match the route/file name argument
+        (see :meth:`save_worker` for the rationale).
+
         Raises:
             ValueError: If ``name`` is not a safe filename (path traversal).
         """
         _validate_config_name(name)
         errors = validate_pipeline_config(config)
+        errors.extend(_check_name_matches(config, name, kind="pipeline"))
         if errors:
             return errors
 

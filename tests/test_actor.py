@@ -571,3 +571,39 @@ async def test_install_signal_handlers():
     registered_signals = {call.args[0] for call in mock_loop.add_signal_handler.call_args_list}
     assert signal.SIGTERM in registered_signals
     assert signal.SIGINT in registered_signals
+
+
+@pytest.mark.asyncio
+async def test_install_signal_handlers_windows_fallback(monkeypatch):
+    """On Windows ProactorEventLoop, ``add_signal_handler`` raises
+    ``NotImplementedError``.  Actor startup must NOT propagate it; it
+    must log a warning and continue without signal-based shutdown.
+
+    Verified by monkeypatching the loop method to raise — same
+    failure mode the real Windows loop exhibits.
+    """
+    from heddle.core import actor as actor_mod
+
+    bus = InMemoryBus()
+    actor = EchoActor("test-windows", bus=bus)
+
+    mock_loop = MagicMock()
+    mock_loop.add_signal_handler.side_effect = NotImplementedError("ProactorEventLoop")
+
+    warnings: list[dict] = []
+
+    def _fake_warning(event: str, **fields) -> None:
+        warnings.append({"event": event, **fields})
+
+    monkeypatch.setattr(actor_mod.logger, "warning", _fake_warning)
+
+    with patch("asyncio.get_running_loop", return_value=mock_loop):
+        # Must not raise.
+        actor._install_signal_handlers()
+
+    # Both signals attempted; both fell through cleanly.
+    assert mock_loop.add_signal_handler.call_count == 2
+    # Warning was emitted for each unregistered signal, naming the signal.
+    events = [w for w in warnings if w["event"] == "actor.signal_handler_unavailable"]
+    assert len(events) == 2
+    assert {e["signal"] for e in events} == {"SIGTERM", "SIGINT"}

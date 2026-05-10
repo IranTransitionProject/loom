@@ -129,6 +129,38 @@ def test_orchestrator_goal_request_id_roundtrip():
     assert restored.request_id == "req-goal-2"
 
 
+# --- TaskMessage non-negative bounds ---
+
+
+def test_task_message_rejects_negative_max_retries():
+    """``max_retries`` must be ``>= 0``.  External senders that pass
+    a negative value get a Pydantic ValidationError at construction
+    time rather than a confusing retry-loop bug at dispatch.
+    """
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        TaskMessage(worker_type="summarizer", payload={}, max_retries=-1)
+
+
+def test_task_message_rejects_negative_retry_count():
+    """``retry_count`` must be ``>= 0`` — same rationale as
+    ``max_retries``.
+    """
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        TaskMessage(worker_type="summarizer", payload={}, retry_count=-1)
+
+
+def test_task_message_accepts_zero_max_retries():
+    """``max_retries=0`` is the legitimate 'no retries' setting."""
+    msg = TaskMessage(worker_type="summarizer", payload={}, max_retries=0)
+    assert msg.max_retries == 0
+
+
 # --- parse_task_result helper tests ---
 
 

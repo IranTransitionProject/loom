@@ -75,6 +75,12 @@ class TaskMessage(BaseModel):
 
     The payload dict must conform to the worker's input_schema (JSON Schema).
     Contract validation happens in TaskWorker.handle_message(), not here.
+
+    Bounds on ``max_retries`` / ``retry_count`` are enforced at the
+    message layer so external senders (CLI tools, third-party
+    integrations, MCP gateway clients) cannot construct a
+    nonsense-bound task without going through worker-config
+    validation.
     """
 
     task_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -83,8 +89,8 @@ class TaskMessage(BaseModel):
     payload: dict[str, Any]  # Structured input — must match worker's input_schema
     model_tier: ModelTier = ModelTier.STANDARD
     priority: TaskPriority = TaskPriority.NORMAL
-    max_retries: int = 2  # Max retry attempts before permanent failure
-    retry_count: int = 0  # Incremented on each retry by TaskWorker
+    max_retries: int = Field(default=2, ge=0)  # Max retry attempts before permanent failure
+    retry_count: int = Field(default=0, ge=0)  # Incremented on each retry by TaskWorker
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     request_id: str | None = None  # Correlates all tasks from the same goal (set by pipeline)
     metadata: dict[str, Any] = Field(default_factory=dict)  # Routing hints, pipeline context
