@@ -668,6 +668,27 @@ identically.
 
 Knowledge silos are a more powerful alternative to `knowledge_sources`. They support folder-based loading (not just single files), `.siloignore` filtering, and **write-back** — the LLM can persist learned patterns by including `silo_updates` in its output.
 
+### Required vs optional resources
+
+Every silo and `knowledge_sources` entry accepts an optional `required` field
+(default **`true`**). When `required: true`, a missing folder, missing source
+file, oversize file, or failed tool-provider load fails the task with
+`RequiredKnowledgeMissingError` — the runtime returns a `FAILED` `TaskResult`
+naming the resource so the operator gets a loud signal instead of a silently
+degraded prompt.
+
+When `required: false`, the loader logs a warning, skips the resource, and
+records a `{kind, name, reason}` entry on `TaskResult.metadata.degraded_modes`
+so callers can detect "ran without resource X" without scraping logs. Use this
+opt-out for resources that are genuinely optional — staging silos that may not
+exist yet, accumulator folders the LLM creates over time, or tool providers
+whose Python package is only installed in some deployments.
+
+The strict-by-default policy is intentional: silent degradation is the most
+common cause of "the model used to know about X, why doesn't it now?"
+mysteries. Mark optional resources explicitly so the framework can tell them
+apart from typos.
+
 ### Read-only silo
 
 Load all files from a folder into the system prompt:

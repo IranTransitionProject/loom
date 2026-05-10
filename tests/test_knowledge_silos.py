@@ -38,8 +38,20 @@ class TestLoadKnowledgeSilos:
         assert result == ""
 
     def test_skips_missing_folder(self, tmp_path):
-        """Missing folder doesn't crash — logs warning and continues."""
-        silos = [{"name": "missing", "type": "folder", "path": str(tmp_path / "nope")}]
+        """Missing folder doesn't crash — logs warning and continues.
+
+        Under the F1 strict-by-default policy this requires
+        ``required: False`` on the silo; the bare missing-folder case
+        is now covered by ``test_missing_required_folder_raises``.
+        """
+        silos = [
+            {
+                "name": "missing",
+                "type": "folder",
+                "path": str(tmp_path / "nope"),
+                "required": False,
+            }
+        ]
         result = load_knowledge_silos(silos)
         assert result == ""
 
@@ -396,18 +408,29 @@ class TestLoadKnowledgeSources:
     """Tests for load_knowledge_sources() — covers lines 50-55, 61-62."""
 
     def test_missing_source_file_skipped(self, tmp_path):
-        """Source with non-existent path is skipped (lines 50-55)."""
-        sources = [{"path": str(tmp_path / "does_not_exist.md"), "inject_as": "reference"}]
+        """Source with non-existent path is skipped when ``required: False``.
+
+        Under the F1 strict-by-default policy, the bare missing-source
+        case is covered by ``test_missing_required_source_raises`` in
+        the F1 test module.
+        """
+        sources = [
+            {
+                "path": str(tmp_path / "does_not_exist.md"),
+                "inject_as": "reference",
+                "required": False,
+            }
+        ]
         result = load_knowledge_sources(sources)
         assert result == ""
 
     def test_missing_source_continues_to_next(self, tmp_path):
-        """Missing source is skipped but valid sources still load."""
+        """Optional missing source is skipped but valid sources still load."""
         valid_file = tmp_path / "valid.md"
         valid_file.write_text("Valid content")
 
         sources = [
-            {"path": str(tmp_path / "missing.md")},
+            {"path": str(tmp_path / "missing.md"), "required": False},
             {"path": str(valid_file)},
         ]
         result = load_knowledge_sources(sources)

@@ -104,6 +104,12 @@ class TaskResult(BaseModel):
     token_usage: dict[str, int] = Field(
         default_factory=dict
     )  # {"prompt_tokens": N, "completion_tokens": N}
+    # Worker-side observability that is NOT part of the worker's output
+    # schema.  Currently carries ``degraded_modes: [{kind, name, reason}]``
+    # for optional knowledge silos / sources / tool providers that were
+    # skipped at load time (F1).  Empty by default; orchestrators can
+    # check it to detect "ran without resource X" without scraping logs.
+    metadata: dict[str, Any] = Field(default_factory=dict)
     processing_time_ms: int = 0
     completed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

@@ -226,6 +226,16 @@ max_output_tokens: 2000
 #   "few_shot"  — Formatted as example input/output exchanges.
 #                 Good for teaching the LLM expected behavior by example.
 #
+# Per-source fields:
+#   path (str, required)        — Filesystem path to the source file.
+#   inject_as (str, optional)   — "reference" (default) or "few_shot".
+#   max_bytes (int, optional)   — Per-source size cap override (default: 10 MiB).
+#   required (bool, optional, default true)
+#                               — When true, a missing or oversize file fails
+#                                 the task with RequiredKnowledgeMissingError.
+#                                 Set false to keep log-and-skip behaviour
+#                                 (recorded on TaskResult.metadata.degraded_modes).
+#
 # File formats: YAML, JSON, JSONL, plain text.
 # Paths are relative to the working directory.
 knowledge_sources: []
@@ -233,6 +243,8 @@ knowledge_sources: []
   #   inject_as: "reference"    # "reference" = append to system prompt
   # - path: "configs/knowledge/examples.jsonl"
   #   inject_as: "few_shot"     # "few_shot" = format as example exchanges
+  # - path: "configs/knowledge/optional_extras.md"
+  #   required: false           # missing file logs + records, doesn't fail
 
 # knowledge_silos (list, optional)
 # Structured knowledge injection with folder-based and tool-based silos.
@@ -248,15 +260,32 @@ knowledge_sources: []
 #                        tool the LLM can invoke during execution.
 #                        Requires tool_provider configuration.
 #
+# Per-silo fields:
+#   name (str, required)        — Silo identifier (used in logs + write-back routing).
+#   type (str, required)        — "folder" or "tool".
+#   path (str, folder silos)    — Folder to load.
+#   provider (str, tool silos)  — Dotted Python path to the ToolProvider class.
+#   config (dict, tool silos)   — Kwargs passed to the provider constructor.
+#   required (bool, optional, default true)
+#                               — When true, a missing folder or failed
+#                                 tool-provider load fails the task with
+#                                 RequiredKnowledgeMissingError.  Set false
+#                                 to keep log-and-skip behaviour (recorded
+#                                 on TaskResult.metadata.degraded_modes).
+#
 # Example:
 # knowledge_silos:
-#   - type: "folder_readonly"
+#   - name: "domain_terms"
+#     type: "folder_readonly"
 #     path: "configs/knowledge/domain_terms/"
 #     description: "Domain terminology and abbreviations"
-#   - type: "folder_readwrite"
+#   - name: "accumulated"
+#     type: "folder_readwrite"
 #     path: "/tmp/heddle-workspace/accumulated/"
+#     required: false           # OK if the folder hasn't been created yet
 #     description: "Accumulated analysis results"
-#   - type: "tool"
+#   - name: "vector_search"
+#     type: "tool"
 #     tool_provider: "heddle.contrib.duckdb.vector_tool.DuckDBVectorTool"
 #     tool_config:
 #       db_path: "/tmp/rag-vectors.duckdb"

@@ -102,6 +102,7 @@ class TaskWorker(BaseActor):
                 output=output,
                 model_used=result.get("model_used"),
                 tokens=result.get("token_usage"),
+                metadata=result.get("metadata"),
                 elapsed=elapsed,
             )
             log.info("worker.completed", ms=elapsed)
@@ -133,6 +134,9 @@ class TaskWorker(BaseActor):
                     "output": dict,              # Must match output_schema
                     "model_used": str | None,    # Identifier for what processed this
                     "token_usage": dict | None,  # {"prompt_tokens": int, ...} or empty
+                    "metadata": dict | None,     # Optional worker-side observability
+                                                 #   (e.g. {"degraded_modes": [...]})
+                                                 #   surfaced on TaskResult.metadata
                 }
         """
         ...
@@ -157,6 +161,7 @@ class TaskWorker(BaseActor):
         error: str | None = None,
         model_used: str | None = None,
         tokens: dict | None = None,
+        metadata: dict | None = None,
         elapsed: int = 0,
     ) -> None:
         result = TaskResult(
@@ -171,6 +176,7 @@ class TaskWorker(BaseActor):
                 "prompt_tokens": tokens.get("prompt_tokens", 0) if tokens else 0,
                 "completion_tokens": tokens.get("completion_tokens", 0) if tokens else 0,
             },
+            metadata=metadata or {},
             processing_time_ms=elapsed,
         )
         # Results route back to the orchestrator that dispatched this task.

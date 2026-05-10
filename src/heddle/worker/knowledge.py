@@ -34,7 +34,50 @@ logger = structlog.get_logger()
 _TEXT_EXTENSIONS = {".md", ".txt", ".yaml", ".yml", ".json", ".csv", ".toml"}
 
 
-def load_knowledge_sources(sources: list[dict[str, Any]]) -> str:
+class RequiredKnowledgeMissingError(Exception):
+    """Raised when a knowledge resource with ``required=True`` cannot be loaded.
+
+    Default for ``required`` is True (strict-by-default policy chosen during
+    F-session scoping) — operators opt out per-resource with
+    ``required: false`` when log-and-skip is what they actually want.
+    The exception carries the resource kind, name, and reason so the
+    worker layer can surface a clean error in the failed task result.
+    """
+
+    def __init__(self, kind: str, name: str, reason: str) -> None:
+        super().__init__(f"Required {kind} {name!r} could not be loaded: {reason}")
+        self.kind = kind
+        self.name = name
+        self.reason = reason
+
+
+def _is_required(item: dict[str, Any]) -> bool:
+    """Read the ``required`` field on a silo / source dict.
+
+    Default = ``True`` (strict-by-default).  Any value that's not
+    explicitly ``False`` is treated as required, including missing
+    keys and truthy non-bools — better to over-require than to
+    silently skip a typo'd field.
+    """
+    return item.get("required", True) is not False
+
+
+def _record_skip(skipped: list[dict[str, Any]] | None, kind: str, name: str, reason: str) -> None:
+    """Append a skip event to the optional accumulator.
+
+    Worker.process() passes a list here when it wants degraded-mode
+    metadata to land on the TaskResult; tests and standalone callers
+    pass ``None`` to opt out.
+    """
+    if skipped is not None:
+        skipped.append({"kind": kind, "name": name, "reason": reason})
+
+
+def load_knowledge_sources(
+    sources: list[dict[str, Any]],
+    *,
+    skipped: list[dict[str, Any]] | None = None,
+) -> str:
     """
     Load knowledge sources and format them for system prompt injection.
 
@@ -42,10 +85,10 @@ def load_knowledge_sources(sources: list[dict[str, Any]]) -> str:
     - path: file path to the knowledge file
     - inject_as: "reference" (append to prompt) or "few_shot" (format as examples)
     - max_bytes (optional): per-source read cap override (default: 10 MiB)
-
-    Files larger than the cap are skipped with a warning rather than
-    raising — knowledge loading is best-effort, not load-bearing, so
-    one oversize file shouldn't fail the whole worker startup.
+    - required (optional, default True): when True, a missing or
+      oversize file raises :class:`RequiredKnowledgeMissingError`;
+      when False, the source is skipped with a warning and recorded
+      to ``skipped`` if the accumulator was passed.
     """
     sections = []
 
@@ -53,24 +96,35 @@ def load_knowledge_sources(sources: list[dict[str, Any]]) -> str:
         path = Path(source["path"])
         inject_as = source.get("inject_as", "reference")
         max_bytes = source.get("max_bytes")
+        required = _is_required(source)
 
         if not path.exists():
+            if required:
+                raise RequiredKnowledgeMissingError("knowledge_source", str(path), "file not found")
             logger.warning(
                 "knowledge.source_not_found",
                 path=str(path),
                 inject_as=inject_as,
             )
+            _record_skip(skipped, "knowledge_source", str(path), "not_found")
             continue
 
         try:
             enforce_file_size(path, max_bytes=max_bytes)
         except FileTooLargeError as exc:
+            if required:
+                raise RequiredKnowledgeMissingError(
+                    "knowledge_source",
+                    str(path),
+                    f"exceeds size cap ({exc.size}/{exc.max_bytes} bytes)",
+                ) from exc
             logger.warning(
                 "knowledge.source_too_large",
                 path=str(path),
                 size=exc.size,
                 max_bytes=exc.max_bytes,
             )
+            _record_skip(skipped, "knowledge_source", str(path), "too_large")
             continue
 
         content = path.read_text()
@@ -104,11 +158,20 @@ def _format_few_shot(content: str, suffix: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def load_knowledge_silos(silos: list[dict[str, Any]]) -> str:
+def load_knowledge_silos(
+    silos: list[dict[str, Any]],
+    *,
+    skipped: list[dict[str, Any]] | None = None,
+) -> str:
     """Load folder-type silos and return formatted content for system prompt.
 
     Only processes silos with ``type="folder"``. Tool-type silos are handled
     separately by the runner's ``_load_tool_providers()``.
+
+    Each silo accepts an optional ``required`` field (default True) — when
+    True, a missing folder raises :class:`RequiredKnowledgeMissingError`;
+    when False, the silo is skipped with a warning and recorded to
+    ``skipped`` if the accumulator was passed.
 
     Returns:
         Concatenated content from all folder silos, with section headers.
@@ -122,9 +185,15 @@ def load_knowledge_silos(silos: list[dict[str, Any]]) -> str:
 
         name = silo.get("name", "unnamed")
         path = Path(silo["path"])
+        required = _is_required(silo)
 
         if not path.is_dir():
+            if required:
+                raise RequiredKnowledgeMissingError(
+                    "knowledge_silo", name, f"folder not found: {path}"
+                )
             logger.warning("knowledge.silo_folder_not_found", path=str(path), silo=name)
+            _record_skip(skipped, "knowledge_silo", name, "folder_not_found")
             continue
 
         content = _load_folder_contents(path)

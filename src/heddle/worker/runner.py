@@ -335,12 +335,22 @@ class LLMWorker(TaskWorker):
         # 1. Build prompt
         system_prompt = self.config["system_prompt"]
 
+        # Degraded-mode accumulator: when an *optional* knowledge resource
+        # (silo with ``required: false`` or source with same) fails to
+        # load, the loaders append a {kind, name, reason} dict here and
+        # we surface the list on TaskResult.metadata so callers can
+        # detect "ran without resource X" without having to scrape logs.
+        # Required failures raise RequiredKnowledgeMissingError, which
+        # bubbles up to TaskWorker.handle_message and becomes a FAILED
+        # task — that's the strict-by-default behaviour from F1.
+        degraded: list[dict[str, Any]] = []
+
         # 1a. Knowledge silo injection — load folder silos into system prompt
         silos = self.config.get("knowledge_silos", [])
         if silos:
             from heddle.worker.knowledge import load_knowledge_silos
 
-            silo_text = load_knowledge_silos(silos)
+            silo_text = load_knowledge_silos(silos, skipped=degraded)
             if silo_text:
                 system_prompt = silo_text + "\n\n" + system_prompt
 
@@ -349,7 +359,7 @@ class LLMWorker(TaskWorker):
         if knowledge_sources:
             from heddle.worker.knowledge import load_knowledge_sources
 
-            knowledge_text = load_knowledge_sources(knowledge_sources)
+            knowledge_text = load_knowledge_sources(knowledge_sources, skipped=degraded)
             if knowledge_text:
                 system_prompt = knowledge_text + "\n\n" + system_prompt
 
@@ -391,7 +401,7 @@ class LLMWorker(TaskWorker):
         user_message = json.dumps(payload, indent=2)
 
         # 2. Load tool providers from knowledge_silos
-        tool_providers = _load_tool_providers(silos)
+        tool_providers = _load_tool_providers(silos, skipped=degraded)
         tool_defs = [p.get_definition() for p in tool_providers.values()] or None
 
         # 3. Resolve backend from task metadata or config default
@@ -446,20 +456,41 @@ class LLMWorker(TaskWorker):
                 "prompt_tokens": total_prompt_tokens,
                 "completion_tokens": total_completion_tokens,
             },
+            # Empty when no optional resource was skipped — keeps
+            # TaskResult.metadata clean for the happy path.
+            "metadata": {"degraded_modes": degraded} if degraded else {},
         }
 
 
-def _load_tool_providers(silos: list[dict[str, Any]]) -> dict[str, ToolProvider]:
+def _load_tool_providers(
+    silos: list[dict[str, Any]],
+    *,
+    skipped: list[dict[str, Any]] | None = None,
+) -> dict[str, ToolProvider]:
     """Load tool providers from tool-type knowledge silos.
+
+    Each tool-type silo accepts an optional ``required`` field (default
+    True) — when True, a load failure raises
+    :class:`heddle.worker.knowledge.RequiredKnowledgeMissingError`;
+    when False, the silo is skipped with a warning and recorded to
+    ``skipped`` if the accumulator was passed.
 
     Returns a dict mapping tool name → ToolProvider instance.
     """
+    from heddle.worker.knowledge import (
+        RequiredKnowledgeMissingError,
+        _is_required,
+        _record_skip,
+    )
+
     providers: dict[str, ToolProvider] = {}
     for silo in silos:
         if silo.get("type") != "tool":
             continue
+        silo_name = silo.get("name", silo.get("provider", "unnamed"))
         class_path = silo.get("provider", "")
         config = silo.get("config", {})
+        required = _is_required(silo)
         try:
             provider = load_tool_provider(class_path, config)
             definition = provider.get_definition()
@@ -467,5 +498,10 @@ def _load_tool_providers(silos: list[dict[str, Any]]) -> dict[str, ToolProvider]
             providers[name] = provider
             logger.info("worker.tool_loaded", tool=name, provider=class_path)
         except Exception as e:
+            if required:
+                raise RequiredKnowledgeMissingError(
+                    "tool_provider", silo_name, f"load failed: {e}"
+                ) from e
             logger.error("worker.tool_load_failed", provider=class_path, error=str(e))
+            _record_skip(skipped, "tool_provider", silo_name, f"load_failed: {e}")
     return providers

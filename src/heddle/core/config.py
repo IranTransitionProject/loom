@@ -247,6 +247,14 @@ def validate_worker_config(  # noqa: PLR0912
         ks = config["knowledge_sources"]
         if not isinstance(ks, list):
             errors.append(f"{pfx}: 'knowledge_sources' must be a list")
+        else:
+            for i, source in enumerate(ks):
+                if (
+                    isinstance(source, dict)
+                    and "required" in source
+                    and not isinstance(source["required"], bool)
+                ):
+                    errors.append(f"{pfx}: knowledge_sources[{i}]: 'required' must be a boolean")
 
     # File-ref resolution
     if "resolve_file_refs" in config:
@@ -664,6 +672,15 @@ def _validate_knowledge_silos(  # noqa: PLR0912
         if not isinstance(silo["type"], str):
             errors.append(f"{prefix}: 'type' must be a string")
             continue
+
+        # ``required`` (optional, default True) — when True, a missing
+        # silo at runtime raises RequiredKnowledgeMissingError; when
+        # False, log + skip + record on TaskResult.metadata.  Validate
+        # the type here so a typo like ``required: "yes"`` is caught
+        # at config-load time rather than producing surprising runtime
+        # behaviour.
+        if "required" in silo and not isinstance(silo["required"], bool):
+            errors.append(f"{prefix}: 'required' must be a boolean if present")
 
         silo_type = silo["type"]
 

@@ -135,9 +135,13 @@ class TestKnowledgeSourceCap:
     """Knowledge sources skip oversized files with a warning, not raise."""
 
     def test_oversized_source_is_skipped_not_raised(self, tmp_path):
-        """Knowledge loading is best-effort; one big file must not fail
+        """An *optional* (``required: False``) oversize source must not fail
         the whole worker startup, and its content must not leak into
-        the formatted prompt sections."""
+        the formatted prompt sections.
+
+        Required oversize sources are covered by the F1 strict-mode
+        test pin; this test pins the documented opt-out path.
+        """
         from heddle.worker.knowledge import load_knowledge_sources
 
         small = tmp_path / "small.txt"
@@ -147,7 +151,12 @@ class TestKnowledgeSourceCap:
 
         sources = [
             {"path": str(small), "inject_as": "reference", "max_bytes": 10000},
-            {"path": str(big), "inject_as": "reference", "max_bytes": 100},
+            {
+                "path": str(big),
+                "inject_as": "reference",
+                "max_bytes": 100,
+                "required": False,
+            },
         ]
 
         result = load_knowledge_sources(sources)
