@@ -72,11 +72,16 @@ class WorkspaceResources:
 
         return resources
 
-    def read_resource(self, uri: str) -> tuple[str | bytes, str | None]:
+    def read_resource(
+        self, uri: str, *, max_bytes: int | None = None
+    ) -> tuple[str | bytes, str | None]:
         """Read a workspace resource by URI.
 
         Args:
             uri: A ``workspace:///filename`` URI.
+            max_bytes: Per-call override for the file-size cap.  ``None``
+                uses :data:`heddle.core.limits.DEFAULT_FILE_READ_MAX_BYTES`
+                (10 MiB).
 
         Returns:
             Tuple of (content, mimeType).  Text files return string content;
@@ -86,7 +91,12 @@ class WorkspaceResources:
             ValueError: If the URI scheme is wrong or the file is outside
                 the workspace (path traversal).
             FileNotFoundError: If the file does not exist.
+            FileTooLargeError: If the file would exceed the configured
+                read cap.  Caught here and surfaced rather than allowed
+                to OOM the gateway on a multi-GB workspace file.
         """
+        from heddle.core.limits import enforce_file_size
+
         rel_path = self._from_uri(uri)
         full_path = self.workspace_dir / rel_path
 
@@ -98,6 +108,9 @@ class WorkspaceResources:
 
         if not full_path.is_file():
             raise FileNotFoundError(f"Resource not found: {uri}")
+
+        # Cap check BEFORE the read so an oversize file never reaches memory.
+        enforce_file_size(full_path, max_bytes=max_bytes)
 
         mime, _ = mimetypes.guess_type(rel_path)
         mime = mime or "application/octet-stream"

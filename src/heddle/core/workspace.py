@@ -92,11 +92,13 @@ class WorkspaceManager:
             raise FileNotFoundError(f"File not found in workspace: {file_ref}")
         return resolved
 
-    def read_json(self, file_ref: str) -> dict[str, Any]:
+    def read_json(self, file_ref: str, *, max_bytes: int | None = None) -> dict[str, Any]:
         """Read and parse a JSON file from the workspace.
 
         Args:
             file_ref: Relative filename of a JSON file in the workspace.
+            max_bytes: Per-call override for the file-size cap.  ``None``
+                uses :data:`heddle.core.limits.DEFAULT_FILE_READ_MAX_BYTES`.
 
         Returns:
             Parsed JSON content as a dict.
@@ -104,16 +106,21 @@ class WorkspaceManager:
         Raises:
             ValueError: If path traversal is detected.
             FileNotFoundError: If the file does not exist.
+            FileTooLargeError: If the file would exceed the read cap.
             json.JSONDecodeError: If the file is not valid JSON.
         """
+        from heddle.core.limits import enforce_file_size
+
         path = self.resolve(file_ref)
+        enforce_file_size(path, max_bytes=max_bytes)
         return json.loads(path.read_text())
 
-    def read_text(self, file_ref: str) -> str:
+    def read_text(self, file_ref: str, *, max_bytes: int | None = None) -> str:
         """Read text content from a workspace file.
 
         Args:
             file_ref: Relative filename in the workspace.
+            max_bytes: Per-call override for the file-size cap.
 
         Returns:
             File contents as a string.
@@ -121,8 +128,12 @@ class WorkspaceManager:
         Raises:
             ValueError: If path traversal is detected.
             FileNotFoundError: If the file does not exist.
+            FileTooLargeError: If the file would exceed the read cap.
         """
+        from heddle.core.limits import enforce_file_size
+
         path = self.resolve(file_ref)
+        enforce_file_size(path, max_bytes=max_bytes)
         return path.read_text()
 
     def write_json(self, filename: str, data: dict[str, Any]) -> Path:

@@ -26,6 +26,8 @@ from typing import Any
 import structlog
 import yaml
 
+from heddle.core.limits import FileTooLargeError, enforce_file_size
+
 logger = structlog.get_logger()
 
 # File extensions loaded from folder silos.
@@ -39,18 +41,35 @@ def load_knowledge_sources(sources: list[dict[str, Any]]) -> str:
     Each source has:
     - path: file path to the knowledge file
     - inject_as: "reference" (append to prompt) or "few_shot" (format as examples)
+    - max_bytes (optional): per-source read cap override (default: 10 MiB)
+
+    Files larger than the cap are skipped with a warning rather than
+    raising — knowledge loading is best-effort, not load-bearing, so
+    one oversize file shouldn't fail the whole worker startup.
     """
     sections = []
 
     for source in sources:
         path = Path(source["path"])
         inject_as = source.get("inject_as", "reference")
+        max_bytes = source.get("max_bytes")
 
         if not path.exists():
             logger.warning(
                 "knowledge.source_not_found",
                 path=str(path),
                 inject_as=inject_as,
+            )
+            continue
+
+        try:
+            enforce_file_size(path, max_bytes=max_bytes)
+        except FileTooLargeError as exc:
+            logger.warning(
+                "knowledge.source_too_large",
+                path=str(path),
+                size=exc.size,
+                max_bytes=exc.max_bytes,
             )
             continue
 
@@ -140,8 +159,19 @@ def _load_folder_contents(folder: Path) -> str:
             continue
 
         try:
+            enforce_file_size(file_path)
             text = file_path.read_text(encoding="utf-8")
             parts.append(f"## {rel_path}\n{text}")
+        except FileTooLargeError as exc:
+            # One oversized file in a silo folder must not break loading
+            # of the others.  Skip with a warning so operators can see
+            # that something was excluded from the prompt.
+            logger.warning(
+                "knowledge.silo_read_skipped",
+                file=str(file_path),
+                size=exc.size,
+                max_bytes=exc.max_bytes,
+            )
         except (OSError, UnicodeDecodeError) as e:
             logger.warning("knowledge.silo_read_error", file=str(file_path), error=str(e))
 
