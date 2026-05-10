@@ -342,7 +342,7 @@ when a baseline exists. `remove_baseline(worker_name)` clears the baseline.
 | GET | `/workers/{name}/eval/{run_id}` | `worker_eval_detail` | `workers/eval_detail.html` | Per-case results + baseline comparison |
 | POST | `/workers/{name}/eval/{run_id}/promote-baseline` | `worker_promote_baseline` | -- | Promote run as baseline (redirect 303) |
 | POST | `/workers/{name}/eval/remove-baseline` | `worker_remove_baseline` | -- | Remove worker baseline (redirect 303) |
-| GET | `/workers/{name}/validate` | `worker_validate` | — | JSON: config validation errors |
+| POST | `/workers/{name}/validate` | `worker_validate` | `partials/validation_errors.html` | HTMX: validate posted YAML, return inline error list |
 | GET | `/workers/{name}/impact` | `worker_impact` | — | JSON: config impact analysis |
 | GET | `/workers/{name}/impact-panel` | `worker_impact_panel` | — | HTMX: impact analysis panel |
 | GET | `/pipelines` | `pipelines_list` | `pipelines/list.html` | Pipeline table |
@@ -364,17 +364,32 @@ when a baseline exists. `remove_baseline(worker_name)` clears the baseline.
 
 ### HTMX pattern
 
-Only the test bench uses HTMX for partial updates. The flow:
+Several routes return HTML fragments meant to be swapped into a target
+element rather than re-render the page. The endpoints currently using
+this pattern:
+
+- `POST /workers/{name}/test/run` → `partials/test_result.html` —
+  test bench result card (PASS/FAIL badge, token counts, output JSON,
+  validation errors, raw response)
+- `POST /workers/{name}/validate` → `partials/validation_errors.html` —
+  inline YAML validation error list while editing
+- `GET /workers/{name}/impact-panel` → `partials/impact_panel.html` —
+  config impact analysis panel
+- `GET /rag/store/stats` → `partials/rag_stats.html` —
+  vector store statistics
+- `POST /rag/search/run` → `partials/rag_search_result.html` —
+  semantic search result list
+
+Test-bench flow as a worked example:
 
 1. User fills payload JSON and selects tier in `workers/test.html`
 2. Form has `hx-post="/workers/{name}/test/run"` and `hx-target="#test-result"`
 3. Server calls `WorkerTestRunner.run()` (may take seconds for LLM call)
-4. Server returns `partials/test_result.html` — an `<article>` card with
-   PASS/FAIL badge, token counts, output JSON, validation errors, raw response
+4. Server returns `partials/test_result.html` — an `<article>` card
 5. HTMX swaps the card into `#test-result` div without a full page reload
 6. Loading indicator `#spinner` shows `aria-busy="true"` during the request
 
-All other forms use standard POST → 303 redirect → GET (PRG pattern).
+All non-fragment forms use standard POST → 303 redirect → GET (PRG pattern).
 
 ### Template hierarchy
 
