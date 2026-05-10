@@ -247,9 +247,8 @@ address is appropriate before trusting that data.
   - Invariant 13: path traversal uses resolved absolute paths.
   - Invariant 17: subscribe before publish (orchestrator
     request/reply contract).
-- [`heddle.workshop.security`](../src/heddle/workshop/security.py) —
+- `heddle.workshop.security` —
   Origin check, upload size cap, token auth helpers.
-- [`heddle.core.limits`](../src/heddle/core/limits.py) — Shared
-  file-read size cap.
-- [`heddle.workshop.app_capabilities`](../src/heddle/workshop/app_capabilities.py)
-  — Deploy-time capability extractor.
+- `heddle.core.limits` — Shared file-read size cap.
+- `heddle.workshop.app_capabilities` —
+  Deploy-time capability extractor.

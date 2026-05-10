@@ -99,6 +99,7 @@ nav:
   - Deployment:
     - Local Deployment: LOCAL_DEPLOYMENT.md
     - Application Deployment: APP_DEPLOYMENT.md
+    - Security Model: SECURITY_MODEL.md
     - Kubernetes: KUBERNETES.md
   - API Reference:
     - Core: api/core.md
