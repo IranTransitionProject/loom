@@ -326,3 +326,289 @@ def test_new_pipeline_name_conflict(tmp_path):
     )
     assert result.exit_code != 0
     assert "already exists" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Default-path coverage (H5): non-interactive scaffolds with all options elided
+# ---------------------------------------------------------------------------
+
+
+def test_list_workers_empty_when_directory_missing(tmp_path):
+    """_list_workers returns [] when configs/workers does not exist."""
+    from heddle.cli.new import _list_workers
+
+    # tmp_path/workers doesn't exist
+    assert _list_workers(tmp_path) == []
+
+
+def test_list_workers_skips_template_and_dotfiles(tmp_path):
+    """_list_workers ignores _template.yaml and hidden files."""
+    from heddle.cli.new import _list_workers
+
+    workers = tmp_path / "workers"
+    workers.mkdir()
+    (workers / "summarizer.yaml").write_text("name: summarizer\n")
+    (workers / "_template.yaml").write_text("name: _template\n")
+    (workers / ".hidden.yaml").write_text("name: .hidden\n")
+    (workers / "classifier.yaml").write_text("name: classifier\n")
+
+    assert _list_workers(tmp_path) == ["classifier", "summarizer"]
+
+
+def test_new_worker_non_interactive_all_defaults(tmp_path):
+    """Non-interactive without --name/--kind/--tier uses the fallbacks
+    (my_worker / llm / local). Pins the default config that the next-step
+    docs reference.
+    """
+    result = CliRunner().invoke(
+        new,
+        [
+            "worker",
+            "--non-interactive",
+            "--configs-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    dest = tmp_path / "workers" / "my_worker.yaml"
+    assert dest.exists()
+
+    config = yaml.safe_load(dest.read_text())
+    assert config["name"] == "my_worker"
+    assert config["default_model_tier"] == "local"
+    assert config["timeout_seconds"] == 30
+    assert "my_worker worker" in config["system_prompt"]
+
+
+def test_new_worker_non_interactive_processor(tmp_path):
+    """Non-interactive --kind=processor uses the placeholder backend
+    string; the scaffold is intentionally NOT runnable until the
+    operator points it at a real backend.
+    """
+    result = CliRunner().invoke(
+        new,
+        [
+            "worker",
+            "--non-interactive",
+            "--name",
+            "auto_proc",
+            "--kind",
+            "processor",
+            "--configs-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    config = yaml.safe_load((tmp_path / "workers" / "auto_proc.yaml").read_text())
+    assert config["worker_kind"] == "processor"
+    assert config["processing_backend"] == "mypackage.backend.MyBackend"
+    assert config["timeout_seconds"] == 60
+
+
+def test_new_pipeline_non_interactive_default_name(tmp_path):
+    """Non-interactive without --name uses the my_pipeline fallback."""
+    result = CliRunner().invoke(
+        new,
+        ["pipeline", "--non-interactive", "--configs-dir", str(tmp_path)],
+    )
+    assert result.exit_code == 0, result.output
+
+    dest = tmp_path / "orchestrators" / "my_pipeline.yaml"
+    assert dest.exists()
+    config = yaml.safe_load(dest.read_text())
+    assert config["name"] == "my_pipeline"
+    # No workers available -> falls back to "summarizer" placeholder.
+    assert config["pipeline_stages"][0]["worker_type"] == "summarizer"
+
+
+def test_new_pipeline_non_interactive_invalid_name_rejected(tmp_path):
+    """Pipeline name validation matches worker name validation."""
+    result = CliRunner().invoke(
+        new,
+        [
+            "pipeline",
+            "--non-interactive",
+            "--name",
+            "BAD-NAME",
+            "--configs-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code != 0
+    assert "lowercase" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Interactive validation/retry paths
+# ---------------------------------------------------------------------------
+
+
+def test_new_pipeline_interactive_stage_name_retry(tmp_path):
+    """Invalid stage name surfaces an inline error and re-prompts.
+
+    Asserts the validation error message appears in the output (so the
+    operator sees what was wrong) and that the eventually-accepted
+    stage name lands in the YAML.
+    """
+    workers_dir = tmp_path / "workers"
+    workers_dir.mkdir(parents=True)
+    (workers_dir / "summarizer.yaml").write_text("name: summarizer\n")
+
+    inputs = "\n".join(
+        [
+            "test_pipe",  # pipeline name
+            "summarizer",  # worker_type
+            "Bad-Stage",  # stage_name (INVALID — uppercase/hyphen)
+            # The "continue" branch loops back to the start of stage
+            # construction, so the worker_type prompt fires again.
+            "summarizer",  # worker_type (retry)
+            "good_stage",  # stage_name (VALID)
+            "text=goal.context.text",  # mapping
+            "",  # end mapping
+            "n",  # no more stages
+            "300",  # timeout
+        ]
+    )
+    result = CliRunner().invoke(new, ["pipeline", "--configs-dir", str(tmp_path)], input=inputs)
+    assert result.exit_code == 0, result.output
+    # Error message surfaced.
+    assert "lowercase" in result.output or "underscores" in result.output
+
+    config = yaml.safe_load((tmp_path / "orchestrators" / "test_pipe.yaml").read_text())
+    assert config["pipeline_stages"][0]["name"] == "good_stage"
+
+
+def test_new_pipeline_interactive_mapping_format_retry(tmp_path):
+    """Malformed mapping pair surfaces an error and re-prompts within the
+    inner loop (without restarting the stage).
+    """
+    workers_dir = tmp_path / "workers"
+    workers_dir.mkdir(parents=True)
+    (workers_dir / "summarizer.yaml").write_text("name: summarizer\n")
+
+    inputs = "\n".join(
+        [
+            "test_pipe",  # pipeline name
+            "summarizer",  # worker_type
+            "summarize",  # stage_name
+            "no_equals_sign",  # INVALID mapping pair
+            "text=goal.context.text",  # VALID mapping pair
+            "",  # end mapping
+            "n",  # no more stages
+            "300",  # timeout
+        ]
+    )
+    result = CliRunner().invoke(new, ["pipeline", "--configs-dir", str(tmp_path)], input=inputs)
+    assert result.exit_code == 0, result.output
+    assert "field=path" in result.output
+
+    config = yaml.safe_load((tmp_path / "orchestrators" / "test_pipe.yaml").read_text())
+    assert config["pipeline_stages"][0]["input_mapping"]["text"] == "goal.context.text"
+
+
+def test_new_pipeline_interactive_first_stage_default_mapping(tmp_path):
+    """First stage with empty mapping line falls back to text=goal.context.text."""
+    workers_dir = tmp_path / "workers"
+    workers_dir.mkdir(parents=True)
+    (workers_dir / "summarizer.yaml").write_text("name: summarizer\n")
+
+    inputs = "\n".join(
+        [
+            "test_pipe",  # pipeline name
+            "summarizer",  # worker_type
+            "summarize",  # stage_name
+            "",  # no mapping entered (uses default)
+            "n",  # no more stages
+            "300",  # timeout
+        ]
+    )
+    result = CliRunner().invoke(new, ["pipeline", "--configs-dir", str(tmp_path)], input=inputs)
+    assert result.exit_code == 0, result.output
+    assert "default: text=goal.context.text" in result.output
+
+    config = yaml.safe_load((tmp_path / "orchestrators" / "test_pipe.yaml").read_text())
+    assert config["pipeline_stages"][0]["input_mapping"] == {"text": "goal.context.text"}
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: scaffold a worker, then validate it through heddle validate.
+# Pins the "scaffold output is always validateable" promise from the
+# session-starter spec.
+# ---------------------------------------------------------------------------
+
+
+def test_scaffolded_worker_validates_via_cli(tmp_path):
+    """Non-interactive scaffold + heddle validate round-trip on the same file."""
+    from heddle.cli.main import cli
+
+    runner = CliRunner()
+
+    # Step 1: scaffold a worker.
+    scaffold = runner.invoke(
+        new,
+        [
+            "worker",
+            "--non-interactive",
+            "--name",
+            "scaffold_demo",
+            "--kind",
+            "llm",
+            "--tier",
+            "local",
+            "--configs-dir",
+            str(tmp_path),
+        ],
+    )
+    assert scaffold.exit_code == 0, scaffold.output
+
+    # Step 2: validate the generated file through the public CLI.
+    dest = tmp_path / "workers" / "scaffold_demo.yaml"
+    validated = runner.invoke(cli, ["validate", str(dest)])
+    assert validated.exit_code == 0, validated.output
+
+
+def test_scaffolded_pipeline_validates_via_cli(tmp_path):
+    """Non-interactive pipeline scaffold + heddle validate round-trip."""
+    from heddle.cli.main import cli
+
+    # The pipeline scaffold references a worker — write a minimal valid one.
+    workers_dir = tmp_path / "workers"
+    workers_dir.mkdir(parents=True)
+    worker_yaml = {
+        "name": "summarizer",
+        "system_prompt": "Summarize the input.",
+        "input_schema": {
+            "type": "object",
+            "required": ["text"],
+            "properties": {"text": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "required": ["summary"],
+            "properties": {"summary": {"type": "string"}},
+        },
+        "default_model_tier": "local",
+        "max_input_tokens": 8000,
+        "max_output_tokens": 1000,
+        "timeout_seconds": 30,
+    }
+    (workers_dir / "summarizer.yaml").write_text(yaml.safe_dump(worker_yaml))
+
+    runner = CliRunner()
+    scaffold = runner.invoke(
+        new,
+        [
+            "pipeline",
+            "--non-interactive",
+            "--name",
+            "scaffold_pipe",
+            "--configs-dir",
+            str(tmp_path),
+        ],
+    )
+    assert scaffold.exit_code == 0, scaffold.output
+
+    dest = tmp_path / "orchestrators" / "scaffold_pipe.yaml"
+    validated = runner.invoke(cli, ["validate", str(dest)])
+    assert validated.exit_code == 0, validated.output
