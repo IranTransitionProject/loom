@@ -18,6 +18,8 @@ from typing import Any
 
 import structlog
 
+from heddle.core.paths import resolve_within
+
 logger = structlog.get_logger()
 
 # URI scheme for workspace resources.
@@ -98,11 +100,13 @@ class WorkspaceResources:
         from heddle.core.limits import enforce_file_size
 
         rel_path = self._from_uri(uri)
-        full_path = self.workspace_dir / rel_path
 
-        # Path traversal check.
+        # Path traversal check via the shared helper.  Re-raises any
+        # ValueError with the URI in the message so the MCP-layer error
+        # still surfaces the offending URI to the caller rather than
+        # just the relative path.
         try:
-            full_path.resolve().relative_to(self.workspace_dir.resolve())
+            full_path = resolve_within(self.workspace_dir, rel_path)
         except ValueError as exc:
             raise ValueError(f"Path traversal detected: {uri}") from exc
 

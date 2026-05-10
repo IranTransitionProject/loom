@@ -34,6 +34,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from heddle.core.paths import resolve_within
+
 
 class WorkspaceManager:
     """Manages file operations within a bounded workspace directory.
@@ -52,25 +54,14 @@ class WorkspaceManager:
     def _ensure_within_workspace(self, file_ref: str) -> Path:
         """Resolve ``file_ref`` and confirm it lives inside the workspace.
 
-        Returns the resolved absolute path on success, or raises
-        ``ValueError`` if the path escapes the workspace boundary.
-        Used by both read and write paths so the boundary is checked
-        identically everywhere.
-
-        Why ``Path.is_relative_to`` and not ``str.startswith`` (the
-        previous shape):  string-prefix checks are defeated by
-        sibling-prefix collisions.  With ``workspace_dir=/tmp/work``,
-        a ``file_ref`` of ``"../work-evil/secret"`` resolves to
-        ``/tmp/work-evil/secret`` whose string representation begins
-        with ``/tmp/work`` — the prefix check passes and a file
-        outside the workspace is read.  ``is_relative_to`` compares
-        path components, not characters, and is immune.
+        Thin wrapper over :func:`heddle.core.paths.resolve_within` so
+        every read/write goes through the same boundary check.  The
+        helper preserves the ``Path.is_relative_to``-not-string-prefix
+        rationale and the follow-symlinks behaviour that the original
+        inline shape relied on — see ``heddle.core.paths`` for the
+        full reasoning.
         """
-        workspace_root = self.workspace_dir.resolve()
-        resolved = (self.workspace_dir / file_ref).resolve()
-        if not resolved.is_relative_to(workspace_root):
-            raise ValueError(f"Path traversal detected: {file_ref}")
-        return resolved
+        return resolve_within(self.workspace_dir, file_ref)
 
     def resolve(self, file_ref: str) -> Path:
         """Resolve a file reference to a validated absolute path.

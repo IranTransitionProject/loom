@@ -27,6 +27,7 @@ import structlog
 import yaml
 
 from heddle.core.limits import FileTooLargeError, enforce_file_size
+from heddle.core.paths import resolve_within
 
 logger = structlog.get_logger()
 
@@ -307,7 +308,12 @@ def apply_silo_updates(
             )
             continue
 
-        # Validate filename — no path traversal
+        # Validate filename — cheap early reject for obviously
+        # malicious input.  Kept ahead of ``resolve_within`` so the
+        # log distinguishes "raw filename looked traversal-y"
+        # (``path traversal``) from "filename resolved outside the
+        # silo via symlink or odd component combo"
+        # (``path escapes silo``).  Two different operator signals.
         if ".." in filename or filename.startswith("/"):
             logger.warning(
                 "knowledge.silo_update_denied",
@@ -318,11 +324,11 @@ def apply_silo_updates(
             continue
 
         folder = writable[silo_name]
-        target = folder / filename
 
-        # Ensure resolved path is within the silo folder
+        # Resolve under the silo root via the shared helper.  Catches
+        # symlinks and any traversal the cheap check above missed.
         try:
-            target.resolve().relative_to(folder.resolve())
+            target = resolve_within(folder, filename)
         except ValueError:
             logger.warning(
                 "knowledge.silo_update_denied",
