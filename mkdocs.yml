@@ -101,6 +101,14 @@ nav:
     - Application Deployment: APP_DEPLOYMENT.md
     - Security Model: SECURITY_MODEL.md
     - Kubernetes: KUBERNETES.md
+  - Operator Runbooks:
+    - Overview: runbooks/index.md
+    - Debug missing worker results: runbooks/debug-missing-results.md
+    - Interpret dead letters: runbooks/interpret-dead-letters.md
+    - Verify NATS connectivity: runbooks/verify-nats-connectivity.md
+    - Deploy Workshop safely: runbooks/deploy-workshop-safely.md
+    - Recover stuck eval runs: runbooks/recover-stuck-eval-runs.md
+    - Recover stuck orchestrator goal: runbooks/recover-stuck-orchestrator-goal.md
   - API Reference:
     - Core: api/core.md
     - Message Bus: api/bus.md
