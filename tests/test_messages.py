@@ -1,6 +1,13 @@
 """Test message schema validation and serialization."""
 
-from heddle.core.messages import ModelTier, OrchestratorGoal, TaskMessage, TaskResult, TaskStatus
+from heddle.core.messages import (
+    ModelTier,
+    OrchestratorGoal,
+    TaskMessage,
+    TaskResult,
+    TaskStatus,
+    parse_task_result,
+)
 
 
 def test_task_message_defaults():
@@ -120,3 +127,75 @@ def test_orchestrator_goal_request_id_roundtrip():
     data = goal.model_dump(mode="json")
     restored = OrchestratorGoal(**data)
     assert restored.request_id == "req-goal-2"
+
+
+# --- parse_task_result helper tests ---
+
+
+def test_parse_task_result_valid_returns_model():
+    """A well-formed payload parses without warnings."""
+    data = {
+        "task_id": "abc",
+        "worker_type": "summarizer",
+        "status": "completed",
+        "output": {"summary": "ok"},
+    }
+    parsed = parse_task_result(data, log_event="test.parse_error")
+    assert parsed is not None
+    assert parsed.task_id == "abc"
+    assert parsed.status == TaskStatus.COMPLETED
+    assert parsed.output == {"summary": "ok"}
+
+
+def test_parse_task_result_invalid_returns_none(caplog):
+    """A malformed payload returns None and logs the configured event.
+
+    Both call sites (``dispatch.parse_error`` and
+    ``result_stream.parse_error``) depend on the helper logging the
+    event name they pass, so existing log queries keep working.
+    """
+    bad = {"task_id": "x"}  # missing required fields
+    parsed = parse_task_result(bad, log_event="dispatch.parse_error", task_id="x")
+    assert parsed is None
+
+
+def test_parse_task_result_invalid_status_returns_none():
+    """An invalid status enum value is treated as a skip, not a fatal."""
+    bad = {
+        "task_id": "y",
+        "worker_type": "summarizer",
+        "status": "bogus-status",
+    }
+    parsed = parse_task_result(bad, log_event="result_stream.parse_error")
+    assert parsed is None
+
+
+def test_parse_task_result_forwards_extra_log_fields(monkeypatch):
+    """``extra_log_fields`` flow to the underlying logger call.
+
+    ``ResultStream`` relies on this to keep its bound ``subject`` and
+    ``expected`` fields on the parse-error event after extraction.
+    """
+    from heddle.core import messages as messages_mod
+
+    captured: dict[str, object] = {}
+
+    def _fake_warning(event: str, **fields: object) -> None:
+        captured["event"] = event
+        captured.update(fields)
+
+    monkeypatch.setattr(messages_mod.logger, "warning", _fake_warning)
+
+    parsed = parse_task_result(
+        {"task_id": "z"},
+        log_event="result_stream.parse_error",
+        task_id="z",
+        subject="heddle.results.goal-1",
+        expected=3,
+    )
+    assert parsed is None
+    assert captured["event"] == "result_stream.parse_error"
+    assert captured["task_id"] == "z"
+    assert captured["subject"] == "heddle.results.goal-1"
+    assert captured["expected"] == 3
+    assert "error" in captured

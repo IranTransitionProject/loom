@@ -23,16 +23,11 @@ import asyncio
 import contextlib
 from typing import TYPE_CHECKING, Any
 
-import structlog
-
-from heddle.core.messages import TaskResult
+from heddle.core.messages import parse_task_result
 
 if TYPE_CHECKING:
     from heddle.bus.base import MessageBus
-    from heddle.core.messages import TaskMessage
-
-
-logger = structlog.get_logger()
+    from heddle.core.messages import TaskMessage, TaskResult
 
 
 _INCOMING_SUBJECT = "heddle.tasks.incoming"
@@ -74,20 +69,13 @@ async def dispatch_and_wait_for_result(
             if data.get("task_id") != task.task_id:
                 continue
             # Parse-error resilience: a malformed matching result must
-            # NOT take down the consumer task.  ``ResultStream``
-            # (orchestrator/stream.py) skips Pydantic-rejected payloads
-            # the same way; keeping the two parallel — same skip-and-
-            # continue behaviour, parallel ``*.parse_error`` log keys —
-            # means a future operator can grep both modules with one
-            # query.
-            try:
-                parsed = TaskResult(**data)
-            except Exception as e:
-                logger.warning(
-                    "dispatch.parse_error",
-                    task_id=task.task_id,
-                    error=str(e),
-                )
+            # NOT take down the consumer task.  ``parse_task_result``
+            # shares the skip-and-log behaviour with
+            # :class:`heddle.orchestrator.stream.ResultStream`; both
+            # log on the ``*.parse_error`` family so an operator can
+            # grep both modules with one query.
+            parsed = parse_task_result(data, log_event="dispatch.parse_error", task_id=task.task_id)
+            if parsed is None:
                 continue
             with contextlib.suppress(asyncio.InvalidStateError):
                 result_future.set_result(parsed)

@@ -23,7 +23,10 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
+import structlog
 from pydantic import BaseModel, Field
+
+logger = structlog.get_logger()
 
 
 class TaskPriority(StrEnum):
@@ -112,6 +115,47 @@ class TaskResult(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     processing_time_ms: int = 0
     completed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+def parse_task_result(
+    data: dict[str, Any],
+    *,
+    log_event: str,
+    task_id: str | None = None,
+    **extra_log_fields: Any,
+) -> TaskResult | None:
+    """Parse a :class:`TaskResult` payload, logging + returning None on error.
+
+    Two call sites parse :class:`TaskResult` off raw bus data:
+
+    - :func:`heddle.orchestrator.dispatch.dispatch_and_wait_for_result`
+      (single-result wait), logging ``dispatch.parse_error``;
+    - :class:`heddle.orchestrator.stream.ResultStream` (multi-result
+      collection), logging ``result_stream.parse_error``.
+
+    Both must treat a Pydantic ``ValidationError`` on one matching
+    payload as a skip rather than a fatal — the consumer keeps reading
+    until the next valid result or the outer timeout.  Drift between
+    the two was the regression fixed in b453298.
+
+    ``log_event`` keeps the two existing module-specific log keys
+    intact so operator queries / alerting that grep for either key
+    continue to work.  ``task_id`` is logged when provided so the
+    skip is correlatable with the dispatched task.  ``extra_log_fields``
+    forwards caller-specific context (e.g.
+    :class:`~heddle.orchestrator.stream.ResultStream` includes the
+    subject and expected count it had bound on its logger).
+    """
+    try:
+        return TaskResult(**data)
+    except Exception as e:
+        logger.warning(
+            log_event,
+            task_id=task_id,
+            error=str(e),
+            **extra_log_fields,
+        )
+        return None
 
 
 class OrchestratorGoal(BaseModel):

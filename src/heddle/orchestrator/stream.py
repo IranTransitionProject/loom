@@ -68,7 +68,7 @@ from typing import TYPE_CHECKING, Protocol
 
 import structlog
 
-from heddle.core.messages import TaskResult
+from heddle.core.messages import TaskResult, parse_task_result
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -369,15 +369,22 @@ class ResultStream:
                     )
                     continue
 
-                # Parse the result.
-                try:
-                    result = TaskResult(**data)
-                except Exception as e:
-                    log.warning(
-                        "result_stream.parse_error",
-                        task_id=task_id,
-                        error=str(e),
-                    )
+                # Parse the result.  ``parse_task_result`` shares the
+                # skip-and-log behaviour with
+                # :func:`heddle.orchestrator.dispatch.dispatch_and_wait_for_result`;
+                # both log on the ``*.parse_error`` family so an operator
+                # can grep both modules with one query.  ``subject`` /
+                # ``expected`` were bound on ``log`` above; forward them
+                # explicitly so the parse-error event keeps the same
+                # shape it had before extraction.
+                result = parse_task_result(
+                    data,
+                    log_event="result_stream.parse_error",
+                    task_id=task_id,
+                    subject=self._subject,
+                    expected=self.expected_count,
+                )
+                if result is None:
                     continue
 
                 self._collected[task_id] = result
