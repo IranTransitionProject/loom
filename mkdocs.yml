@@ -94,6 +94,13 @@ nav:
   - Architecture:
     - Overview: ARCHITECTURE.md
     - Design Invariants: DESIGN_INVARIANTS.md
+    - Decision Records:
+      - Overview: adr/index.md
+      - ADR-001 — Stateless workers: adr/001-stateless-workers.md
+      - ADR-002 — Deterministic router: adr/002-deterministic-router.md
+      - ADR-003 — Shallow JSON Schema: adr/003-shallow-json-schema.md
+      - ADR-004 — Skip-not-crash on malformed: adr/004-skip-not-crash-on-malformed.md
+      - ADR-005 — Subscribe before publish: adr/005-subscribe-before-publish.md
   - Vision:
     - Ad-Hoc Clusters: vision/AD_HOC_CLUSTERS.md
   - Deployment:
