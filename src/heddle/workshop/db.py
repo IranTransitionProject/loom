@@ -22,6 +22,27 @@ if TYPE_CHECKING:
     from datetime import datetime
 
 
+# Columns on ``eval_runs`` that ``update_eval_run`` is allowed to write.  The
+# helper interpolates keys directly into the ``SET`` clause as SQL identifiers
+# (DuckDB's parameter binding only covers values, not identifiers), so any
+# request-derived key would otherwise be a SQL-injection vector.  Excluded on
+# purpose: ``id`` (primary key), ``worker_name``/``worker_version_id``/``tier``/
+# ``total_cases``/``started_at`` (set at creation, immutable), ``metadata``
+# (set at creation; expand the allowlist if a use case needs in-place edit).
+_EVAL_RUNS_UPDATABLE_COLUMNS: frozenset[str] = frozenset(
+    {
+        "status",
+        "completed_at",
+        "passed_cases",
+        "failed_cases",
+        "avg_latency_ms",
+        "avg_prompt_tokens",
+        "avg_completion_tokens",
+        "error",
+    }
+)
+
+
 class WorkshopDB:
     """DuckDB-backed storage for the Workshop.
 
@@ -207,13 +228,25 @@ class WorkshopDB:
         return run_id
 
     def update_eval_run(self, run_id: str, updates: dict[str, Any]) -> None:
-        """Update fields on an eval run (e.g., status, passed_cases, avg_latency_ms)."""
-        set_clauses = []
-        values = []
-        for key, value in updates.items():
-            set_clauses.append(f"{key} = ?")
-            values.append(value)
-        values.append(run_id)
+        """Update fields on an eval run (e.g., status, passed_cases, avg_latency_ms).
+
+        Only columns in ``_EVAL_RUNS_UPDATABLE_COLUMNS`` may be updated.
+        Unknown keys raise ``ValueError`` before any SQL is built — this
+        guards against a future caller passing a request-derived key into
+        the SQL identifier slot, which DuckDB's parameter binding cannot
+        protect against.
+        """
+        unknown = set(updates) - _EVAL_RUNS_UPDATABLE_COLUMNS
+        if unknown:
+            msg = (
+                f"update_eval_run rejected unknown columns: {sorted(unknown)}. "
+                f"Allowed: {sorted(_EVAL_RUNS_UPDATABLE_COLUMNS)}"
+            )
+            raise ValueError(msg)
+        if not updates:
+            return
+        set_clauses = [f"{key} = ?" for key in updates]
+        values = [*updates.values(), run_id]
         self._conn.execute(
             f"UPDATE eval_runs SET {', '.join(set_clauses)} WHERE id = ?",
             values,

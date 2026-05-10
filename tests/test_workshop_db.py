@@ -110,6 +110,35 @@ class TestEvalRuns:
         runs = db.get_eval_runs("w", limit=3)
         assert len(runs) == 3
 
+    def test_update_eval_run_rejects_unknown_column(self, db):
+        """Unknown keys must raise before any SQL is built so a future caller
+        passing a request-derived key cannot inject into the SET clause.
+        ``id`` and ``worker_name`` are both real columns but explicitly
+        excluded from the allowlist (immutable identity); a totally bogus
+        column name proves the allowlist short-circuits before DuckDB
+        parses anything.
+        """
+        run_id = db.save_eval_run("w", "local", total_cases=1)
+        for bad in ("id", "worker_name", "tier", "; DROP TABLE eval_runs --"):
+            with pytest.raises(ValueError, match="rejected unknown columns"):
+                db.update_eval_run(run_id, {bad: "anything"})
+
+        # Allowed keys still work, and the row is unchanged after the
+        # rejected calls above.
+        db.update_eval_run(run_id, {"status": "completed", "error": "noted"})
+        runs = db.get_eval_runs("w")
+        assert runs[0]["status"] == "completed"
+        assert runs[0]["error"] == "noted"
+
+    def test_update_eval_run_empty_updates_is_noop(self, db):
+        """Defensive: an empty dict must not generate ``UPDATE ... SET  WHERE``
+        which DuckDB would reject as a syntax error.
+        """
+        run_id = db.save_eval_run("w", "local", total_cases=1)
+        db.update_eval_run(run_id, {})  # must not raise
+        runs = db.get_eval_runs("w")
+        assert runs[0]["status"] == "running"
+
 
 # ---------------------------------------------------------------------------
 # Eval results
