@@ -116,31 +116,54 @@ class ConfigManager:
                 logger.warning("config.load_failed", path=str(path), error=str(e))
         return results
 
+    def _resolve_worker_path(self, name: str) -> Path:
+        """Find the worker YAML for ``name`` across base + extra config dirs.
+
+        Search order: base ``configs_dir/workers/`` first, then each
+        ``extra_config_dirs`` entry's ``workers/`` subdirectory in the
+        order they were registered.  First match wins.  Deploy-time
+        collision rejection (see ``AppManager.deploy_app``) means a
+        well-formed environment never has two paths to choose from, but
+        the deterministic base-first order is the documented fallback.
+
+        Raises:
+            FileNotFoundError: If the config exists in none of the dirs.
+        """
+        candidates = [self.configs_dir / "workers" / f"{name}.yaml"]
+        candidates.extend(extra / "workers" / f"{name}.yaml" for extra in self.extra_config_dirs)
+        for path in candidates:
+            if path.exists():
+                return path
+        raise FileNotFoundError(
+            f"Worker config not found: {name!r} (searched {[str(c) for c in candidates]})"
+        )
+
     def get_worker(self, name: str) -> dict[str, Any]:
         """Load a worker config by name.
 
+        Searches the base ``configs_dir`` first, then each registered
+        deployed-app config dir.  This matches ``list_workers`` so that
+        configs the operator sees in the list view are also openable in
+        detail / test / eval views.
+
         Raises:
             ValueError: If ``name`` is not a safe filename (path traversal).
-            FileNotFoundError: If the config doesn't exist.
+            FileNotFoundError: If the config doesn't exist in any source.
         """
         _validate_config_name(name)
-        path = self.configs_dir / "workers" / f"{name}.yaml"
-        if not path.exists():
-            raise FileNotFoundError(f"Worker config not found: {path}")
-        return load_config(str(path))
+        return load_config(str(self._resolve_worker_path(name)))
 
     def get_worker_yaml(self, name: str) -> str:
         """Get raw YAML content for a worker config.
 
+        Searches base + extra config dirs (see ``get_worker``).
+
         Raises:
             ValueError: If ``name`` is not a safe filename (path traversal).
-            FileNotFoundError: If the config doesn't exist.
+            FileNotFoundError: If the config doesn't exist in any source.
         """
         _validate_config_name(name)
-        path = self.configs_dir / "workers" / f"{name}.yaml"
-        if not path.exists():
-            raise FileNotFoundError(f"Worker config not found: {path}")
-        return path.read_text()
+        return self._resolve_worker_path(name).read_text()
 
     def save_worker(
         self,
@@ -251,18 +274,63 @@ class ConfigManager:
                 logger.warning("config.load_failed", path=str(path), error=str(e))
         return results
 
+    def _resolve_pipeline_path(self, name: str) -> Path:
+        """Find the pipeline YAML for ``name`` across base + extra config dirs.
+
+        Same source-aware lookup as ``_resolve_worker_path``: base wins,
+        deployed apps fall back in registration order.
+
+        Raises:
+            FileNotFoundError: If the config exists in none of the dirs.
+        """
+        candidates = [self.configs_dir / "orchestrators" / f"{name}.yaml"]
+        candidates.extend(
+            extra / "orchestrators" / f"{name}.yaml" for extra in self.extra_config_dirs
+        )
+        for path in candidates:
+            if path.exists():
+                return path
+        raise FileNotFoundError(
+            f"Pipeline config not found: {name!r} (searched {[str(c) for c in candidates]})"
+        )
+
     def get_pipeline(self, name: str) -> dict[str, Any]:
         """Load a pipeline config by name.
 
+        Searches the base ``configs_dir`` first, then each registered
+        deployed-app config dir.  Symmetric with ``list_pipelines`` so
+        that pipelines the operator sees in the list view are also
+        openable in the editor / graph views.
+
         Raises:
             ValueError: If ``name`` is not a safe filename (path traversal).
-            FileNotFoundError: If the config doesn't exist.
+            FileNotFoundError: If the config doesn't exist in any source.
         """
         _validate_config_name(name)
-        path = self.configs_dir / "orchestrators" / f"{name}.yaml"
-        if not path.exists():
-            raise FileNotFoundError(f"Pipeline config not found: {path}")
-        return load_config(str(path))
+        return load_config(str(self._resolve_pipeline_path(name)))
+
+    def existing_config_stems(self) -> dict[str, set[str]]:
+        """Return every visible config filename stem, grouped by kind.
+
+        Result shape: ``{"workers": {...}, "pipelines": {...}}`` covering
+        the base ``configs_dir`` plus every registered extra dir.  Used
+        by the ``/apps/deploy`` route to compute the set of names that
+        ``AppManager.deploy_app`` should reject as collisions.  Returns
+        the file stem (without the ``.yaml`` suffix) because that is the
+        lookup key on every workshop URL (e.g. ``/workers/foo``).
+        """
+        workers: set[str] = set()
+        pipelines: set[str] = set()
+        for base in [self.configs_dir, *self.extra_config_dirs]:
+            workers_dir = base / "workers"
+            if workers_dir.exists():
+                workers.update(
+                    p.stem for p in workers_dir.glob("*.yaml") if not p.name.startswith("_")
+                )
+            orch_dir = base / "orchestrators"
+            if orch_dir.exists():
+                pipelines.update(p.stem for p in orch_dir.glob("*.yaml"))
+        return {"workers": workers, "pipelines": pipelines}
 
     def save_pipeline(self, name: str, config: dict[str, Any]) -> list[str]:
         """Validate and save a pipeline config.

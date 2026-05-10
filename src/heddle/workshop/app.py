@@ -562,8 +562,39 @@ def create_app(  # noqa: PLR0915
 
             from heddle.workshop.app_manager import AppDeployError
 
+            # Build the forbidden-names set for the deploy collision check.
+            # ``existing_config_stems`` includes EVERY visible config name
+            # (base + all deployed apps).  We then subtract this app's own
+            # existing stems so a redeploy of the same app doesn't collide
+            # with itself.  Determining "this app's existing stems" requires
+            # peeking at the new manifest first; the collision check then
+            # runs again inside ``deploy_app`` with the trimmed set.
             try:
-                manifest = app_mgr.deploy_app(tmp_path)
+                pending_manifest = app_mgr.peek_manifest(tmp_path)
+            except AppDeployError as e:
+                qs = urlencode({"error": str(e)})
+                return RedirectResponse(url=f"/apps?{qs}", status_code=303)
+
+            forbidden = config_mgr.existing_config_stems()
+            existing_app_dir = app_mgr.get_app_configs_dir(pending_manifest.name)
+            if existing_app_dir.exists():
+                own_workers = (
+                    {p.stem for p in (existing_app_dir / "workers").glob("*.yaml")}
+                    if (existing_app_dir / "workers").exists()
+                    else set()
+                )
+                own_pipelines = (
+                    {p.stem for p in (existing_app_dir / "orchestrators").glob("*.yaml")}
+                    if (existing_app_dir / "orchestrators").exists()
+                    else set()
+                )
+                forbidden = {
+                    "workers": forbidden["workers"] - own_workers,
+                    "pipelines": forbidden["pipelines"] - own_pipelines,
+                }
+
+            try:
+                manifest = app_mgr.deploy_app(tmp_path, forbidden_config_names=forbidden)
             except AppDeployError as e:
                 # urlencode the message — error strings can contain ``&``
                 # (would inject extra query params) or ``#`` (would create

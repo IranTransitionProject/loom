@@ -172,24 +172,77 @@ class AppManager:
 
         return manifest
 
-    def deploy_app(self, zip_path: Path) -> AppManifest:
+    def peek_manifest(self, zip_path: Path) -> AppManifest:
+        """Validate a ZIP and return its parsed manifest without extracting.
+
+        Used by the ``/apps/deploy`` route to read the manifest before
+        committing to extraction — needed for the collision check (see
+        ``deploy_app``) and the capability-preview flow (D2).  Same
+        validation as ``deploy_app`` runs internally; calling
+        ``deploy_app`` after ``peek_manifest`` will re-validate (cheap)
+        rather than rely on the caller to remember.
+
+        Raises:
+            AppDeployError: If the ZIP is invalid or fails validation.
+        """
+        if not zip_path.exists():
+            msg = f"ZIP file not found: {zip_path}"
+            raise AppDeployError(msg)
+        if not zipfile.is_zipfile(zip_path):
+            msg = f"Not a valid ZIP file: {zip_path}"
+            raise AppDeployError(msg)
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            return self._validate_zip(zf)
+
+    @staticmethod
+    def _config_stems_from_manifest(manifest: AppManifest) -> dict[str, set[str]]:
+        """Extract worker/pipeline filename stems referenced by a manifest.
+
+        ``configs/workers/foo.yaml`` → ``foo``.  Stems are the lookup key
+        on workshop URLs (``/workers/foo``), so collision detection
+        operates on stems rather than full paths or YAML-internal names.
+        """
+        from pathlib import PurePosixPath
+
+        return {
+            "workers": {PurePosixPath(r.config).stem for r in manifest.entry_configs.workers},
+            "pipelines": {PurePosixPath(r.config).stem for r in manifest.entry_configs.pipelines},
+        }
+
+    def deploy_app(
+        self,
+        zip_path: Path,
+        *,
+        forbidden_config_names: dict[str, set[str]] | None = None,
+    ) -> AppManifest:
         """Deploy an app from a ZIP archive.
 
         Steps:
         1. Validate the ZIP structure, manifest, and security constraints
-        2. Atomic extract: write to temp dir, move into place on success
-        3. Return the parsed manifest
+        2. Reject if any worker/pipeline filename collides with an existing
+           config (passed in via ``forbidden_config_names``)
+        3. Atomic extract: write to temp dir, move into place on success
+        4. Return the parsed manifest
 
         If extraction fails, the previous deployment (if any) is preserved.
 
         Args:
             zip_path: Path to the ZIP file.
+            forbidden_config_names: ``{"workers": {...}, "pipelines": {...}}``
+                of filename stems already visible to the workshop from
+                base configs and other deployed apps (the route layer
+                should exclude this app's own existing stems so a
+                redeploy doesn't collide with itself).  ``None`` skips
+                the collision check entirely — only callers that own
+                the namespace (tests, CLI tooling that knows what it is
+                doing) should pass ``None``.
 
         Returns:
             The parsed AppManifest.
 
         Raises:
-            AppDeployError: If the ZIP is invalid or deployment fails.
+            AppDeployError: If the ZIP is invalid, names collide, or
+                deployment fails.
         """
         if not zip_path.exists():
             msg = f"ZIP file not found: {zip_path}"
@@ -201,6 +254,27 @@ class AppManager:
 
         with zipfile.ZipFile(zip_path, "r") as zf:
             manifest = self._validate_zip(zf)
+
+            if forbidden_config_names is not None:
+                new_stems = self._config_stems_from_manifest(manifest)
+                worker_collisions = sorted(
+                    new_stems["workers"] & forbidden_config_names.get("workers", set())
+                )
+                pipeline_collisions = sorted(
+                    new_stems["pipelines"] & forbidden_config_names.get("pipelines", set())
+                )
+                if worker_collisions or pipeline_collisions:
+                    parts = []
+                    if worker_collisions:
+                        parts.append(f"workers: {worker_collisions}")
+                    if pipeline_collisions:
+                        parts.append(f"pipelines: {pipeline_collisions}")
+                    msg = (
+                        f"App {manifest.name!r} cannot be deployed: name "
+                        f"collisions with existing configs ({'; '.join(parts)}). "
+                        "Rename one side before redeploying."
+                    )
+                    raise AppDeployError(msg)
 
             # Atomic deployment: extract to temp dir, then move into place.
             app_dir = self.apps_dir / manifest.name

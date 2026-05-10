@@ -807,6 +807,9 @@ class TestAppDeploy:
 
         ``&`` in an error message would inject an extra query parameter;
         ``#`` would create a URL fragment.  Both corrupt the redirect.
+        Patches ``peek_manifest`` because the route calls it first (for
+        the D1 collision check); the urlencode code path is shared with
+        the ``deploy_app`` branch so one test covers both.
         """
         from urllib.parse import parse_qs, urlparse
 
@@ -815,7 +818,7 @@ class TestAppDeploy:
         bad_msg = "bad & dangerous # error"
         with mock.patch.object(
             app_manager.AppManager,
-            "deploy_app",
+            "peek_manifest",
             side_effect=app_manager.AppDeployError(bad_msg),
         ):
             resp = client.post(
@@ -862,6 +865,170 @@ class TestAppDetail:
     def test_app_detail_not_found(self, client):
         resp = client.get("/apps/nonexistent_app_xyz")
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Deployed-app config lookup (#12 D1)
+# ---------------------------------------------------------------------------
+
+
+def _build_app_zip_with_configs(
+    *,
+    app_name: str,
+    workers: dict[str, str] | None = None,
+    pipelines: dict[str, str] | None = None,
+) -> bytes:
+    """Build a ZIP containing a manifest plus the named worker/pipeline configs.
+
+    ``workers`` / ``pipelines`` map filename stem → YAML content string.
+    """
+    import io
+    import zipfile
+
+    workers = workers or {}
+    pipelines = pipelines or {}
+    sections = ["entry_configs:"]
+    if workers:
+        sections.append("  workers:")
+        sections.extend(f"    - config: configs/workers/{n}.yaml" for n in workers)
+    else:
+        sections.append("  workers: []")
+    if pipelines:
+        sections.append("  pipelines:")
+        sections.extend(f"    - config: configs/orchestrators/{n}.yaml" for n in pipelines)
+    else:
+        sections.append("  pipelines: []")
+    manifest = (
+        f"name: {app_name}\n"
+        "version: 1.0.0\n"
+        "description: D1 lookup test app\n" + "\n".join(sections) + "\n"
+    )
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("manifest.yaml", manifest)
+        for stem, body in workers.items():
+            zf.writestr(f"configs/workers/{stem}.yaml", body)
+        for stem, body in pipelines.items():
+            zf.writestr(f"configs/orchestrators/{stem}.yaml", body)
+    return buf.getvalue()
+
+
+_DEPLOYED_WORKER_YAML = (
+    "name: deployed_w\n"
+    "system_prompt: From the deployed app.\n"
+    "input_schema:\n"
+    "  type: object\n"
+    "  required: [text]\n"
+    "  properties:\n"
+    "    text: {type: string}\n"
+    "output_schema:\n"
+    "  type: object\n"
+    "  required: [summary]\n"
+    "  properties:\n"
+    "    summary: {type: string}\n"
+    "default_model_tier: local\n"
+)
+
+_DEPLOYED_PIPELINE_YAML = (
+    "name: deployed_p\n"
+    "description: Pipeline from deployed app\n"
+    "pipeline_stages:\n"
+    "  - name: stage1\n"
+    "    worker_type: deployed_w\n"
+    "    input_mapping:\n"
+    "      text: input.text\n"
+)
+
+
+class TestDeployedAppConfigLookup:
+    def _deploy(self, client, *, app_name, workers=None, pipelines=None):
+        zip_bytes = _build_app_zip_with_configs(
+            app_name=app_name, workers=workers, pipelines=pipelines
+        )
+        resp = client.post(
+            "/apps/deploy",
+            files={"zip_file": (f"{app_name}.zip", zip_bytes, "application/zip")},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303, (
+            f"deploy failed: {resp.status_code} {resp.headers.get('location')}"
+        )
+        return resp
+
+    def test_deployed_app_worker_detail_route_resolves_extra_config(self, client):
+        """Pre-fix the deployed app's worker showed in /workers but
+        /workers/{name} 404'd because get_worker only searched base."""
+        self._deploy(client, app_name="lookupapp", workers={"deployed_w": _DEPLOYED_WORKER_YAML})
+
+        list_resp = client.get("/workers")
+        assert list_resp.status_code == 200
+        assert "deployed_w" in list_resp.text
+
+        detail_resp = client.get("/workers/deployed_w")
+        assert detail_resp.status_code == 200
+        assert "From the deployed app." in detail_resp.text
+
+    def test_deployed_app_pipeline_detail_route_resolves_extra_config(self, client):
+        """Same bug, pipeline edition."""
+        self._deploy(
+            client, app_name="pipelookup", pipelines={"deployed_p": _DEPLOYED_PIPELINE_YAML}
+        )
+
+        list_resp = client.get("/pipelines")
+        assert list_resp.status_code == 200
+        assert "deployed_p" in list_resp.text
+
+        detail_resp = client.get("/pipelines/deployed_p")
+        assert detail_resp.status_code == 200
+
+    def test_deploy_rejects_collision_with_base_worker(self, client):
+        """Operator decision: reject on collision (chosen during D-session
+        scoping).  Deploying an app whose worker name already exists in
+        the base configs must fail with a clear error rather than shadow.
+        """
+        # The ``client`` fixture already wrote ``test_worker.yaml`` to base.
+        zip_bytes = _build_app_zip_with_configs(
+            app_name="collideapp", workers={"test_worker": _DEPLOYED_WORKER_YAML}
+        )
+        resp = client.post(
+            "/apps/deploy",
+            files={"zip_file": ("collideapp.zip", zip_bytes, "application/zip")},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        location = resp.headers["location"]
+        assert "error" in location
+        # Error message mentions both the colliding name and the rename
+        # remediation so the operator knows what to do.
+        from urllib.parse import parse_qs, urlparse
+
+        err = parse_qs(urlparse(location).query)["error"][0]
+        assert "test_worker" in err
+        assert "rename" in err.lower()
+
+    def test_deploy_rejects_collision_across_apps(self, client):
+        """Two different apps can't both ship a worker named 'shared_w'."""
+        self._deploy(client, app_name="firstapp", workers={"shared_w": _DEPLOYED_WORKER_YAML})
+        zip_bytes = _build_app_zip_with_configs(
+            app_name="secondapp", workers={"shared_w": _DEPLOYED_WORKER_YAML}
+        )
+        resp = client.post(
+            "/apps/deploy",
+            files={"zip_file": ("secondapp.zip", zip_bytes, "application/zip")},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        from urllib.parse import parse_qs, urlparse
+
+        err = parse_qs(urlparse(resp.headers["location"]).query)["error"][0]
+        assert "shared_w" in err
+
+    def test_redeploy_same_app_does_not_collide_with_itself(self, client):
+        """An app's own existing config stems must be excluded from the
+        forbidden set — otherwise every redeploy would fail."""
+        self._deploy(client, app_name="redeployapp", workers={"my_worker": _DEPLOYED_WORKER_YAML})
+        # Redeploy with the same name + same worker stem — should succeed.
+        self._deploy(client, app_name="redeployapp", workers={"my_worker": _DEPLOYED_WORKER_YAML})
 
 
 # ---------------------------------------------------------------------------
