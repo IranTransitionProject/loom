@@ -351,7 +351,9 @@ when a baseline exists. `remove_baseline(worker_name)` clears the baseline.
 | GET | `/pipelines/{name}/graph` | `pipeline_graph` | — | JSON: dependency graph |
 | GET | `/apps` | `apps_list` | `apps/list.html` | Deployed apps + upload form |
 | GET | `/apps/{name}` | `app_detail` | `apps/detail.html` | App manifest viewer |
-| POST | `/apps/deploy` | `app_deploy` | — | Upload ZIP bundle (redirect 303) |
+| POST | `/apps/deploy` | `app_deploy` | `apps/preview.html` | Upload ZIP, render capability preview (or 303 if `?auto_approve=1`) |
+| POST | `/apps/deploy/confirm/{token}` | `app_deploy_confirm` | — | Finalize a staged deploy (redirect 303) |
+| POST | `/apps/deploy/cancel/{token}` | `app_deploy_cancel` | — | Discard a staged deploy (redirect 303) |
 | POST | `/apps/{name}/remove` | `app_remove` | — | Remove deployed app (redirect 303) |
 | GET | `/rag` | `rag_dashboard` | `rag/dashboard.html` | RAG overview: store stats, channels, quick search |
 | GET | `/rag/channels` | `rag_channels` | `rag/channels.html` | Channel grid with metadata + filtering |
