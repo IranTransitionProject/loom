@@ -454,7 +454,9 @@ class PipelineOrchestrator(BaseActor):
             task_to_stage[task] = stage
 
         pending = set(task_to_stage.keys())
-        first_error: Exception | None = None
+        # task.exception() returns BaseException; in practice workers raise
+        # Exception subclasses, but the declared type must match the source.
+        first_error: BaseException | None = None
 
         # Collect results incrementally via FIRST_COMPLETED.
         while pending:

@@ -262,5 +262,29 @@ style = "dash"
 [tool.rumdl.MD029]
 style = "ordered"
 
+[tool.pyright]
+# Gated type-check surface — only the four "hot path" packages per the
+# 2026-05 repository review (Phase 3 §1). Other packages are deliberately
+# excluded for now; widen this list in follow-up sessions as the type
+# coverage matures. typeCheckingMode is intentionally "basic" — the first
+# pass surfaces obvious bugs without drowning in nominally-typed dynamism.
+include = [
+    "src/heddle/core",
+    "src/heddle/bus",
+    "src/heddle/worker",
+    "src/heddle/orchestrator",
+]
+exclude = [
+    "**/__pycache__",
+    "**/node_modules",
+    ".venv",
+]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
+venvPath = "."
+venv = ".venv"
+# Reduce noise from optional/contrib imports until we widen the surface.
+reportMissingImports = "warning"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/heddle"]

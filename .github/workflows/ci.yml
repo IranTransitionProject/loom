@@ -71,6 +71,20 @@ jobs:
       - name: Build API documentation
         run: uv run mkdocs build --strict
 
+  typecheck:
+    # Pyright on the gated runtime packages (core, bus, worker, orchestrator).
+    # Configuration lives under [tool.pyright] in pyproject.toml. The surface
+    # is intentionally narrow today; widen it in follow-up sessions as the
+    # type coverage matures. See docs/CODING_GUIDE.md "Type checking".
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install all extras
+        run: uv sync --all-extras
+      - name: Pyright (gated dirs only)
+        run: uv run --with pyright pyright
+
   audit:
     # Dependency vulnerability scan. Fails when pip-audit finds any CVE
     # with a fix available — except those baselined in

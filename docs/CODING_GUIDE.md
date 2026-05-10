@@ -154,6 +154,39 @@ def call_worker(self, worker_type, payload, tier="standard", timeout=60.0):
     ...
 ```
 
+### Type checking gate
+
+CI runs **pyright** in `basic` mode against a narrow surface — only the
+"hot path" runtime packages:
+
+- `src/heddle/core/`
+- `src/heddle/bus/`
+- `src/heddle/worker/`
+- `src/heddle/orchestrator/`
+
+Configuration lives under `[tool.pyright]` in `pyproject.toml`. The gated
+list is intentionally smaller than the full source tree; widen it in
+follow-up work as type coverage on other packages matures (`router/`,
+`scheduler/`, `mcp/`, `workshop/`).
+
+**Strictness policy:**
+
+- `typeCheckingMode = "basic"` today — surface obvious bugs without
+  drowning in nominally-typed dynamism. Tighten to `standard` once the
+  gated dirs are clean under stricter rules.
+- `reportMissingImports = "warning"` — optional/contrib imports inside
+  the gated dirs shouldn't fail the build on a partial install.
+
+**Suppressing diagnostics:**
+
+- Prefer a real fix (narrow with `assert`, use a walrus, etc.) over a
+  suppression.
+- When suppression is unavoidable, use `# pyright: ignore[<rule>]` with
+  a comment explaining *why* and (ideally) a TODO linking the follow-up.
+- Never blanket `# type: ignore` — always specify the rule.
+
+Run locally with `uv run --with pyright pyright`.
+
 ---
 
 ## Module Docstrings

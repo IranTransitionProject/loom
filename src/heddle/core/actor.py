@@ -152,6 +152,10 @@ class BaseActor(ABC):
             signaled or the subscription ended
             (``StopAsyncIteration``).
         """
+        # Both are initialized at the top of run() before the message
+        # loop starts; this method is only reachable from inside that loop.
+        assert self._sub is not None
+        assert self._shutdown_event is not None
         next_msg_task = asyncio.create_task(self._sub.__anext__())
         shutdown_wait = asyncio.create_task(self._shutdown_event.wait())
         try:
@@ -182,6 +186,8 @@ class BaseActor(ABC):
 
     async def _process_one(self, data: dict[str, Any]) -> None:
         """Process a single message with semaphore-bounded concurrency."""
+        # Initialized at the top of run(); _process_one only runs from there.
+        assert self._semaphore is not None
         ctx = extract_trace_context(data)
         async with self._semaphore:
             with _tracer.start_as_current_span(

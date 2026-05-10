@@ -795,10 +795,10 @@ def build_backends_from_env() -> dict[str, LLMBackend]:
     if local_backend is not None:
         backends["local"] = local_backend
 
-    if os.getenv("ANTHROPIC_API_KEY"):
-        backends["standard"] = AnthropicBackend(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    if anthropic_key := os.getenv("ANTHROPIC_API_KEY"):
+        backends["standard"] = AnthropicBackend(api_key=anthropic_key)
         backends["frontier"] = AnthropicBackend(
-            api_key=os.getenv("ANTHROPIC_API_KEY"),
+            api_key=anthropic_key,
             model=os.getenv("FRONTIER_MODEL", "claude-opus-4-20250514"),
         )
 
