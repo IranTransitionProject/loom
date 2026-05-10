@@ -153,15 +153,44 @@ resources:
 ## Health Checks
 
 Heddle actors are long-running async processes. Use liveness and readiness
-probes to detect stuck or unresponsive actors:
+probes to detect stuck or unresponsive actors.
+
+**Important — the probes below are placeholders.** Heddle does not yet
+ship a built-in `/healthz` endpoint or standalone healthcheck CLI. The
+commands shown exit 0 as long as the Python interpreter starts; they
+confirm the container is alive but say nothing about whether the actor
+is connected to NATS or processing messages. Treat them as scaffolding,
+not as production-grade probes.
+
+Operators running Heddle in production should replace them with one of:
+
+- A sidecar exporter that publishes actor state to a `/healthz`
+  endpoint and uses `httpGet`-style probes.
+- A TCP probe against the actor's NATS server port from inside the
+  pod (catches a NATS outage; does not catch a hung actor).
+- A custom exec probe that reads a file the actor touches on each
+  message-loop iteration (catches a hung actor; needs the actor to
+  cooperate by touching the file).
+
+A built-in `/healthz` endpoint is on the roadmap; until then, the
+manifests use the placeholders below, **labelled as such** so the next
+operator does not mistake them for a real check:
 
 ```yaml
+# PLACEHOLDER: only checks the Python interpreter starts, not that
+# the actor has a live NATS subscription.  Replace before production
+# rollout — see Health Checks section above for guidance.
 livenessProbe:
   exec:
     command: ["python", "-c", "import sys; sys.exit(0)"]
   initialDelaySeconds: 10
   periodSeconds: 30
   failureThreshold: 3
+# PLACEHOLDER: same caveat.  A real readiness probe should confirm
+# the actor's subscribe() has completed, not just that the process
+# is up — otherwise the service routes traffic to a not-yet-ready
+# actor and the first messages are dropped (NATS is at-most-once,
+# see Design Invariant 17).
 readinessProbe:
   exec:
     command: ["python", "-c", "import sys; sys.exit(0)"]
@@ -169,8 +198,10 @@ readinessProbe:
   periodSeconds: 10
 ```
 
-For the router and orchestrator, consider adding NATS connectivity checks
-as part of the liveness probe.
+For NATS connectivity at startup (rather than at probe time), the CLI
+runs the same pre-flight check internally before every actor command;
+see `docs/runbooks/verify-nats-connectivity.md` for the operator
+workflow.
 
 ---
 

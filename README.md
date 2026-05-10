@@ -215,7 +215,7 @@ Go deeper:
 | Workshop web UI | Complete | Test bench, eval runner, pipeline editor |
 | MCP gateway | Complete | FastMCP 3.x, session tools, workshop tools |
 | Multi-agent deliberation | Complete | Council framework, ChatBridge adapters, 3 protocols |
-| Tests | Comprehensive | 90%+ coverage, no infrastructure needed |
+| Tests | Comprehensive | 91%+ coverage (CI gate, no infrastructure needed) |
 
 ---
 

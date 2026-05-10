@@ -153,8 +153,9 @@ configs/
 └── router_rules.yaml           # Tier overrides and rate limits
 
 docker/                   # Dockerfiles and entrypoint script
-docs/                     # Documentation (ARCHITECTURE.md, CODING_GUIDE.md, conf.py, index.md, Makefile, ...)
+docs/                     # Documentation source (mkdocs-material; ARCHITECTURE.md, CODING_GUIDE.md, index.md, runbooks/, adr/, tutorials/, ...)
 k8s/                      # Kubernetes manifests (Minikube-ready)
+mkdocs.yml                # mkdocs-material config + nav (single source of truth)
 tests/                    # Unit + integration tests
 ```
 
