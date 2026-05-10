@@ -759,7 +759,7 @@ class TestAppDeploy:
 
     def test_deploy_non_zip_redirects_with_error(self, client):
         resp = client.post(
-            "/apps/deploy",
+            "/apps/deploy?auto_approve=1",
             files={"zip_file": ("app.txt", b"not a zip", "text/plain")},
             follow_redirects=False,
         )
@@ -769,7 +769,7 @@ class TestAppDeploy:
     def test_deploy_valid_zip_redirects_to_app(self, client, tmp_path):
         zip_bytes = self._make_valid_zip(tmp_path)
         resp = client.post(
-            "/apps/deploy",
+            "/apps/deploy?auto_approve=1",
             files={"zip_file": ("testapp.zip", zip_bytes, "application/zip")},
             follow_redirects=False,
         )
@@ -778,7 +778,7 @@ class TestAppDeploy:
 
     def test_deploy_invalid_zip_content_redirects_with_error(self, client):
         resp = client.post(
-            "/apps/deploy",
+            "/apps/deploy?auto_approve=1",
             files={"zip_file": ("bad.zip", b"PK\x03\x04garbage", "application/zip")},
             follow_redirects=False,
         )
@@ -795,7 +795,7 @@ class TestAppDeploy:
         zip_bytes = buf.getvalue()
 
         resp = client.post(
-            "/apps/deploy",
+            "/apps/deploy?auto_approve=1",
             files={"zip_file": ("nomanifest.zip", zip_bytes, "application/zip")},
             follow_redirects=False,
         )
@@ -822,7 +822,7 @@ class TestAppDeploy:
             side_effect=app_manager.AppDeployError(bad_msg),
         ):
             resp = client.post(
-                "/apps/deploy",
+                "/apps/deploy?auto_approve=1",
                 files={"zip_file": ("any.zip", b"PK\x03\x04anything", "application/zip")},
                 follow_redirects=False,
             )
@@ -851,7 +851,7 @@ class TestAppDetail:
             zf.writestr("manifest.yaml", manifest_content)
         zip_bytes = buf.getvalue()
         client.post(
-            "/apps/deploy",
+            "/apps/deploy?auto_approve=1",
             files={"zip_file": (f"{name}.zip", zip_bytes, "application/zip")},
             follow_redirects=False,
         )
@@ -946,7 +946,7 @@ class TestDeployedAppConfigLookup:
             app_name=app_name, workers=workers, pipelines=pipelines
         )
         resp = client.post(
-            "/apps/deploy",
+            "/apps/deploy?auto_approve=1",
             files={"zip_file": (f"{app_name}.zip", zip_bytes, "application/zip")},
             follow_redirects=False,
         )
@@ -991,7 +991,7 @@ class TestDeployedAppConfigLookup:
             app_name="collideapp", workers={"test_worker": _DEPLOYED_WORKER_YAML}
         )
         resp = client.post(
-            "/apps/deploy",
+            "/apps/deploy?auto_approve=1",
             files={"zip_file": ("collideapp.zip", zip_bytes, "application/zip")},
             follow_redirects=False,
         )
@@ -1013,7 +1013,7 @@ class TestDeployedAppConfigLookup:
             app_name="secondapp", workers={"shared_w": _DEPLOYED_WORKER_YAML}
         )
         resp = client.post(
-            "/apps/deploy",
+            "/apps/deploy?auto_approve=1",
             files={"zip_file": ("secondapp.zip", zip_bytes, "application/zip")},
             follow_redirects=False,
         )
@@ -1029,6 +1029,153 @@ class TestDeployedAppConfigLookup:
         self._deploy(client, app_name="redeployapp", workers={"my_worker": _DEPLOYED_WORKER_YAML})
         # Redeploy with the same name + same worker stem — should succeed.
         self._deploy(client, app_name="redeployapp", workers={"my_worker": _DEPLOYED_WORKER_YAML})
+
+
+# ---------------------------------------------------------------------------
+# Two-step deploy preview (#10 D2)
+# ---------------------------------------------------------------------------
+
+
+_RISKY_WORKER_YAML = (
+    "name: risky_w\n"
+    "worker_kind: processor\n"
+    "processing_backend: heddle.contrib.subprocess.SubprocessBackend\n"
+    "backend_config:\n"
+    "  workspace_dir: /tmp/risky\n"
+    "  command: ${RISKY_CMD}\n"
+    "knowledge_silos:\n"
+    "  - name: notes\n"
+    "    type: folder_readwrite\n"
+    "    path: /var/notes\n"
+    "input_schema:\n"
+    "  type: object\n"
+    "  required: [x]\n"
+    "  properties:\n"
+    "    x: {type: string}\n"
+    "output_schema:\n"
+    "  type: object\n"
+    "  required: [y]\n"
+    "  properties:\n"
+    "    y: {type: string}\n"
+    "default_model_tier: local\n"
+)
+
+
+class TestDeployPreview:
+    """End-to-end coverage of the two-step deploy + ``?auto_approve=1`` bypass."""
+
+    def _upload_for_preview(self, client, *, app_name, workers):
+        zip_bytes = _build_app_zip_with_configs(app_name=app_name, workers=workers)
+        # NO ?auto_approve — exercise the preview path.
+        resp = client.post(
+            "/apps/deploy",
+            files={"zip_file": (f"{app_name}.zip", zip_bytes, "application/zip")},
+            follow_redirects=False,
+        )
+        return resp
+
+    def test_upload_renders_preview_with_capability_findings(self, client):
+        """Uploading without ?auto_approve returns the preview HTML, not a 303,
+        and the page lists every powerful field from the risky worker.
+        """
+        resp = self._upload_for_preview(
+            client, app_name="previewapp", workers={"risky_w": _RISKY_WORKER_YAML}
+        )
+        assert resp.status_code == 200
+        assert "Confirm Deploy" in resp.text
+        assert "previewapp" in resp.text
+        # The four capability categories the risky worker should trip:
+        assert "SubprocessBackend" in resp.text  # code_execution
+        assert "/tmp/risky" in resp.text  # filesystem (workspace_dir)
+        assert "/var/notes" in resp.text  # filesystem (knowledge silo)
+        assert "RISKY_CMD" in resp.text  # env_var
+        # Confirm + cancel forms both rendered with the same staging token
+        import re
+
+        tokens = re.findall(r"/apps/deploy/(?:confirm|cancel)/([a-f0-9]{32})", resp.text)
+        assert len(tokens) == 2
+        assert tokens[0] == tokens[1]
+
+    def test_preview_then_confirm_deploys_and_app_detail_loads(self, client):
+        """Full happy-path e2e: upload → preview → confirm → /apps/{name} 200."""
+        import re
+
+        preview = self._upload_for_preview(
+            client, app_name="confirmapp", workers={"deployed_w": _DEPLOYED_WORKER_YAML}
+        )
+        assert preview.status_code == 200
+        token = re.search(r"/apps/deploy/confirm/([a-f0-9]{32})", preview.text).group(1)
+
+        # Pre-confirm: the app is NOT yet visible.
+        list_before = client.get("/apps")
+        assert "confirmapp" not in list_before.text
+
+        confirm = client.post(f"/apps/deploy/confirm/{token}", follow_redirects=False)
+        assert confirm.status_code == 303
+        assert confirm.headers["location"].endswith("/apps/confirmapp")
+
+        # Post-confirm: detail page loads, deployed worker is reachable
+        # via the D1 source-aware lookup.
+        detail = client.get("/apps/confirmapp")
+        assert detail.status_code == 200
+        worker_detail = client.get("/workers/deployed_w")
+        assert worker_detail.status_code == 200
+
+    def test_cancel_discards_staged_bundle_without_deploying(self, client):
+        """Cancel must remove the staging dir and not commit the app."""
+        import re
+
+        preview = self._upload_for_preview(
+            client, app_name="cancelapp", workers={"deployed_w": _DEPLOYED_WORKER_YAML}
+        )
+        token = re.search(r"/apps/deploy/cancel/([a-f0-9]{32})", preview.text).group(1)
+
+        cancel = client.post(f"/apps/deploy/cancel/{token}", follow_redirects=False)
+        assert cancel.status_code == 303
+        assert cancel.headers["location"].endswith("/apps")
+
+        # Confirming with the same token after cancel must fail cleanly.
+        retry = client.post(f"/apps/deploy/confirm/{token}", follow_redirects=False)
+        assert retry.status_code == 303
+        assert "error" in retry.headers["location"]
+
+        # The app is not visible.
+        list_after = client.get("/apps")
+        assert "cancelapp" not in list_after.text
+
+    def test_confirm_with_invalid_token_format_redirects_with_error(self, client):
+        """Token format is regex-validated.  Non-hex tokens (like attacker
+        payloads that slipped through other defences) get rejected before
+        any filesystem call, redirected to /apps with a clear error.
+        Path-segment-violating payloads (with ``/``) are rejected even
+        earlier by FastAPI's routing — that's a separate layer.
+        """
+        from urllib.parse import parse_qs, urlparse
+
+        resp = client.post(
+            "/apps/deploy/confirm/notahextoken1234567890notahex01", follow_redirects=False
+        )
+        assert resp.status_code == 303
+        err = parse_qs(urlparse(resp.headers["location"]).query)["error"][0]
+        assert "Invalid staging token" in err
+
+    def test_auto_approve_bypasses_preview(self, client):
+        """``?auto_approve=1`` is the CI escape hatch — no preview, just deploy.
+
+        Verified by the existing helpers that already use this query
+        param; this test makes the bypass contract explicit so a future
+        refactor that removes it will fail loudly here.
+        """
+        zip_bytes = _build_app_zip_with_configs(
+            app_name="bypassapp", workers={"deployed_w": _DEPLOYED_WORKER_YAML}
+        )
+        resp = client.post(
+            "/apps/deploy?auto_approve=1",
+            files={"zip_file": ("bypassapp.zip", zip_bytes, "application/zip")},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303  # NOT 200 (preview) — straight to redirect
+        assert resp.headers["location"].endswith("/apps/bypassapp")
 
 
 # ---------------------------------------------------------------------------
@@ -1049,7 +1196,7 @@ class TestAppRemove:
             )
         zip_bytes = buf.getvalue()
         client.post(
-            "/apps/deploy",
+            "/apps/deploy?auto_approve=1",
             files={"zip_file": ("removeapp.zip", zip_bytes, "application/zip")},
             follow_redirects=False,
         )

@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% set active_nav = 'apps' %}
+{% block title %}Confirm Deploy: {{ manifest.name }} — Heddle Workshop{% endblock %}
+{% block content %}
+<hgroup>
+    <h1>Confirm Deploy</h1>
+    <p>Review the capabilities this app requests before committing it to disk.</p>
+</hgroup>
+
+<article>
+    <header>
+        <strong>{{ manifest.name }}</strong> <code>{{ manifest.version }}</code>
+        {% if is_redeploy %}<small>(redeploy — replaces existing)</small>{% endif %}
+    </header>
+    <p>{{ manifest.description }}</p>
+    <details>
+        <summary>Entry configs</summary>
+        <ul>
+            {% for ref in manifest.entry_configs.workers %}
+            <li><strong>worker</strong> — <code>{{ ref.config }}</code></li>
+            {% endfor %}
+            {% for ref in manifest.entry_configs.pipelines %}
+            <li><strong>pipeline</strong> — <code>{{ ref.config }}</code></li>
+            {% endfor %}
+            {% for ref in manifest.entry_configs.schedulers %}
+            <li><strong>scheduler</strong> — <code>{{ ref.config }}</code></li>
+            {% endfor %}
+            {% for ref in manifest.entry_configs.mcp %}
+            <li><strong>mcp</strong> — <code>{{ ref.config }}</code></li>
+            {% endfor %}
+        </ul>
+    </details>
+</article>
+
+<article>
+    <header>Requested capabilities</header>
+    {% if not summary.has_findings %}
+    <p>No code-execution, filesystem, network, or environment-variable capabilities
+       were detected in this app's referenced configs. The app may still ship
+       LLM workers that produce text — this preview only flags fields with
+       direct host-side effects.</p>
+    {% else %}
+    {% set grouped = summary.by_category() %}
+    {% set category_labels = {
+        'code_execution': 'Code execution',
+        'filesystem': 'Filesystem access',
+        'network': 'Network binding',
+        'env_var': 'Environment variables',
+    } %}
+    {% for cat in ['code_execution', 'filesystem', 'network', 'env_var'] %}
+        {% if grouped.get(cat) %}
+        <h3>{{ category_labels[cat] }}</h3>
+        <ul>
+            {% for f in grouped[cat] %}
+            <li>
+                <strong>{{ f.summary }}</strong>
+                <small>— from <code>{{ f.config_file }}</code></small>
+                {% if f.detail %}<br><small>{{ f.detail }}</small>{% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    {% endfor %}
+    {% endif %}
+</article>
+
+<article>
+    <p><strong>This deploy will:</strong> extract the bundle to
+       <code>~/.heddle/apps/{{ manifest.name }}/</code>, replace any
+       existing version atomically, register its configs in the workshop,
+       and broadcast a reload to running actors.</p>
+    <fieldset role="group">
+        <form action="/apps/deploy/confirm/{{ token }}" method="post" style="display:inline;">
+            <button type="submit">Confirm Deploy</button>
+        </form>
+        <form action="/apps/deploy/cancel/{{ token }}" method="post" style="display:inline;">
+            <button type="submit" class="secondary outline">Cancel</button>
+        </form>
+    </fieldset>
+    <small>Bundle staged under token <code>{{ token }}</code>;
+        cancel discards it without writing to the apps directory.</small>
+</article>
+{% endblock %}

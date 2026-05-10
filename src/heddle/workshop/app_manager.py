@@ -21,8 +21,10 @@ Security:
 
 from __future__ import annotations
 
+import re
 import shutil
 import tempfile
+import uuid
 import zipfile
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -37,6 +39,17 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 DEFAULT_APPS_DIR = "~/.heddle/apps"
+
+# Hidden subdirectory under ``apps_dir`` where the deploy-preview flow
+# parks uploaded ZIPs between the upload step and the operator's
+# confirm/cancel decision.  Hidden so it doesn't appear in the deployed
+# apps list (``list_apps`` iterates ``apps_dir`` directly).
+STAGING_SUBDIR = ".staging"
+
+# Tokens are uuid4 hex (32 lowercase hex chars).  Validated on every
+# confirm/cancel call so a request-derived token cannot escape the
+# staging directory or target an unrelated path.
+_TOKEN_RE = re.compile(r"^[a-f0-9]{32}$")
 
 
 def _validate_config_path(config_path: str) -> None:
@@ -86,11 +99,18 @@ class AppManager:
         self._bus = bus
 
     def list_apps(self) -> list[AppManifest]:
-        """List all deployed apps by reading their manifests."""
+        """List all deployed apps by reading their manifests.
+
+        Skips dot-prefixed directories so the deploy-preview staging area
+        (``.staging``) and any other hidden state does not appear in the
+        deployed-apps list.
+        """
         apps: list[AppManifest] = []
         if not self.apps_dir.exists():
             return apps
         for app_dir in sorted(self.apps_dir.iterdir()):
+            if app_dir.name.startswith("."):
+                continue
             manifest_path = app_dir / "manifest.yaml"
             if app_dir.is_dir() and manifest_path.exists():
                 try:
@@ -337,6 +357,65 @@ class AppManager:
             raise FileNotFoundError(f"App not found: {app_name}")
         shutil.rmtree(app_dir)
         logger.info("app_manager.removed", app=app_name)
+
+    # ------------------------------------------------------------------
+    # Deploy-preview staging
+    # ------------------------------------------------------------------
+
+    def _staging_root(self) -> Path:
+        """Return ``apps_dir/.staging``, creating it on first use."""
+        root = self.apps_dir / STAGING_SUBDIR
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+
+    def stage_zip(self, zip_path: Path) -> str:
+        """Move a verified ZIP into the staging area; return the lookup token.
+
+        Used by the two-step deploy flow: the upload route saves the
+        upload to a temp file, calls ``peek_manifest`` + collision check,
+        then calls ``stage_zip`` to park the bytes between the preview
+        render and the operator's confirm POST.  The temp file at
+        ``zip_path`` is *moved*, not copied — caller should not re-use
+        the path afterwards.
+
+        Returns:
+            Hex token identifying the staged bundle.  Pass this back to
+            ``consume_staged`` or ``discard_staged``.
+        """
+        token = uuid.uuid4().hex
+        staging_dir = self._staging_root() / token
+        staging_dir.mkdir(parents=True)
+        staged_zip = staging_dir / "app.zip"
+        shutil.move(str(zip_path), staged_zip)
+        return token
+
+    def _staged_dir(self, token: str) -> Path:
+        """Resolve ``token`` to its staging directory after format validation.
+
+        Raises:
+            AppDeployError: If the token format is invalid (path-traversal
+                guard) or the staged bundle does not exist.
+        """
+        if not _TOKEN_RE.fullmatch(token):
+            msg = f"Invalid staging token: {token!r}"
+            raise AppDeployError(msg)
+        staged = self._staging_root() / token
+        if not staged.is_dir():
+            msg = f"Staged bundle not found (already confirmed or expired): {token}"
+            raise AppDeployError(msg)
+        return staged
+
+    def staged_zip_path(self, token: str) -> Path:
+        """Return the on-disk path of a staged ZIP for further inspection."""
+        return self._staged_dir(token) / "app.zip"
+
+    def discard_staged(self, token: str) -> None:
+        """Remove a staged bundle and its directory.  Idempotent on bad tokens."""
+        try:
+            staged = self._staged_dir(token)
+        except AppDeployError:
+            return
+        shutil.rmtree(staged, ignore_errors=True)
 
     async def notify_reload(self) -> None:
         """Publish a reload control message to notify running actors.

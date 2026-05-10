@@ -530,10 +530,68 @@ def create_app(  # noqa: PLR0915
             {"manifest": manifest},
         )
 
+    def _forbidden_names_excluding_self(manifest_name: str) -> dict[str, set[str]]:
+        """Build the deploy-collision forbidden set, excluding this app's own stems.
+
+        ``existing_config_stems`` covers base + every deployed app; the
+        app being (re)deployed should not collide with its own
+        previously-deployed stems, so subtract them.  Used by both the
+        direct deploy path and the two-step preview/confirm path.
+        """
+        forbidden = config_mgr.existing_config_stems()
+        existing_app_dir = app_mgr.get_app_configs_dir(manifest_name)
+        if not existing_app_dir.exists():
+            return forbidden
+        own_workers = (
+            {p.stem for p in (existing_app_dir / "workers").glob("*.yaml")}
+            if (existing_app_dir / "workers").exists()
+            else set()
+        )
+        own_pipelines = (
+            {p.stem for p in (existing_app_dir / "orchestrators").glob("*.yaml")}
+            if (existing_app_dir / "orchestrators").exists()
+            else set()
+        )
+        return {
+            "workers": forbidden["workers"] - own_workers,
+            "pipelines": forbidden["pipelines"] - own_pipelines,
+        }
+
+    async def _deploy_from_path(zip_path: Path, manifest_name: str):
+        """Run the actual deploy + reload + redirect dance.
+
+        Used by both the auto-approve direct path and the
+        ``/apps/deploy/confirm/{token}`` path.  Returns the FastAPI
+        response (RedirectResponse on success or AppDeployError redirect).
+        """
+        from heddle.workshop.app_manager import AppDeployError
+
+        try:
+            manifest = app_mgr.deploy_app(
+                zip_path,
+                forbidden_config_names=_forbidden_names_excluding_self(manifest_name),
+            )
+        except AppDeployError as e:
+            # urlencode the message — error strings can contain ``&``
+            # (would inject extra query params) or ``#`` (would create
+            # a fragment), corrupting the redirect target.
+            qs = urlencode({"error": str(e)})
+            return RedirectResponse(url=f"/apps?{qs}", status_code=303)
+
+        # Refresh ConfigManager's extra config dirs
+        config_mgr.extra_config_dirs = _build_extra_config_dirs(app_mgr)
+        # Notify running actors to reload
+        await app_mgr.notify_reload()
+        return RedirectResponse(url=f"/apps/{manifest.name}", status_code=303)
+
     @app.post("/apps/deploy")
     async def app_deploy(request: Request):
         form = await request.form()
         zip_file: UploadFile = form["zip_file"]
+        # ``auto_approve=1`` (query param) skips the preview page so CI /
+        # scripted deploys can keep their one-shot flow.  Browser deploys
+        # default to the two-step preview.
+        auto_approve = request.query_params.get("auto_approve") == "1"
 
         if not zip_file.filename or not zip_file.filename.endswith(".zip"):
             return RedirectResponse(url="/apps?error=File+must+be+a+.zip+archive", status_code=303)
@@ -546,6 +604,7 @@ def create_app(  # noqa: PLR0915
         with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
             tmp_path = Path(tmp.name)
 
+        cleanup_tmp = True
         try:
             try:
                 await read_upload_with_size_cap(zip_file, tmp_path)
@@ -562,53 +621,72 @@ def create_app(  # noqa: PLR0915
 
             from heddle.workshop.app_manager import AppDeployError
 
-            # Build the forbidden-names set for the deploy collision check.
-            # ``existing_config_stems`` includes EVERY visible config name
-            # (base + all deployed apps).  We then subtract this app's own
-            # existing stems so a redeploy of the same app doesn't collide
-            # with itself.  Determining "this app's existing stems" requires
-            # peeking at the new manifest first; the collision check then
-            # runs again inside ``deploy_app`` with the trimmed set.
             try:
                 pending_manifest = app_mgr.peek_manifest(tmp_path)
             except AppDeployError as e:
                 qs = urlencode({"error": str(e)})
                 return RedirectResponse(url=f"/apps?{qs}", status_code=303)
 
-            forbidden = config_mgr.existing_config_stems()
+            if auto_approve:
+                return await _deploy_from_path(tmp_path, pending_manifest.name)
+
+            # Two-step path: build the capability summary, stage the ZIP,
+            # render the preview.  ``stage_zip`` MOVES the temp file into
+            # the staging dir, so suppress the finally-clause cleanup.
+            import zipfile as _zf_mod
+
+            from heddle.workshop.app_capabilities import summarize_capabilities
+
+            with _zf_mod.ZipFile(tmp_path, "r") as zf:
+                summary = summarize_capabilities(zf, pending_manifest)
+
+            token = app_mgr.stage_zip(tmp_path)
+            cleanup_tmp = False
             existing_app_dir = app_mgr.get_app_configs_dir(pending_manifest.name)
-            if existing_app_dir.exists():
-                own_workers = (
-                    {p.stem for p in (existing_app_dir / "workers").glob("*.yaml")}
-                    if (existing_app_dir / "workers").exists()
-                    else set()
-                )
-                own_pipelines = (
-                    {p.stem for p in (existing_app_dir / "orchestrators").glob("*.yaml")}
-                    if (existing_app_dir / "orchestrators").exists()
-                    else set()
-                )
-                forbidden = {
-                    "workers": forbidden["workers"] - own_workers,
-                    "pipelines": forbidden["pipelines"] - own_pipelines,
-                }
-
-            try:
-                manifest = app_mgr.deploy_app(tmp_path, forbidden_config_names=forbidden)
-            except AppDeployError as e:
-                # urlencode the message — error strings can contain ``&``
-                # (would inject extra query params) or ``#`` (would create
-                # a fragment), corrupting the redirect target.
-                qs = urlencode({"error": str(e)})
-                return RedirectResponse(url=f"/apps?{qs}", status_code=303)
-
-            # Refresh ConfigManager's extra config dirs
-            config_mgr.extra_config_dirs = _build_extra_config_dirs(app_mgr)
-            # Notify running actors to reload
-            await app_mgr.notify_reload()
-            return RedirectResponse(url=f"/apps/{manifest.name}", status_code=303)
+            return templates.TemplateResponse(
+                request,
+                "apps/preview.html",
+                {
+                    "manifest": pending_manifest,
+                    "summary": summary,
+                    "token": token,
+                    "is_redeploy": existing_app_dir.exists(),
+                },
+            )
         finally:
-            tmp_path.unlink(missing_ok=True)
+            if cleanup_tmp:
+                tmp_path.unlink(missing_ok=True)
+
+    @app.post("/apps/deploy/confirm/{token}")
+    async def app_deploy_confirm(token: str):
+        """Finalize a previously-staged deploy.
+
+        Looks up the staged ZIP by token, runs ``deploy_app`` (which
+        re-validates and re-checks collisions), and removes the staging
+        dir on success.  On failure, the staging dir is also removed —
+        the operator must re-upload to retry, ensuring stale state can't
+        accumulate.
+        """
+        from heddle.workshop.app_manager import AppDeployError
+
+        try:
+            staged_zip = app_mgr.staged_zip_path(token)
+        except AppDeployError as e:
+            qs = urlencode({"error": str(e)})
+            return RedirectResponse(url=f"/apps?{qs}", status_code=303)
+
+        try:
+            pending_manifest = app_mgr.peek_manifest(staged_zip)
+            response = await _deploy_from_path(staged_zip, pending_manifest.name)
+        finally:
+            app_mgr.discard_staged(token)
+        return response
+
+    @app.post("/apps/deploy/cancel/{token}")
+    async def app_deploy_cancel(token: str):
+        """Discard a staged deploy without committing it."""
+        app_mgr.discard_staged(token)
+        return RedirectResponse(url="/apps", status_code=303)
 
     @app.post("/apps/{name}/remove", response_class=RedirectResponse)
     async def app_remove(name: str):
