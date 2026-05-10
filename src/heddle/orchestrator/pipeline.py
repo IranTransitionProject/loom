@@ -68,6 +68,7 @@ import yaml
 
 from heddle.core.actor import BaseActor
 from heddle.core.contracts import validate_input, validate_output
+from heddle.core.mapping import is_mapping_literal, resolve_mapping_value
 from heddle.core.messages import (
     ModelTier,
     OrchestratorGoal,
@@ -182,10 +183,17 @@ class PipelineOrchestrator(BaseActor):
                 deps[name] = {d for d in stage["depends_on"] if d in stage_names}
                 continue
 
-            # Automatic inference from input_mapping paths.
+            # Automatic inference from input_mapping paths.  Single-
+            # quoted literals are not stage references, so skip them
+            # explicitly via ``is_mapping_literal``.  Without the
+            # predicate this still worked, but only because a literal
+            # like ``"'store'"`` doesn't dot-split into a known stage
+            # name — safe by coincidence, not by design.
             mapping = stage.get("input_mapping", {})
             inferred: set[str] = set()
             for source_path in mapping.values():
+                if is_mapping_literal(source_path):
+                    continue
                 first_segment = source_path.split(".")[0]
                 if first_segment != "goal" and first_segment in stage_names:
                     inferred.add(first_segment)
@@ -660,15 +668,13 @@ class PipelineOrchestrator(BaseActor):
         mapping = stage.get("input_mapping", {})
         payload: dict[str, Any] = {}
         for target_field, source_path in mapping.items():
-            # Single-quoted strings are literal values, not paths.  The
-            # validator in core/config.py applies the same rule when
-            # checking inter-stage references; if these two diverged,
-            # a config could validate but fail at dispatch time (or
-            # vice versa).
-            if source_path.startswith("'") and source_path.endswith("'"):
-                payload[target_field] = source_path[1:-1]
-            else:
-                payload[target_field] = self._resolve_path(source_path, context)
+            # ``resolve_mapping_value`` handles both single-quoted
+            # literals and dot-paths, sharing one predicate with the
+            # validator and dependency inference (see
+            # ``heddle.core.mapping``).  Drifting the literal predicate
+            # between this site and the validator was the original
+            # source of the runtime KeyError fixed in 9f297ca.
+            payload[target_field] = resolve_mapping_value(source_path, context)
         return payload
 
     @staticmethod

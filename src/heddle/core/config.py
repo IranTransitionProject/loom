@@ -33,6 +33,8 @@ if TYPE_CHECKING:
 import structlog
 import yaml
 
+from heddle.core.mapping import is_mapping_literal
+
 logger = structlog.get_logger()
 
 # ---------------------------------------------------------------------------
@@ -350,7 +352,7 @@ def validate_pipeline_config(  # noqa: PLR0912, PLR0915
                     elif (
                         isinstance(source_path, str)
                         and source_path
-                        and not (source_path.startswith("'") and source_path.endswith("'"))
+                        and not is_mapping_literal(source_path)
                     ):
                         # Validate source path references goal.* or an existing stage
                         # (literal values wrapped in single quotes are skipped)
