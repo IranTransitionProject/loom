@@ -84,3 +84,10 @@ This framing gives agents genuine choice — they can engage with your
 point if it's relevant, or continue their line of argument. The
 selective engagement is what makes it feel like a real town hall rather
 than a forced Q&A.
+
+## Tested by
+
+`tests/test_examples_smoke.py` validates the council config this
+example loads (`configs/councils/town_hall_debate.yaml`) and asserts
+`run.py` imports cleanly on every CI run. End-to-end behaviour
+requires live LLM backends and is exercised manually.

@@ -177,3 +177,10 @@ identifiers. The script trims to the supplied model count.
 **No reveal.** Pass `--no-reveal` to print only the anonymous
 rankings — handy when running a tournament that will be revealed
 manually later.
+
+## Tested by
+
+`tests/test_examples_smoke.py` validates the council config this
+example loads (`configs/councils/blind_taste_test.yaml`) and asserts
+`run.py` imports cleanly on every CI run. End-to-end behaviour
+requires live LLM backends and is exercised manually.

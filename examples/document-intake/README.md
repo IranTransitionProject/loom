@@ -111,3 +111,10 @@ document-intake/
 
 Each phase directory is self-contained — it includes all configs needed
 to run that phase.
+
+## Tested by
+
+`tests/test_examples_smoke.py` validates every worker and pipeline
+config under `examples/document-intake/phase-*/` on every CI run.
+End-to-end behaviour (running a phase through real LLM backends with
+sample CSV data) is exercised manually.

@@ -150,3 +150,10 @@ you have headroom.
 `scoring_prompt=` template to `JudgePanelScorer`. Your prompt must
 include `{transcript}`, `{topic}`, `{agents}`, and `{rubric_fields}`
 placeholders.
+
+## Tested by
+
+`tests/test_examples_smoke.py` validates the council config this
+example loads (`configs/councils/debate_arena.yaml`) and asserts
+`run.py` imports cleanly on every CI run. End-to-end behaviour
+requires live LLM backends and is exercised manually.
