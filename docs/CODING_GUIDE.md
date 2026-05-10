@@ -522,6 +522,43 @@ class TestExecuteStage:
 
 ---
 
+## Dependency Security
+
+CI runs `pip-audit` against the resolved environment (`uv sync --all-extras`)
+on every push and PR. The `audit` job fails when any dependency has a known
+CVE with a fix available upstream — unless the CVE id is in the explicit
+baseline at `.github/pip-audit-ignore.txt`.
+
+**Baseline maintenance:**
+
+- Dependabot (`.github/dependabot.yml`) opens weekly PRs for `pip` and
+  `github-actions`. Reviewers must remove the corresponding lines from
+  `pip-audit-ignore.txt` when the bump lands.
+- Adding an id to the baseline without an accompanying tracking note
+  (issue link, PR number, or "next Dependabot cycle") is grounds to block
+  the PR. The baseline is not a snooze button.
+- A new advisory that has no fix yet is *not* a CI failure (pip-audit
+  only fails on fixable vulns); it goes into a tracking issue instead.
+
+**Optional-extra surface:**
+
+The set of installable extras directly determines vulnerability surface.
+Operators picking a minimal install can reduce exposure:
+
+| Extra | Pulls heaviest deps | Notes |
+| --- | --- | --- |
+| `docproc` (`docling`) | `lxml`, `pillow`, `transformers`, `accelerate` | Largest surface — skip if you don't need PDF/DOCX ingestion. |
+| `workshop` | `fastapi`, `uvicorn`, `python-multipart` | Operator UI; gate behind `HEDDLE_WORKSHOP_TOKEN` (see SECURITY_MODEL). |
+| `mcp` | `fastmcp` (+ auth deps like `authlib`) | MCP gateway surface; only install on hosts that serve MCP. |
+| `rag` | `duckdb`, `requests` | Smaller surface; mostly local DB / Ollama HTTP. |
+| `lancedb` | `lancedb`, `pyarrow` | Native libs; review for arch-specific advisories. |
+| `mdns`, `otel`, `tui`, `telegram`, `chatbridge` | Small, narrow surface | Install only when the corresponding feature is in use. |
+
+The `dependencies` block in `pyproject.toml` is the always-installed floor:
+`nats-py`, `pydantic`, `pyyaml`, `httpx`, `tiktoken`, `click`, `structlog`.
+
+---
+
 ## YAML Configuration
 
 Worker and pipeline configs live in `configs/`. Follow these conventions:

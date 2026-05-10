@@ -71,3 +71,26 @@ jobs:
       - name: Build API documentation
         run: uv run mkdocs build --strict
 
+  audit:
+    # Dependency vulnerability scan. Fails when pip-audit finds any CVE
+    # with a fix available — except those baselined in
+    # .github/pip-audit-ignore.txt. See docs/CODING_GUIDE.md
+    # "Dependency security" for how to maintain the baseline.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install all extras
+        run: uv sync --all-extras
+      - name: pip-audit (with baselined ignores)
+        run: |
+          set -euo pipefail
+          ignores=()
+          while IFS= read -r line; do
+            line="${line%%#*}"
+            line="${line//[[:space:]]/}"
+            [[ -z "$line" ]] && continue
+            ignores+=(--ignore-vuln "$line")
+          done < .github/pip-audit-ignore.txt
+          uv run --with pip-audit pip-audit "${ignores[@]}"
+

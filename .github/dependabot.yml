@@ -1,0 +1,39 @@
+# Dependabot configuration — weekly PRs for Python and Actions deps.
+#
+# See docs/CODING_GUIDE.md "Dependency security" for how this interacts
+# with the pip-audit gate in CI. As Dependabot PRs land, entries in
+# .github/pip-audit-ignore.txt should be removed once the fix version
+# is in uv.lock.
+
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "python"
+    groups:
+      # Group docling and its heavy transitive deps so PRs are reviewable
+      # rather than 1-per-package noise. docling pulls lxml, pillow,
+      # transformers, etc.
+      docling:
+        patterns:
+          - "docling*"
+          - "lxml"
+          - "pillow"
+          - "transformers"
+          - "accelerate"
+          - "tokenizers"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "ci"
