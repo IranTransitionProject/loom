@@ -67,9 +67,14 @@ class WorkshopDB:
                 avg_latency_ms  DOUBLE,
                 avg_prompt_tokens DOUBLE,
                 avg_completion_tokens DOUBLE,
-                metadata        JSON
+                metadata        JSON,
+                error           TEXT
             )
         """)
+        # Backfill the ``error`` column on databases created before it was added
+        # to the schema above.  ``ADD COLUMN IF NOT EXISTS`` is idempotent on
+        # DuckDB ≥0.10, which the project's ``duckdb>=1.0.0`` floor guarantees.
+        self._conn.execute("ALTER TABLE eval_runs ADD COLUMN IF NOT EXISTS error TEXT")
         self._conn.execute("""
             CREATE TABLE IF NOT EXISTS eval_results (
                 id              VARCHAR PRIMARY KEY,
@@ -224,7 +229,7 @@ class WorkshopDB:
             rows = self._conn.execute(
                 """SELECT id, worker_name, worker_version_id, tier, started_at,
                           completed_at, status, total_cases, passed_cases,
-                          failed_cases, avg_latency_ms
+                          failed_cases, avg_latency_ms, error
                    FROM eval_runs WHERE worker_name = ?
                    ORDER BY started_at DESC LIMIT ?""",
                 [worker_name, limit],
@@ -233,7 +238,7 @@ class WorkshopDB:
             rows = self._conn.execute(
                 """SELECT id, worker_name, worker_version_id, tier, started_at,
                           completed_at, status, total_cases, passed_cases,
-                          failed_cases, avg_latency_ms
+                          failed_cases, avg_latency_ms, error
                    FROM eval_runs ORDER BY started_at DESC LIMIT ?""",
                 [limit],
             ).fetchall()
@@ -250,6 +255,7 @@ class WorkshopDB:
                 "passed_cases": r[8],
                 "failed_cases": r[9],
                 "avg_latency_ms": r[10],
+                "error": r[11],
             }
             for r in rows
         ]

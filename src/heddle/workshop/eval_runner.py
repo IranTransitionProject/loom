@@ -322,29 +322,72 @@ class EvalRunner:
                     error=result.error,
                 )
 
-        await asyncio.gather(*(run_one(case) for case in test_suite))
+        # ``return_exceptions=True`` keeps one bad case from cancelling its
+        # siblings.  Per-case exceptions are persisted as failed
+        # ``eval_results`` rows below so the run summary stays consistent.
+        try:
+            case_results = await asyncio.gather(
+                *(run_one(case) for case in test_suite),
+                return_exceptions=True,
+            )
 
-        # Update run summary
-        n = len(test_suite)
-        self.db.update_eval_run(
-            run_id,
-            {
-                "status": "completed",
-                "completed_at": datetime.now(UTC),
-                "passed_cases": passed,
-                "failed_cases": failed,
-                "avg_latency_ms": total_latency / n if n else 0,
-                "avg_prompt_tokens": total_prompt / n if n else 0,
-                "avg_completion_tokens": total_completion / n if n else 0,
-            },
-        )
+            for case, res in zip(test_suite, case_results, strict=True):
+                if isinstance(res, Exception):
+                    failed += 1
+                    case_name = case.get("name", "unnamed")
+                    err = f"{type(res).__name__}: {res}"
+                    logger.error("eval.case_failed", run_id=run_id, case=case_name, error=err)
+                    try:
+                        self.db.save_eval_result(
+                            run_id=run_id,
+                            case_name=case_name,
+                            input_payload=case.get("input", {}),
+                            passed=False,
+                            error=err,
+                        )
+                    except Exception:
+                        logger.exception("eval.case_save_failed", run_id=run_id, case=case_name)
 
-        logger.info(
-            "eval.suite_completed",
-            run_id=run_id,
-            passed=passed,
-            failed=failed,
-            total=n,
-        )
+            # Update run summary
+            n = len(test_suite)
+            self.db.update_eval_run(
+                run_id,
+                {
+                    "status": "completed",
+                    "completed_at": datetime.now(UTC),
+                    "passed_cases": passed,
+                    "failed_cases": failed,
+                    "avg_latency_ms": total_latency / n if n else 0,
+                    "avg_prompt_tokens": total_prompt / n if n else 0,
+                    "avg_completion_tokens": total_completion / n if n else 0,
+                },
+            )
+
+            logger.info(
+                "eval.suite_completed",
+                run_id=run_id,
+                passed=passed,
+                failed=failed,
+                total=n,
+            )
+        except Exception as exc:
+            # Anything that escapes the per-case isolation (DB summary write
+            # failure, unexpected error in the gather scaffolding, etc.) would
+            # otherwise leave the eval_runs row pinned at ``status='running'``
+            # forever.  Mark it failed with the error so operators see it.
+            err = f"{type(exc).__name__}: {exc}"
+            logger.exception("eval.suite_failed", run_id=run_id)
+            try:
+                self.db.update_eval_run(
+                    run_id,
+                    {
+                        "status": "failed",
+                        "completed_at": datetime.now(UTC),
+                        "error": err,
+                    },
+                )
+            except Exception:
+                logger.exception("eval.suite_status_write_failed", run_id=run_id)
+            raise
 
         return run_id

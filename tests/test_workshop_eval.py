@@ -242,6 +242,70 @@ class TestEvalRunner:
         assert run["passed_cases"] + run["failed_cases"] == 5
         assert run["avg_latency_ms"] is not None
 
+    @pytest.mark.asyncio
+    async def test_run_suite_marks_failed_on_unexpected_error(self, runner_and_db):
+        """An exception outside the per-case path must not leave the run pinned
+        at ``status='running'``.  Patches the post-aggregation update so the
+        first call (the success-path summary write) raises, then verifies the
+        recovery write set ``status='failed'`` with the error captured.
+        """
+        eval_runner, db = runner_and_db
+
+        real_update = db.update_eval_run
+        call_count = {"n": 0}
+
+        def patched_update(run_id, updates):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise RuntimeError("synthetic db failure")
+            return real_update(run_id, updates)
+
+        db.update_eval_run = patched_update
+
+        suite = [{"name": "c1", "input": {"text": "x"}}]
+        with pytest.raises(RuntimeError, match="synthetic db failure"):
+            await eval_runner.run_suite(EVAL_CONFIG, suite)
+
+        runs = db.get_eval_runs("eval_worker")
+        assert len(runs) == 1
+        assert runs[0]["status"] == "failed"
+        assert runs[0]["error"] is not None
+        assert "synthetic db failure" in runs[0]["error"]
+
+    @pytest.mark.asyncio
+    async def test_run_suite_isolates_per_case_exception(self, runner_and_db):
+        """``return_exceptions=True`` keeps one bad case from cancelling its
+        siblings.  An exception that escapes ``test_runner.run`` (mocked here
+        via a stubbed runner) is captured and persisted as a failed
+        ``eval_results`` row; the suite still completes.
+        """
+        eval_runner, db = runner_and_db
+
+        real_run = eval_runner.test_runner.run
+
+        async def flaky_run(config, payload, tier=None):
+            if payload.get("text") == "boom":
+                raise RuntimeError("backend exploded")
+            return await real_run(config, payload, tier=tier)
+
+        eval_runner.test_runner.run = flaky_run
+
+        suite = [
+            {"name": "ok", "input": {"text": "hello"}},
+            {"name": "boom", "input": {"text": "boom"}},
+        ]
+        run_id = await eval_runner.run_suite(EVAL_CONFIG, suite)
+
+        runs = db.get_eval_runs("eval_worker")
+        assert runs[0]["status"] == "completed"  # not "failed" — case isolated
+        assert runs[0]["error"] is None
+
+        results = db.get_eval_results(run_id)
+        by_name = {r["case_name"]: r for r in results}
+        assert by_name["boom"]["passed"] is False
+        assert by_name["boom"]["error"] is not None
+        assert "backend exploded" in by_name["boom"]["error"]
+
 
 # ---------------------------------------------------------------------------
 # LLM-as-judge scoring tests
