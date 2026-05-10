@@ -533,25 +533,26 @@ class TestExecuteStage:
 
 ### Coverage
 
-- **Total threshold: 91%** (enforced in CI via `fail_under` in
-  `[tool.coverage.report]`). Raise only when the current run sustains
-  the new floor with margin.
-- **Per-package floors** (documented expectations — pytest-cov does
-  not gate per package, so these are enforced by review, not CI):
+**Total threshold: 91%** (enforced in CI via `fail_under` in
+`[tool.coverage.report]`). Raise only when the current run sustains
+the new floor with margin.
 
-  | Package | Floor | Rationale |
-  | --- | --- | --- |
-  | `core/`, `bus/`, `worker/`, `orchestrator/`, `router/` | 95% | Hot-path runtime; regressions hit every user. |
-  | `cli/`, `workshop/`, `mcp/`, `scheduler/` | 85% | Operator-facing surfaces; many paths exercised end-to-end. |
-  | `contrib/` | 70% | Optional integrations; some require external infra to fully cover. |
+**Per-package floors** (documented expectations — pytest-cov does
+not gate per package, so these are enforced by review, not CI):
 
-  A package below its floor is a release blocker unless explicitly
-  waived in the PR description. Today `core/` sits at ~94% — the
-  delta is concentrated in `core/config.py`; lifting it is queued for
-  the centralization refactor (session I).
+| Package | Floor | Rationale |
+| --- | --- | --- |
+| `core/`, `bus/`, `worker/`, `orchestrator/`, `router/` | 95% | Hot-path runtime; regressions hit every user. |
+| `cli/`, `workshop/`, `mcp/`, `scheduler/` | 85% | Operator-facing surfaces; many paths exercised end-to-end. |
+| `contrib/` | 70% | Optional integrations; some require external infra to fully cover. |
 
-- Use `# pragma: no cover` only for truly unreachable code (e.g.,
-  `if __name__ == "__main__"` guards, `TYPE_CHECKING` blocks).
+A package below its floor is a release blocker unless explicitly
+waived in the PR description. Today `core/` sits at ~94% — the delta
+is concentrated in `core/config.py`; lifting it is queued for the
+centralization refactor (session I).
+
+Use `# pragma: no cover` only for truly unreachable code (e.g.,
+`if __name__ == "__main__"` guards, `TYPE_CHECKING` blocks).
 
 ---
 
