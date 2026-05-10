@@ -116,6 +116,10 @@ audit the listed capabilities first. Bundles uploaded via
 `?auto_approve=1` skip this gate, so reserve that flag for sources where
 the audit happens earlier in the pipeline.
 
+For the full per-surface trust model (Workshop auth, MCP gateway,
+NATS bus, knowledge silos, subprocess backends, secrets, data
+retention) see [`SECURITY_MODEL.md`](SECURITY_MODEL.md).
+
 ### Hot Reload
 
 After deployment, the Workshop publishes a reload message to

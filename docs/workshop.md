@@ -20,6 +20,12 @@ bypass the bus, router, and actor lifecycle entirely — they call
 against the worker's I/O contracts. This makes the Workshop usable as a
 standalone development tool even when no infrastructure is running.
 
+> **Trust model.** The Workshop binds to `127.0.0.1` by default and
+> ships open (no auth). Set `HEDDLE_WORKSHOP_TOKEN` before exposing
+> any non-loopback bind. See [`SECURITY_MODEL.md`](SECURITY_MODEL.md)
+> for the full per-surface trust contract (Workshop, MCP, NATS,
+> knowledge silos, subprocess backends, secrets, retention).
+
 ---
 
 ## Architecture
