@@ -7,10 +7,12 @@ Heddle's request-reply path because the worker side looks healthy.
 
 ## Symptom
 
-- Caller log: `dispatch.timeout`, `result_stream.timeout`, or a
-  generic `asyncio.TimeoutError` propagated up.
-- Worker log: `worker.task_completed` (or equivalent) with the same
-  `task_id`, well within the timeout window.
+- Caller log: `result_stream.timeout`, or a generic `asyncio.TimeoutError`
+  propagated up from `dispatch_and_wait_for_result` (the helper returns
+  `None` silently on its own timeout — there is no `dispatch.timeout`
+  log key; you'll see the caller's wrapper log it).
+- Worker log: `worker.completed` with the same `task_id`, well
+  within the timeout window.
 - Sometimes intermittent — the same payload succeeds on a retry.
 
 ## Diagnosis
@@ -100,7 +102,7 @@ See also: [Interpret dead letters](interpret-dead-letters.md).
 
 Re-dispatch the same payload and confirm:
 
-- A single `worker.task_completed` line.
+- A single `worker.completed` line.
 - A single `result_stream.collected` line on the caller (or, for
   single-result waits, a returned `TaskResult` not `None`).
 - No `*.parse_error` lines.

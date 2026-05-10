@@ -98,9 +98,13 @@ subscribing will fail to see the reply.
 
 - Request-reply ordering is correct by construction. A new
   orchestrator that uses the helper inherits the guarantee.
-- The fast-worker simulator (`MalformedThenValidWorkerSimBus`,
-  `FastWorkerSimBus` in the test file) make the guarantee
-  testable without timing-dependent flake.
+- The fast-worker simulators in
+  `tests/test_publish_before_subscribe.py` (e.g.
+  `MalformedThenValidWorkerSimBus`) make the guarantee testable
+  without timing-dependent flake — each shim publishes the
+  simulated reply the moment `publish()` is called, so a
+  subscribe-after-publish caller deterministically fails to see
+  it.
 - The helper has one well-tested implementation; bugs found here
   benefit every caller. The parse-error resilience in
   `parse_task_result` ([ADR-004](004-skip-not-crash-on-malformed.md))

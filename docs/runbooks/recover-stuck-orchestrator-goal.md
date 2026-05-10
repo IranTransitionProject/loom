@@ -13,7 +13,7 @@ but never finalises.
 ## Symptom
 
 - Caller waiting on `heddle.results.{goal_id}` times out.
-- Orchestrator logs `orchestrator.goal_started` but no
+- Orchestrator logs `orchestrator.goal_received` but no
   `orchestrator.goal_completed` for the same `goal_id`.
 - (Variant) Orchestrator logs `orchestrator.goal_completed` but the
   final result's `metadata.timeout` block names tasks that should
@@ -24,15 +24,17 @@ but never finalises.
 Localise to one of four phases:
 
 1. **Decomposition** — the LLM-backed `GoalDecomposer` is still
-   producing subtasks. Look for `orchestrator.decomposition_*`
-   events. A frontier model on a hard goal can take a minute or
-   more — not stuck, just slow.
+   producing subtasks. Look for the `orchestrator.decompose`
+   tracing span and the `orchestrator.subtask_count` event that
+   follows it. A frontier model on a hard goal can take a minute
+   or more — not stuck, just slow.
 
 2. **Dispatch** — subtasks dispatched but no responses. See
    [Debug missing worker results](debug-missing-results.md) for
    the per-task diagnosis. The orchestrator-level signature is
-   `orchestrator.subtask_dispatched` events with no matching
-   `result_stream.collected`.
+   the `orchestrator.dispatch` tracing span (and the
+   `orchestrator.collect` span that follows it) with no matching
+   `result_stream.collected` events for the dispatched task IDs.
 
 3. **Collection timeout** — some subtasks responded, others didn't,
    and the per-goal timeout fired. The final result is **published**
@@ -91,7 +93,7 @@ raise it to match your slowest expected subtask.
 
 After a re-submission:
 
-- `orchestrator.goal_started` then `orchestrator.goal_completed` for
+- `orchestrator.goal_received` then `orchestrator.goal_completed` for
   the new `goal_id`.
 - Final result on `heddle.results.{new_goal_id}` with either an empty
   `metadata.timeout` block or no `metadata.timeout` at all (full

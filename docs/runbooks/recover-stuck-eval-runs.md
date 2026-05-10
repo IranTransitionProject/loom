@@ -37,8 +37,9 @@ fingerprint in the log:
 
 3. **The runner process died** — no `eval.suite_completed` or
    `eval.suite_failed`. Look for SIGKILL/OOM in the process
-   manager, container restart in K8s, or `worker.shutdown` if a
-   graceful shutdown landed mid-run.
+   manager, container restart in K8s, or
+   `actor.shutdown_requested` if a graceful shutdown landed
+   mid-run.
 
 ## Mitigation
 

@@ -32,7 +32,7 @@ caller-visible failure.**
 Specifically:
 
 - `NATSBus` catches deserialization errors and logs
-  `nats.malformed_message`. Subscription loop continues.
+  `nats.malformed_message_skipped`. Subscription loop continues.
 - `parse_task_result` catches Pydantic `ValidationError`, logs
   via the caller-supplied `log_event` (one of
   `dispatch.parse_error` / `result_stream.parse_error`), and
