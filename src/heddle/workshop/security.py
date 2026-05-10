@@ -1,4 +1,4 @@
-"""Workshop security helpers — Origin/Referer check + upload size cap.
+"""Workshop security helpers — origin check, upload size cap, optional token auth.
 
 The Workshop is documented as a local developer dashboard, but its
 mutating routes (deploy app, remove app, save worker, replay
@@ -6,7 +6,7 @@ dead-letter, …) accept POST requests.  Any browser tab the developer
 has open can issue cross-origin POSTs to ``http://localhost:8080``
 while the workshop is running, mutating config or wiping queues.
 
-This module provides two reusable defences:
+This module provides three reusable defences:
 
 - :func:`enforce_same_origin` — an HTTP middleware that rejects
   unsafe-method requests whose ``Origin`` (or ``Referer`` fallback)
@@ -17,13 +17,23 @@ This module provides two reusable defences:
   to disk in fixed-size chunks and rejects when the cumulative size
   exceeds a cap.  Replaces ``await upload.read()`` which is
   unbounded and OOMs the worker on multi-GB uploads.
+- :class:`WorkshopAuth` + :func:`make_token_auth_middleware` — opt-in
+  token auth gating mutating routes when the operator sets
+  ``HEDDLE_WORKSHOP_TOKEN``.  Default = no auth, which is safe under
+  the trusted-local default bind (127.0.0.1).  When the env var is
+  set, mutating requests must carry ``Authorization: Bearer <token>``
+  or the ``heddle_workshop_token`` cookie (set by visiting
+  ``GET /login?token=...`` once).  Same-origin still applies on top.
 
-Both helpers are pure utility — no Workshop-specific state — so they
-are easy to unit-test.
+All helpers are pure utility — no Workshop-specific state beyond what
+the operator passes in — so they are easy to unit-test.
 """
 
 from __future__ import annotations
 
+import ipaddress
+import os
+import secrets
 from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO
 from urllib.parse import urlparse
@@ -205,3 +215,147 @@ async def read_upload_with_size_cap(
     finally:
         if close_after:
             out.close()
+
+
+# ---------------------------------------------------------------------------
+# Optional token auth
+# ---------------------------------------------------------------------------
+
+# Env var the operator sets to enable token auth.  Empty string or
+# unset → auth is disabled (current default behaviour, safe under
+# loopback bind).
+ENV_TOKEN_VAR = "HEDDLE_WORKSHOP_TOKEN"
+
+# Cookie name used for the browser-friendly path.  Set by visiting
+# ``GET /login?token=...`` once; subsequent forms POST with this
+# cookie attached so the operator doesn't have to set the header
+# manually on every request.
+TOKEN_COOKIE_NAME = "heddle_workshop_token"
+
+# Hosts treated as loopback for the bind-warning check.  ``localhost``
+# resolves to a loopback address on every reasonable system; the IPv4
+# and IPv6 loopback strings are the literal forms uvicorn accepts.
+_LOOPBACK_LITERALS: frozenset[str] = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+class WorkshopAuth:
+    """Holds the active token (or ``None`` when auth is disabled).
+
+    Construct via :meth:`from_env` so callers don't need to know the
+    env var name; the constructor itself accepts an explicit token for
+    tests.
+    """
+
+    def __init__(self, token: str | None = None) -> None:
+        # Coerce empty-string-from-env to None so a typo like
+        # ``HEDDLE_WORKSHOP_TOKEN=`` doesn't enable auth with the
+        # empty string (which would then accept any empty header).
+        self.token: str | None = token if token else None
+
+    @classmethod
+    def from_env(cls) -> WorkshopAuth:
+        """Read ``HEDDLE_WORKSHOP_TOKEN`` from the process environment."""
+        return cls(token=os.environ.get(ENV_TOKEN_VAR))
+
+    @property
+    def enabled(self) -> bool:
+        """``True`` if auth is active (env var is set to a non-empty value)."""
+        return self.token is not None
+
+    def request_token_matches_value(self, candidate: str) -> bool:
+        """Return ``True`` if ``candidate`` matches the configured token.
+
+        Used by the ``/login`` route to validate the URL-supplied
+        token before setting the cookie.  Constant-time comparison.
+        Returns ``False`` when auth is disabled so callers cannot
+        learn the disabled-state by passing an empty string.
+        """
+        if self.token is None:
+            return False
+        return secrets.compare_digest(candidate, self.token)
+
+    def request_token_matches(self, request: Request) -> bool:
+        """Return ``True`` if the request carries the configured token.
+
+        Checked sources, in order:
+
+        1. ``Authorization: Bearer <token>`` header — for CLI / curl /
+           fetch clients.
+        2. ``heddle_workshop_token`` cookie — for browsers that have
+           visited ``GET /login?token=...`` once.
+
+        Comparison uses :func:`secrets.compare_digest` so a mismatch
+        does not leak the matching prefix length via timing.
+        """
+        if self.token is None:
+            return True  # auth disabled — every request is "valid"
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.startswith("Bearer ") and secrets.compare_digest(
+            auth_header[len("Bearer ") :], self.token
+        ):
+            return True
+        cookie = request.cookies.get(TOKEN_COOKIE_NAME)
+        return bool(cookie and secrets.compare_digest(cookie, self.token))
+
+
+def make_token_auth_middleware(
+    auth: WorkshopAuth,
+) -> Callable[[Request, Callable[[Request], Awaitable[Response]]], Awaitable[Response]]:
+    """Build an HTTP middleware that gates mutating routes on ``auth``.
+
+    No-op when ``auth.enabled`` is False, so the default (no env var)
+    keeps the workshop's current open-access behaviour for local use.
+    Safe methods (GET/HEAD/OPTIONS) pass through unchanged — auth is
+    about preventing unauthorised mutations, not browse-blocking, and
+    keeping GET open lets the browser-friendly ``/login`` route
+    bootstrap the cookie.
+    """
+    from fastapi.responses import JSONResponse
+
+    async def middleware(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        if not auth.enabled or request.method in _SAFE_METHODS:
+            return await call_next(request)
+        if auth.request_token_matches(request):
+            return await call_next(request)
+        # Delay structlog import so the helper stays light when used
+        # by tests that don't pull in the full Heddle stack.
+        import structlog
+
+        structlog.get_logger().warning(
+            "workshop.token_auth_rejected",
+            method=request.method,
+            path=request.url.path,
+        )
+        return JSONResponse(
+            status_code=401,
+            content={
+                "error": (
+                    "Unauthorized.  Send 'Authorization: Bearer <token>' or "
+                    "set the heddle_workshop_token cookie via "
+                    "GET /login?token=...  HEDDLE_WORKSHOP_TOKEN must match."
+                ),
+            },
+        )
+
+    return middleware
+
+
+def is_loopback_bind(host: str) -> bool:
+    """Return ``True`` when ``host`` binds the workshop to a loopback address only.
+
+    ``localhost``, ``127.0.0.1``, and ``::1`` are the hostnames uvicorn
+    documents for loopback-only.  Any other value (``0.0.0.0``,
+    ``::``, a LAN IP, an interface name, ...) reaches the network and
+    should make the operator answer "is auth set?".
+    """
+    if host in _LOOPBACK_LITERALS:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        # Hostname (e.g. ``my-laptop.local``) — assume non-loopback so
+        # we err on the side of warning the operator.
+        return False

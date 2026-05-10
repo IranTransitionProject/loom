@@ -31,8 +31,11 @@ from heddle.workshop.eval_runner import EvalRunner
 from heddle.workshop.pipeline_editor import PipelineEditor
 from heddle.workshop.rag_manager import RAGManager
 from heddle.workshop.security import (
+    TOKEN_COOKIE_NAME,
     UploadTooLargeError,
+    WorkshopAuth,
     enforce_same_origin,
+    make_token_auth_middleware,
     read_upload_with_size_cap,
 )
 from heddle.workshop.test_runner import WorkerTestRunner
@@ -138,6 +141,19 @@ def create_app(  # noqa: PLR0915
     # header and pass through unchanged.
     app.middleware("http")(enforce_same_origin)
 
+    # Optional token auth.  Reads ``HEDDLE_WORKSHOP_TOKEN`` once at
+    # app construction; if the env var is set, mutating requests must
+    # carry the token via ``Authorization: Bearer <token>`` header or
+    # the ``heddle_workshop_token`` cookie.  No-op if the env var is
+    # not set, preserving the safe-by-default loopback behaviour.
+    # FastAPI runs middlewares in reverse-registration order, so this
+    # outer layer rejects unauthorised requests before the same-origin
+    # check runs — token rejection happens regardless of Origin, which
+    # matches the operator's mental model ("auth blocks me first").
+    auth = WorkshopAuth.from_env()
+    app.state.auth = auth  # type: ignore[attr-defined]
+    app.middleware("http")(make_token_auth_middleware(auth))
+
     # Static files
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
@@ -202,6 +218,39 @@ def create_app(  # noqa: PLR0915
     @app.get("/health")
     async def health():
         return {"status": "ok", "backends": list(backends.keys())}
+
+    @app.get("/login")
+    async def login(request: Request):
+        """Browser-friendly cookie bootstrap for ``HEDDLE_WORKSHOP_TOKEN``.
+
+        Visit ``GET /login?token=<HEDDLE_WORKSHOP_TOKEN>`` once; the
+        server validates the URL token against the env var, sets a
+        same-site cookie, and redirects to ``/`` (which then rewrites
+        to /workers).  Subsequent forms POST with the cookie attached.
+        Returns 404 if auth is disabled (no env var) so this endpoint
+        does not advertise its existence on open deployments.  Returns
+        401 on token mismatch.
+        """
+        if not auth.enabled:
+            return JSONResponse({"error": "Not Found"}, status_code=404)
+        provided = request.query_params.get("token", "")
+        if not provided or not auth.request_token_matches_value(provided):
+            return JSONResponse({"error": "Invalid token"}, status_code=401)
+        # Cookie attributes: HttpOnly so page JS can't exfiltrate;
+        # SameSite=Strict so a cross-site redirect can't initiate a
+        # POST that pulls the cookie; Path=/ so it works on every
+        # mutating route.  ``secure`` is left False because the
+        # default bind is plain HTTP loopback — operators terminating
+        # TLS in front should set it via reverse proxy.
+        response = RedirectResponse(url="/", status_code=303)
+        response.set_cookie(
+            key=TOKEN_COOKIE_NAME,
+            value=auth.token or "",
+            httponly=True,
+            samesite="strict",
+            path="/",
+        )
+        return response
 
     # --- Workers ---
 

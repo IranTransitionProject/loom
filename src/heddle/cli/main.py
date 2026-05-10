@@ -736,6 +736,7 @@ def workshop(
     import uvicorn
 
     from heddle.workshop.app import create_app
+    from heddle.workshop.security import WorkshopAuth, is_loopback_bind
 
     app = create_app(
         configs_dir=configs_dir,
@@ -744,6 +745,12 @@ def workshop(
         apps_dir=apps_dir,
     )
 
+    # E4: explicit bind log so an operator can always grep the launch
+    # output for the address the workshop is reachable on.  Default
+    # (--host 127.0.0.1) is loopback and safe; any other value reaches
+    # the network and triggers the auth-status warning below.
+    auth = WorkshopAuth.from_env()
+    bind_loopback = is_loopback_bind(host)
     logger.info(
         "workshop.starting",
         host=host,
@@ -752,7 +759,25 @@ def workshop(
         db_path=db_path,
         apps_dir=apps_dir,
         nats="enabled" if nats_url else "disabled",
+        bind="loopback" if bind_loopback else "network-reachable",
+        auth="enabled" if auth.enabled else "disabled",
     )
+
+    # E1: warn loudly when the bind reaches the network without auth.
+    # The auth gate is opt-in (enabled only if HEDDLE_WORKSHOP_TOKEN
+    # is set) so this configuration is technically allowed, but it
+    # exposes mutating routes to anyone who can reach the host.
+    if not bind_loopback and not auth.enabled:
+        logger.warning(
+            "workshop.insecure_bind",
+            host=host,
+            hint=(
+                "Workshop is bound to a non-loopback address without auth.  "
+                "Set HEDDLE_WORKSHOP_TOKEN to require an Authorization header "
+                "(or cookie via GET /login?token=...) on every mutating route, "
+                "or rebind to 127.0.0.1."
+            ),
+        )
 
     uvicorn.run(app, host=host, port=port, log_level="info")
 

@@ -27,10 +27,14 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from heddle.workshop.security import (
+    ENV_TOKEN_VAR,
+    TOKEN_COOKIE_NAME,
     UploadTooLargeError,
+    WorkshopAuth,
     _origin_check_failure_reason,
     _origin_matches_host,
     enforce_same_origin,
+    is_loopback_bind,
     read_upload_with_size_cap,
 )
 
@@ -381,3 +385,202 @@ class TestWorkshopAppDeployIntegration:
             follow_redirects=False,
         )
         assert resp.status_code != 403
+
+
+# ---------------------------------------------------------------------------
+# Token auth + bind-warning helpers (#9 E1, #4 E4)
+# ---------------------------------------------------------------------------
+
+
+class TestWorkshopAuth:
+    """Pure-unit pins for the auth state holder."""
+
+    def test_disabled_when_env_unset(self, monkeypatch):
+        monkeypatch.delenv(ENV_TOKEN_VAR, raising=False)
+        assert WorkshopAuth.from_env().enabled is False
+
+    def test_disabled_when_env_empty_string(self, monkeypatch):
+        """An empty env var must NOT enable auth — that would accept the
+        empty-string Bearer token from any caller."""
+        monkeypatch.setenv(ENV_TOKEN_VAR, "")
+        auth = WorkshopAuth.from_env()
+        assert auth.enabled is False
+        assert auth.token is None
+
+    def test_enabled_when_env_set(self, monkeypatch):
+        monkeypatch.setenv(ENV_TOKEN_VAR, "secret-123")
+        auth = WorkshopAuth.from_env()
+        assert auth.enabled is True
+        assert auth.token == "secret-123"
+
+    def test_request_token_matches_value_uses_constant_time(self):
+        """Token comparison must use ``secrets.compare_digest`` so a
+        timing attack cannot probe the matching prefix length."""
+        import secrets as _secrets
+
+        auth = WorkshopAuth(token="real-token")
+        # Indirect check: the implementation should call compare_digest;
+        # we verify the contract (correct accept/reject) and pin the
+        # behaviour that a wrong token of the same length is rejected.
+        assert auth.request_token_matches_value("real-token") is True
+        assert auth.request_token_matches_value("real-tokeN") is False
+        # And empty strings don't match either way.
+        assert auth.request_token_matches_value("") is False
+        assert _secrets.compare_digest  # sanity import — used by impl
+
+    def test_request_token_matches_value_disabled_returns_false(self):
+        """When auth is disabled, /login validation must reject every
+        candidate so callers cannot probe disabled-state."""
+        auth = WorkshopAuth(token=None)
+        assert auth.request_token_matches_value("anything") is False
+        assert auth.request_token_matches_value("") is False
+
+
+class TestIsLoopbackBind:
+    @pytest.mark.parametrize(
+        ("host", "expected"),
+        [
+            ("127.0.0.1", True),
+            ("::1", True),
+            ("localhost", True),
+            ("0.0.0.0", False),
+            ("::", False),
+            ("192.168.1.10", False),
+            ("10.0.0.5", False),
+            ("my-laptop.local", False),  # hostname → assume non-loopback
+            ("", False),
+        ],
+    )
+    def test_classify(self, host, expected):
+        assert is_loopback_bind(host) is expected
+
+
+@pytest.fixture
+def authed_workshop_client(tmp_path, monkeypatch):
+    """Workshop TestClient with HEDDLE_WORKSHOP_TOKEN=test-token-xyz set
+    BEFORE create_app reads env, so the auth gate is wired in.
+    """
+    import unittest.mock as mock
+
+    monkeypatch.setenv(ENV_TOKEN_VAR, "test-token-xyz")
+
+    configs_dir = tmp_path / "configs"
+    (configs_dir / "workers").mkdir(parents=True)
+    (configs_dir / "orchestrators").mkdir()
+
+    mock_advertiser = mock.AsyncMock()
+    mock_advertiser.start = mock.AsyncMock()
+    mock_advertiser.stop = mock.AsyncMock()
+    mock_advertiser.register_workshop = mock.MagicMock()
+
+    mock_mdns_module = mock.MagicMock()
+    mock_mdns_module.HeddleServiceAdvertiser.return_value = mock_advertiser
+
+    with mock.patch.dict("sys.modules", {"heddle.discovery.mdns": mock_mdns_module}):
+        app = _create_workshop_app(
+            configs_dir=str(configs_dir),
+            db_path=":memory:",
+            apps_dir=str(tmp_path / "apps"),
+        )
+        with TestClient(app) as client:
+            yield client
+
+
+class TestTokenAuthIntegration:
+    """End-to-end: HEDDLE_WORKSHOP_TOKEN gates mutating routes only."""
+
+    _SAME_ORIGIN_HEADERS = {"Origin": "http://testserver"}
+
+    def test_get_route_passes_without_token(self, authed_workshop_client):
+        """Auth gates mutations, not browsing.  /workers must stay open
+        so /login can bootstrap the cookie and so a curious operator
+        can see what's there."""
+        resp = authed_workshop_client.get("/workers")
+        assert resp.status_code == 200
+
+    def test_post_without_token_returns_401(self, authed_workshop_client):
+        """The mutating /apps/deploy route requires the token now."""
+        resp = authed_workshop_client.post(
+            "/apps/deploy",
+            files={"zip_file": ("a.zip", b"PK\x05\x06" + b"\x00" * 18, "application/zip")},
+            headers=self._SAME_ORIGIN_HEADERS,
+        )
+        assert resp.status_code == 401
+        assert "Authorization" in resp.json()["error"]
+
+    def test_post_with_bearer_header_succeeds(self, authed_workshop_client):
+        """``Authorization: Bearer <token>`` is the CLI/curl path; the
+        deploy itself fails downstream (garbage bytes), but we must
+        get past the 401 gate."""
+        resp = authed_workshop_client.post(
+            "/apps/deploy",
+            files={"zip_file": ("a.zip", b"PK\x05\x06" + b"\x00" * 18, "application/zip")},
+            headers={
+                **self._SAME_ORIGIN_HEADERS,
+                "Authorization": "Bearer test-token-xyz",
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code != 401
+        assert resp.status_code != 403  # same-origin also passes
+
+    def test_post_with_wrong_bearer_returns_401(self, authed_workshop_client):
+        resp = authed_workshop_client.post(
+            "/apps/deploy",
+            files={"zip_file": ("a.zip", b"PK\x05\x06" + b"\x00" * 18, "application/zip")},
+            headers={
+                **self._SAME_ORIGIN_HEADERS,
+                "Authorization": "Bearer wrong-token",
+            },
+        )
+        assert resp.status_code == 401
+
+    def test_post_with_cookie_succeeds(self, authed_workshop_client):
+        """Browsers use the cookie path: /login?token=xyz sets it,
+        subsequent POSTs carry it automatically."""
+        authed_workshop_client.cookies.set(TOKEN_COOKIE_NAME, "test-token-xyz")
+        resp = authed_workshop_client.post(
+            "/apps/deploy",
+            files={"zip_file": ("a.zip", b"PK\x05\x06" + b"\x00" * 18, "application/zip")},
+            headers=self._SAME_ORIGIN_HEADERS,
+            follow_redirects=False,
+        )
+        assert resp.status_code != 401
+
+    def test_login_sets_cookie_and_redirects(self, authed_workshop_client):
+        resp = authed_workshop_client.get("/login?token=test-token-xyz", follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/"
+        # Cookie is HttpOnly + SameSite=Strict + Path=/.
+        set_cookie = resp.headers.get("set-cookie", "")
+        assert TOKEN_COOKIE_NAME in set_cookie
+        assert "HttpOnly" in set_cookie
+        assert "SameSite=strict" in set_cookie.lower() or "samesite=strict" in set_cookie.lower()
+
+    def test_login_with_wrong_token_returns_401(self, authed_workshop_client):
+        resp = authed_workshop_client.get("/login?token=wrong", follow_redirects=False)
+        assert resp.status_code == 401
+
+    def test_same_origin_still_applies_with_valid_token(self, authed_workshop_client):
+        """Cross-origin POST with a valid token must STILL be rejected
+        by the same-origin layer.  Defence in depth: a malicious site
+        that somehow learned the token still cannot mutate from a
+        cross-origin browser tab."""
+        resp = authed_workshop_client.post(
+            "/apps/deploy",
+            files={"zip_file": ("a.zip", b"PK\x05\x06" + b"\x00" * 18, "application/zip")},
+            headers={
+                "Origin": "https://evil.com",
+                "Authorization": "Bearer test-token-xyz",
+            },
+        )
+        assert resp.status_code == 403
+
+
+class TestLoginRouteOnOpenWorkshop:
+    """When auth is disabled, /login must not advertise its existence."""
+
+    def test_login_returns_404_when_auth_disabled(self, workshop_client):
+        # workshop_client fixture above does NOT set the env var.
+        resp = workshop_client.get("/login?token=anything", follow_redirects=False)
+        assert resp.status_code == 404
