@@ -337,6 +337,16 @@ class PipelineOrchestrator(BaseActor):
 
         # Dispatch and wait, with optional retry for transient errors.
         max_retries = stage.get("max_retries", 0)
+        if max_retries < 0:
+            # Earlier a negative ``max_retries`` made ``range(max_retries + 1)``
+            # an empty iterator, so the loop body never ran and the
+            # ``raise last_error`` below tripped a NameError /
+            # type-ignore.  Validate at the point of use so a typo'd
+            # YAML field surfaces with a clear message.
+            raise PipelineStageError(
+                stage_name,
+                f"Stage '{stage_name}' has max_retries={max_retries}; must be >= 0",
+            )
         last_error: PipelineStageError | None = None
 
         for attempt in range(max_retries + 1):
@@ -415,8 +425,13 @@ class PipelineOrchestrator(BaseActor):
                 "wall_time_ms": stage_elapsed_ms,
             }
 
-        # All retries exhausted — raise the last error.
-        raise last_error  # type: ignore[misc]
+        # All retries exhausted — raise the last error.  The
+        # ``max_retries`` validation above guarantees the loop ran
+        # at least once, so ``last_error`` is always set when we
+        # reach this point; the ``assert`` documents the invariant
+        # and lets pyright drop the type-ignore.
+        assert last_error is not None
+        raise last_error
 
     # ------------------------------------------------------------------
     # Core message handler
@@ -707,7 +722,13 @@ class PipelineOrchestrator(BaseActor):
         parts = condition.split()
         if len(parts) != 3:
             logger.warning("pipeline.invalid_condition", condition=condition)
-            return True  # Default to running the stage
+            # Fail-closed by default — a malformed condition skips
+            # the stage instead of running it.  Set
+            # ``HEDDLE_STRICT_CONDITIONS=0`` to restore the legacy
+            # fail-open behaviour (e.g. for pipelines that lean on
+            # the original semantics during migration).  Documented
+            # in CHANGELOG / runbooks once that flag goes away.
+            return os.environ.get("HEDDLE_STRICT_CONDITIONS", "1") == "0"
 
         path, op, expected = parts
         try:
@@ -737,7 +758,8 @@ class PipelineOrchestrator(BaseActor):
         if op == "!=":
             return value != expected_val
         logger.warning("pipeline.unsupported_operator", op=op)
-        return True
+        # Unknown operator → skip the stage (fail-closed).
+        return os.environ.get("HEDDLE_STRICT_CONDITIONS", "1") == "0"
 
     # ``_dispatch_and_wait_for_result`` was extracted to
     # :func:`heddle.orchestrator.dispatch.dispatch_and_wait_for_result`

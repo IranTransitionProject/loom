@@ -92,9 +92,27 @@ class TestEvaluateCondition:
             is False
         )
 
-    def test_invalid_condition_defaults_true(self):
+    def test_invalid_condition_defaults_false_strict(self):
+        """G7: malformed conditions skip the stage (fail-closed) by default.
+
+        Earlier a malformed condition fell back to running the stage
+        (fail-open) so a typo silently broadened the pipeline.  Now
+        strict-by-default; set ``HEDDLE_STRICT_CONDITIONS=0`` to
+        restore legacy fail-open semantics for migration.
+        """
+        ctx = {}
+        assert PipelineOrchestrator._evaluate_condition("invalid", ctx) is False
+
+    def test_invalid_condition_legacy_fail_open(self, monkeypatch):
+        """``HEDDLE_STRICT_CONDITIONS=0`` restores the legacy fail-open behaviour."""
+        monkeypatch.setenv("HEDDLE_STRICT_CONDITIONS", "0")
         ctx = {}
         assert PipelineOrchestrator._evaluate_condition("invalid", ctx) is True
+
+    def test_unsupported_operator_skips_stage_strict(self):
+        """Unknown operator (e.g. ``>=``) skips the stage by default."""
+        ctx = {"x": {"output": {"n": 5}}}
+        assert PipelineOrchestrator._evaluate_condition("x.output.n >= 3", ctx) is False
 
     def test_string_comparison(self):
         ctx = {"classify": {"output": {"document_type": "invoice"}}}
