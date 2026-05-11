@@ -80,7 +80,7 @@ mdns = [
 ]
 otel = [
     "opentelemetry-api>=1.20.0",           # Tracing API (spans, context)
-    "opentelemetry-sdk>=1.20.0",           # SDK (TracerProvider, export pipeline)
+    "opentelemetry-sdk>=1.41.1",           # SDK (TracerProvider, export pipeline)
     "opentelemetry-exporter-otlp>=1.20.0", # OTLP gRPC exporter
 ]
 tui = [
