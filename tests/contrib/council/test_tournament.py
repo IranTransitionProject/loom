@@ -322,7 +322,7 @@ class TestAggregate:
 
 
 class TestRun:
-    async def test_run_dispatches_all_matchups(self) -> None:
+    async def test_run_dispatches_all_matchups(self, monkeypatch) -> None:
         # Council runner returns a stub CouncilResult.
         council_runner = AsyncMock()
         council_runner.run.return_value = CouncilResult(
@@ -341,6 +341,11 @@ class TestRun:
             config_template=_template(),
             agent_factory=_factory,
         )
+        # B4: tournament builds a fresh runner per matchup to keep
+        # ``_active_transcript`` / ``_bridges`` isolated.  In tests
+        # we want the AsyncMock above to be the runner; override the
+        # factory so it returns the mock.
+        monkeypatch.setattr(runner, "_new_runner_for_matchup", lambda: council_runner)
         matchups = TournamentRunner.generate_matchups(
             models=["a", "b"],
             topics=["t1"],
@@ -369,7 +374,7 @@ class TestRun:
         assert by_model["a"]["wins"] == 1
         assert by_model["b"]["wins"] == 1
 
-    async def test_run_handles_runner_failure(self) -> None:
+    async def test_run_handles_runner_failure(self, monkeypatch) -> None:
         council_runner = AsyncMock()
         council_runner.run.side_effect = RuntimeError("backend down")
         scorer = AsyncMock()
@@ -381,6 +386,7 @@ class TestRun:
             config_template=_template(),
             agent_factory=_factory,
         )
+        monkeypatch.setattr(runner, "_new_runner_for_matchup", lambda: council_runner)
         matchups = [Matchup(model_a="a", model_b="b", topic="t", pro_model="a")]
         result = await runner.run(matchups, concurrency=1)
 
@@ -388,7 +394,7 @@ class TestRun:
         assert result.failed_matchups == 1
         assert result.results[0]["error"] == "backend down"
 
-    async def test_async_callback(self) -> None:
+    async def test_async_callback(self, monkeypatch) -> None:
         council_runner = AsyncMock()
         council_runner.run.return_value = CouncilResult(
             topic="t", rounds_completed=1, converged=False, synthesis="syn"
@@ -402,6 +408,7 @@ class TestRun:
             config_template=_template(),
             agent_factory=_factory,
         )
+        monkeypatch.setattr(runner, "_new_runner_for_matchup", lambda: council_runner)
         matchups = [Matchup(model_a="a", model_b="b", topic="t", pro_model="a")]
 
         seen = []
@@ -411,6 +418,38 @@ class TestRun:
 
         await runner.run(matchups, on_matchup_done=_async_cb, concurrency=1)
         assert len(seen) == 1
+
+    async def test_per_matchup_runner_isolation(self) -> None:
+        """Pin the B4 fix: each matchup gets its own CouncilRunner.
+
+        Earlier the tournament shared one ``CouncilRunner`` across
+        concurrent matchups, clobbering ``_active_transcript`` and
+        ``_bridges`` between coroutines.  Now ``_new_runner_for_matchup``
+        produces a fresh runner per matchup.  Under ``concurrency > 1``
+        with overlapping matchups, the runner instance backing one
+        matchup must not be the same object as the one backing another
+        — otherwise their transcript pointers race.
+        """
+        from heddle.contrib.council.runner import CouncilRunner
+
+        prototype = CouncilRunner(backends={"local": object()})
+        scorer = AsyncMock()
+        scorer.score.return_value = _scoring_result("pro", 0.7)
+
+        runner = TournamentRunner(
+            runner=prototype,
+            scorer=scorer,
+            config_template=_template(),
+            agent_factory=_factory,
+        )
+
+        r1 = runner._new_runner_for_matchup()
+        r2 = runner._new_runner_for_matchup()
+        assert r1 is not r2  # distinct objects
+        assert r1 is not prototype  # neither one is the prototype
+        # Backends share the same dict reference (the prototype's) so
+        # backend connections aren't duplicated needlessly.
+        assert r1.backends is prototype.backends
 
 
 # -- TournamentResult model ------------------------------------------------

@@ -199,6 +199,27 @@ class TournamentRunner:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    def _new_runner_for_matchup(self) -> CouncilRunner:
+        """Build a fresh :class:`CouncilRunner` for one matchup.
+
+        ``CouncilRunner`` carries per-discussion state (the active
+        transcript pointer and the cache of :class:`ChatBridge`
+        instances).  When ``concurrency > 1`` the tournament would
+        previously share one runner across overlapping matchups,
+        clobbering both attributes between coroutines.  Each
+        matchup now gets its own runner sharing the prototype's
+        backends — backends are stateless / thread-safe, runners
+        are not.  Cheap: a runner is a thin object holding two
+        references and two empty dicts.
+        """
+        # Local import avoids the TYPE_CHECKING-only top-level import
+        # bleeding into runtime (CouncilRunner pulls the whole runner
+        # module + transitive deps; tournament's module-load shouldn't
+        # pay that cost when only the type is referenced).
+        from heddle.contrib.council.runner import CouncilRunner
+
+        return CouncilRunner(backends=self.runner.backends)
+
     async def _run_matchup(self, matchup: Matchup) -> MatchupResult:
         """Run one debate, then score it."""
         log = logger.bind(matchup=matchup.matchup_id)
@@ -206,7 +227,8 @@ class TournamentRunner:
 
         try:
             config = self._build_matchup_config(matchup)
-            council_result = await self.runner.run(matchup.topic, config=config)
+            runner = self._new_runner_for_matchup()
+            council_result = await runner.run(matchup.topic, config=config)
             scoring = await self.scorer.score(council_result)
         except Exception as e:
             elapsed_ms = int((time.monotonic() - start) * 1000)
