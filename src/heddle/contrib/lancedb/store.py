@@ -32,6 +32,25 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _build_channel_id_filter(channel_ids: list[int]) -> str:
+    """Build a LanceDB ``where`` predicate from a list of channel ids.
+
+    ``channel_ids`` flows from a worker config payload and is
+    interpolated into the filter expression.  Cast each id to
+    ``int`` so a non-integer value (e.g. a string smuggling a
+    filter fragment) raises before being spliced into the
+    expression.  Earlier the schema validator on the shipped YAML
+    constrained ``channel_ids`` to integers, but a relaxed schema
+    or a new caller bypassing the validator could reopen the
+    injection slot.
+    """
+    try:
+        ids = [int(cid) for cid in channel_ids]
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"channel_ids must be integers; got {channel_ids!r}") from exc
+    return " OR ".join(f"source_channel_id = {cid}" for cid in ids)
+
+
 class LanceDBVectorStore(VectorStore):
     """
     Embedded vector store backed by LanceDB.
@@ -272,7 +291,7 @@ class LanceDBVectorStore(VectorStore):
         search_query = self._table.search(query_emb, vector_column_name="vector").limit(limit)
 
         if channel_ids:
-            filter_expr = " OR ".join(f"source_channel_id = {cid}" for cid in channel_ids)
+            filter_expr = _build_channel_id_filter(channel_ids)
             search_query = search_query.where(f"({filter_expr})")
 
         try:

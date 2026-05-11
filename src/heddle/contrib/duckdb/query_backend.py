@@ -125,7 +125,15 @@ class DuckDBQueryBackend(SyncProcessingBackend):
         # validation so the stored value is the canonical
         # whitespace-trimmed form.
         self.fts_fields = ",".join(validate_sql_identifier_list(fts_fields, field="fts_fields"))
-        self.result_columns = result_columns or ["id"]
+        # ``result_columns`` is interpolated as ``f"d.{c}"`` /
+        # ``", ".join(result_columns)`` in every SELECT.  Validate
+        # at construction so a misconfigured YAML (or a future
+        # caller bypassing the schema) can't smuggle a SQL fragment
+        # through an unquoted identifier slot.
+        raw_columns = result_columns or ["id"]
+        self.result_columns = [
+            validate_sql_identifier(c, field="result_columns item") for c in raw_columns
+        ]
         self.json_columns = json_columns or set()
         self.filter_fields = filter_fields or {}
         self.stats_groups = stats_groups or set()

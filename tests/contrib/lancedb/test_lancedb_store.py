@@ -319,3 +319,47 @@ class TestLanceDBVectorToolDefinition:
         assert params["properties"]["query"]["type"] == "string"
         # max_results from constructor surfaces in the limit's description.
         assert "max: 7" in params["properties"]["limit"]["description"]
+
+
+class TestChannelIdFilter:
+    """E2: ``_build_channel_id_filter`` rejects non-integer ids.
+
+    Earlier the search method interpolated ``channel_ids`` into a
+    LanceDB filter expression directly.  The shipped YAML schema
+    constrains the field to integers, but a relaxed schema or a
+    new caller bypassing the validator could splice a filter
+    fragment through that slot.  The helper now casts every entry
+    to ``int`` before interpolation and raises on anything else.
+    """
+
+    def test_int_ids_produce_or_clause(self):
+        from heddle.contrib.lancedb.store import _build_channel_id_filter
+
+        assert (
+            _build_channel_id_filter([1, 2, 3])
+            == "source_channel_id = 1 OR source_channel_id = 2 OR source_channel_id = 3"
+        )
+
+    def test_int_like_strings_are_cast(self):
+        from heddle.contrib.lancedb.store import _build_channel_id_filter
+
+        # int(str(n)) round-trips digit-only strings — the shipped
+        # YAML produces ints so this case never hits in practice,
+        # but the cast is permissive enough not to break it.
+        assert _build_channel_id_filter(["42"]) == "source_channel_id = 42"
+
+    def test_non_integer_raises(self):
+        import pytest
+
+        from heddle.contrib.lancedb.store import _build_channel_id_filter
+
+        with pytest.raises(ValueError, match="channel_ids must be integers"):
+            _build_channel_id_filter([1, "DROP TABLE x"])
+
+    def test_none_value_raises(self):
+        import pytest
+
+        from heddle.contrib.lancedb.store import _build_channel_id_filter
+
+        with pytest.raises(ValueError, match="channel_ids must be integers"):
+            _build_channel_id_filter([1, None])

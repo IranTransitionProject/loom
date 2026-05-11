@@ -82,7 +82,17 @@ class DuckDBVectorTool(SyncToolProvider):
         # silently corrupting (or hijacking) queries.
         self.table_name = validate_sql_identifier(table_name, field="table_name")
         self.embedding_column = validate_sql_identifier(embedding_column, field="embedding_column")
-        self._result_columns = result_columns
+        # ``_result_columns`` is interpolated as ``", ".join(self.result_columns)``
+        # in every SELECT; validate explicit columns at construction.
+        # ``None`` is preserved so introspection (which already pulls
+        # validated identifiers from ``DESCRIBE``) drives the
+        # populated value lazily.
+        if result_columns is None:
+            self._result_columns: list[str] | None = None
+        else:
+            self._result_columns = [
+                validate_sql_identifier(c, field="result_columns item") for c in result_columns
+            ]
         self.tool_name = tool_name
         self.description = description
         self.embedding_model = embedding_model

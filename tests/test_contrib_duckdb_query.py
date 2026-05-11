@@ -105,6 +105,25 @@ class TestValidation:
 
         assert issubclass(DuckDBQueryError, BackendError)
 
+    def test_result_columns_rejects_unsafe_identifier(self, db_path):
+        """E2: each ``result_columns`` entry is validated at construction.
+
+        Earlier ``result_columns`` was interpolated as
+        ``f"d.{c}"`` / ``", ".join(...)`` into every SELECT, so a
+        relaxed schema or a future caller bypassing the validator
+        could smuggle SQL through an unquoted slot.  Now every entry
+        must match the strict identifier regex.
+        """
+        with pytest.raises(ValueError, match="result_columns item"):
+            DuckDBQueryBackend(
+                db_path=db_path,
+                table_name="records",
+                id_column="id",
+                full_text_column="full_text",
+                fts_fields="full_text",
+                result_columns=["id", "title; DROP TABLE records --"],
+            )
+
     def test_unknown_action_raises(self, backend, config):
         with pytest.raises(ValueError, match="Unknown action"):
             backend.process_sync({"action": "invalid"}, config)
