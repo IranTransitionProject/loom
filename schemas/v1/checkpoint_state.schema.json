@@ -1,0 +1,73 @@
+{
+  "description": "Compressed orchestrator state for self-summarization.\n\nWhen the orchestrator's conversation history exceeds a token threshold,\nCheckpointManager compresses it into this structure and persists to Valkey.\nThe orchestrator can then \"reboot\" with a fresh context containing only\nthe checkpoint + a small recent-interactions window.\n\nSee: heddle.orchestrator.checkpoint.CheckpointManager",
+  "properties": {
+    "checkpoint_number": {
+      "title": "Checkpoint Number",
+      "type": "integer"
+    },
+    "completed_tasks": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Completed Tasks",
+      "type": "array"
+    },
+    "context_token_count": {
+      "title": "Context Token Count",
+      "type": "integer"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "decisions_made": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Decisions Made",
+      "type": "array"
+    },
+    "executive_summary": {
+      "title": "Executive Summary",
+      "type": "string"
+    },
+    "goal_id": {
+      "title": "Goal Id",
+      "type": "string"
+    },
+    "open_issues": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Open Issues",
+      "type": "array"
+    },
+    "original_instruction": {
+      "title": "Original Instruction",
+      "type": "string"
+    },
+    "pending_tasks": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Pending Tasks",
+      "type": "array"
+    }
+  },
+  "required": [
+    "goal_id",
+    "original_instruction",
+    "executive_summary",
+    "completed_tasks",
+    "pending_tasks",
+    "open_issues",
+    "decisions_made",
+    "context_token_count",
+    "checkpoint_number"
+  ],
+  "title": "CheckpointState",
+  "type": "object"
+}

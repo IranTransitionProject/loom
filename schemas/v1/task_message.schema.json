@@ -1,0 +1,101 @@
+{
+  "$defs": {
+    "ModelTier": {
+      "description": "Which model tier should handle this task.\n\nTiers map to backend instances configured at startup:\n    LOCAL    -> OllamaBackend (e.g., llama3.2:3b)\n    STANDARD -> AnthropicBackend (e.g., Claude Sonnet)\n    FRONTIER -> AnthropicBackend (e.g., Claude Opus)\n\nThe router may override the tier via tier_overrides in router_rules.yaml.",
+      "enum": [
+        "local",
+        "standard",
+        "frontier"
+      ],
+      "title": "ModelTier",
+      "type": "string"
+    },
+    "TaskPriority": {
+      "description": "Priority levels for task scheduling (not yet enforced by router).",
+      "enum": [
+        "low",
+        "normal",
+        "high",
+        "critical"
+      ],
+      "title": "TaskPriority",
+      "type": "string"
+    }
+  },
+  "description": "Message sent TO a worker actor.\n\nThe payload dict must conform to the worker's input_schema (JSON Schema).\nContract validation happens in TaskWorker.handle_message(), not here.\n\nBounds on ``max_retries`` / ``retry_count`` are enforced at the\nmessage layer so external senders (CLI tools, third-party\nintegrations, MCP gateway clients) cannot construct a\nnonsense-bound task without going through worker-config\nvalidation.",
+  "properties": {
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "max_retries": {
+      "default": 2,
+      "minimum": 0,
+      "title": "Max Retries",
+      "type": "integer"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    },
+    "model_tier": {
+      "$ref": "#/$defs/ModelTier",
+      "default": "standard"
+    },
+    "parent_task_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Task Id"
+    },
+    "payload": {
+      "additionalProperties": true,
+      "title": "Payload",
+      "type": "object"
+    },
+    "priority": {
+      "$ref": "#/$defs/TaskPriority",
+      "default": "normal"
+    },
+    "request_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Request Id"
+    },
+    "retry_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Retry Count",
+      "type": "integer"
+    },
+    "task_id": {
+      "title": "Task Id",
+      "type": "string"
+    },
+    "worker_type": {
+      "title": "Worker Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "worker_type",
+    "payload"
+  ],
+  "title": "TaskMessage",
+  "type": "object"
+}

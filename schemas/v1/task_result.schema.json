@@ -1,0 +1,108 @@
+{
+  "$defs": {
+    "TaskStatus": {
+      "description": "Lifecycle states for a task.\n\nState transitions:\n    PENDING -> PROCESSING -> COMPLETED\n                           -> FAILED\n                           -> RETRY -> PROCESSING (not yet implemented)",
+      "enum": [
+        "pending",
+        "processing",
+        "completed",
+        "failed",
+        "retry"
+      ],
+      "title": "TaskStatus",
+      "type": "string"
+    }
+  },
+  "description": "Message sent FROM a worker actor after processing.\n\nPublished to: heddle.results.{parent_task_id or 'default'}\nThe output dict must conform to the worker's output_schema (JSON Schema).",
+  "properties": {
+    "completed_at": {
+      "format": "date-time",
+      "title": "Completed At",
+      "type": "string"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    },
+    "model_used": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model Used"
+    },
+    "output": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Output"
+    },
+    "parent_task_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Task Id"
+    },
+    "processing_time_ms": {
+      "default": 0,
+      "title": "Processing Time Ms",
+      "type": "integer"
+    },
+    "status": {
+      "$ref": "#/$defs/TaskStatus"
+    },
+    "task_id": {
+      "title": "Task Id",
+      "type": "string"
+    },
+    "token_usage": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Token Usage",
+      "type": "object"
+    },
+    "worker_type": {
+      "title": "Worker Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "task_id",
+    "worker_type",
+    "status"
+  ],
+  "title": "TaskResult",
+  "type": "object"
+}

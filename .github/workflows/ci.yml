@@ -33,6 +33,16 @@ jobs:
         run: uv run ruff check src/ tests/
       - name: Ruff format check
         run: uv run ruff format --check src/ tests/
+      - name: Exported schemas in sync with Pydantic models
+        # Drift between schemas/v1/*.schema.json and the live
+        # TaskMessage / TaskResult / OrchestratorGoal / CheckpointState
+        # Pydantic models would silently desynchronize the foreign-
+        # language SDKs (.NET, Swift, etc.) from the canonical wire
+        # format.  This step fails the build on drift; the fix is to
+        # run ``uv run python tools/export_schemas.py`` locally and
+        # commit the regenerated files.  See docs/foreign-actors.md
+        # for the rationale.
+        run: uv run python tools/export_schemas.py --check
 
   test:
     runs-on: ubuntu-latest

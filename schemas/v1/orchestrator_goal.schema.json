@@ -1,0 +1,57 @@
+{
+  "$defs": {
+    "TaskPriority": {
+      "description": "Priority levels for task scheduling (not yet enforced by router).",
+      "enum": [
+        "low",
+        "normal",
+        "high",
+        "critical"
+      ],
+      "title": "TaskPriority",
+      "type": "string"
+    }
+  },
+  "description": "Top-level goal submitted to an orchestrator.\n\nPublished to: heddle.goals.incoming\nThe orchestrator (PipelineOrchestrator or OrchestratorActor) picks this up,\ndecomposes it into TaskMessages, and synthesizes results.\n\nThe context dict carries domain-specific data (e.g., file_ref for doc processing).",
+  "properties": {
+    "context": {
+      "additionalProperties": true,
+      "title": "Context",
+      "type": "object"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "goal_id": {
+      "title": "Goal Id",
+      "type": "string"
+    },
+    "instruction": {
+      "title": "Instruction",
+      "type": "string"
+    },
+    "priority": {
+      "$ref": "#/$defs/TaskPriority",
+      "default": "normal"
+    },
+    "request_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Request Id"
+    }
+  },
+  "required": [
+    "instruction"
+  ],
+  "title": "OrchestratorGoal",
+  "type": "object"
+}
