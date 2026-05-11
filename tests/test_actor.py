@@ -607,3 +607,38 @@ async def test_install_signal_handlers_windows_fallback(monkeypatch):
     events = [w for w in warnings if w["event"] == "actor.signal_handler_unavailable"]
     assert len(events) == 2
     assert {e["signal"] for e in events} == {"SIGTERM", "SIGINT"}
+
+
+# ---------------------------------------------------------------------------
+# E5: BaseException suppression scope in _wait_next_message
+# ---------------------------------------------------------------------------
+
+
+def test_wait_next_message_cancel_suppress_tuple_excludes_base_exception():
+    """E5: the cancel-cleanup ``suppress()`` no longer catches ``BaseException``.
+
+    Earlier the suppression tuple included ``BaseException`` which
+    swallowed ``SystemExit`` / ``KeyboardInterrupt`` — a ctrl-C
+    during the shutdown window kept the actor processing instead of
+    exiting.  The tuple is now
+    ``(asyncio.CancelledError, StopAsyncIteration, Exception)``.
+
+    Inspecting the source directly is the most reliable way to pin
+    this; integration-level testing depends on asyncio's behaviour
+    around mid-cancel ``BaseException`` raises, which has shifted
+    across Python versions and is brittle to assert against.
+    """
+    import inspect
+
+    from heddle.core.actor import BaseActor
+
+    source = inspect.getsource(BaseActor._wait_next_message)
+    # The cancel-cleanup arm sits at the tail of the function:
+    # next_msg_task.cancel() then contextlib.suppress(...).  Find
+    # the suppress call and assert on its arg tuple.
+    assert "contextlib.suppress(asyncio.CancelledError, StopAsyncIteration, Exception)" in source
+    # The buggy old ``contextlib.suppress(..., BaseException)`` form
+    # must be gone.  ``BaseException`` can still appear in
+    # explanatory comments — we only forbid it inside a
+    # ``suppress(...)`` call argument.
+    assert "suppress(asyncio.CancelledError, StopAsyncIteration, BaseException)" not in source

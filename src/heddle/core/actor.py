@@ -203,7 +203,15 @@ class BaseActor(ABC):
                 return None
 
         next_msg_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError, StopAsyncIteration, BaseException):
+        # Narrow the suppression scope: the original
+        # ``BaseException`` catch-all swallowed ``SystemExit`` and
+        # ``KeyboardInterrupt`` too, so a ctrl-C in this window
+        # silently kept the actor processing.  Keep ``CancelledError``
+        # / ``StopAsyncIteration`` (the expected outcomes of the
+        # cancel above) and ``Exception`` (any bus / nats-py error
+        # raised mid-cancel), but let the truly fatal ``BaseException``
+        # subclasses propagate so signals shut us down for real.
+        with contextlib.suppress(asyncio.CancelledError, StopAsyncIteration, Exception):
             await next_msg_task
         return None
 
