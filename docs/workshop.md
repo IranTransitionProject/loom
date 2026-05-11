@@ -453,12 +453,13 @@ The CLI command creates the app via `create_app()` and runs it under Uvicorn.
 > diverging state between replicas and the workshop logs a
 > `workshop.multi_worker_unsupported` warning at startup if it
 > detects the configuration.
-
+>
 > RAG-specific configuration (`rag_db_path`, `rag_store_class`,
-> `rag_channel_registry`) is exposed only as `create_app()` constructor
-> arguments and is wired up by the `heddle rag serve` command — not by
-> `heddle workshop`. See [CLI Reference](CLI_REFERENCE.md#heddle-rag-serve)
-> for the RAG-aware variant.
+> `rag_channel_registry`) is exposed only as `create_app()`
+> constructor arguments and is wired up by the `heddle rag serve`
+> command — not by `heddle workshop`. See
+> [CLI Reference](CLI_REFERENCE.md#heddle-rag-serve) for the
+> RAG-aware variant.
 
 ### LLM backend resolution
 
