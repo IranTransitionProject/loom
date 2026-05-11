@@ -63,7 +63,7 @@ telegram = [
     "telethon>=1.36.0",        # Telegram MTProto client for live capture
 ]
 scheduler = [
-    "croniter>=2.0.0",         # Cron expression parsing for scheduled dispatch
+    "croniter>=6.2.2",         # Cron expression parsing for scheduled dispatch
 ]
 mcp = [
     "fastmcp>=3.1",            # FastMCP — high-level MCP server/client framework
@@ -107,7 +107,7 @@ dev = [
     "ruff>=0.3.0",
     "duckdb>=1.0.0",
     "redis>=7.4.0",            # Needed for contrib/redis tests
-    "croniter>=2.0.0",         # Needed for scheduler tests
+    "croniter>=6.2.2",         # Needed for scheduler tests
     "fastmcp>=3.1",            # Needed for MCP gateway tests
     "lancedb>=0.15.0",         # Needed for contrib/lancedb tests
     "pyarrow>=15.0.0",         # Needed for LanceDB
