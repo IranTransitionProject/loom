@@ -375,3 +375,114 @@ class TestBackwardCompatibility:
 
         result = TaskResult(**worker.publish.call_args[0][1])
         assert result.status == TaskStatus.COMPLETED
+
+
+from heddle.worker.tools import ToolProvider as _ToolProvider  # noqa: E402
+
+
+class _HangingToolProvider(_ToolProvider):
+    """A tool provider whose execute() blocks long enough to exceed any reasonable timeout.
+
+    Subclasses ``ToolProvider`` directly so the test can override
+    the async ``execute`` rather than the synchronous
+    ``execute_sync`` (which ``SyncToolProvider`` offloads to a
+    thread pool — outside the asyncio.wait_for bound).
+    """
+
+    def get_definition(self) -> dict:
+        return {
+            "name": "search_docs",
+            "description": "Hangs forever",
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+            },
+        }
+
+    async def execute(self, arguments: dict) -> str:
+        import asyncio as _aio
+
+        await _aio.sleep(5)
+        return "should not be reached"
+
+
+class TestToolExecutionTimeout:
+    """F2: per-tool execution timeout prevents wedged tools from hanging workers.
+
+    Earlier the tool loop honoured ``MAX_TOOL_ROUNDS=10`` but had no
+    per-call timeout on ``provider.execute()`` — a misbehaving tool
+    (synchronous DuckDB hang, network call without its own timeout,
+    deadlocked sync→async bridge) wedged the worker until the
+    outer orchestrator timeout fired.  The bound is now config-time
+    via ``tool_timeout_seconds`` (default 30s).
+    """
+
+    @pytest.mark.asyncio
+    async def test_tool_timeout_produces_error_result(self, tmp_path):
+        """A tool that exceeds ``tool_timeout_seconds`` produces a typed
+        error in the assistant message and the LLM still continues."""
+        # Use a hanging tool with a tiny timeout so we don't waste
+        # real wall time in the test suite.
+        config_with_short_timeout = dict(TOOL_USE_CONFIG)
+        config_with_short_timeout["tool_timeout_seconds"] = 0.05
+        config_with_short_timeout["knowledge_silos"] = [
+            {
+                "name": "hanging_tool",
+                "type": "tool",
+                "provider": "tests.test_tool_use._HangingToolProvider",
+                "config": {},
+            }
+        ]
+
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(yaml.dump(config_with_short_timeout))
+
+        backend = ToolUseBackend(tool_name="search_docs")
+        worker = LLMWorker("llm-1", str(config_file), {"local": backend})
+        worker.publish = AsyncMock()
+
+        await worker.handle_message(_make_task())
+
+        # The worker completed (the timeout-on-tool became an error
+        # in the tool_result; the LLM then produced the final
+        # answer from the second backend call).
+        result = TaskResult(**worker.publish.call_args[0][1])
+        assert result.status == TaskStatus.COMPLETED
+        # The backend was called twice: once with the tool_call,
+        # once after the tool-result (the timeout error) was fed
+        # back.  Without the bound, the test would hang for 5s
+        # (the _HangingToolProvider sleep) — under 1s here means
+        # the timeout fired.
+        assert backend._call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_zero_timeout_disables_bound(self, tmp_path):
+        """``tool_timeout_seconds=0`` disables the bound and logs WARN."""
+        from heddle.worker import runner as _runner_mod
+
+        config = dict(TOOL_USE_CONFIG)
+        config["tool_timeout_seconds"] = 0
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(yaml.dump(config))
+
+        backend = ToolUseBackend(tool_name="search_docs")
+        worker = LLMWorker("llm-1", str(config_file), {"local": backend})
+        worker.publish = AsyncMock()
+
+        warnings: list[dict] = []
+
+        def _fake_warning(event: str, **fields) -> None:
+            warnings.append({"event": event, **fields})
+
+        # Patch only the runner module's logger.
+        original_warning = _runner_mod.logger.warning
+        _runner_mod.logger.warning = _fake_warning
+        try:
+            await worker.handle_message(_make_task())
+        finally:
+            _runner_mod.logger.warning = original_warning
+
+        result = TaskResult(**worker.publish.call_args[0][1])
+        assert result.status == TaskStatus.COMPLETED
+        assert any(w["event"] == "worker.tool_timeout_disabled" for w in warnings)

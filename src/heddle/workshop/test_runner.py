@@ -186,7 +186,10 @@ class WorkerTestRunner:
                 return result
 
             # 6. Execute LLM call with tool-use loop
+            from heddle.worker.tools import DEFAULT_TOOL_TIMEOUT_SECONDS
+
             max_tokens = config.get("max_output_tokens", 2000)
+            tool_timeout = float(config.get("tool_timeout_seconds", DEFAULT_TOOL_TIMEOUT_SECONDS))
             llm_result = await execute_with_tools(
                 backend=backend,
                 system_prompt=system_prompt,
@@ -194,6 +197,7 @@ class WorkerTestRunner:
                 tool_providers=tool_providers,
                 tool_defs=tool_defs,
                 max_tokens=max_tokens,
+                tool_timeout_seconds=tool_timeout,
             )
 
             result.model_used = llm_result.get("model")

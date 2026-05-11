@@ -10,16 +10,23 @@ produces a final text answer.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
+import time
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from heddle.tracing import get_tracer
 from heddle.worker.base import TaskWorker
-from heddle.worker.tools import MAX_TOOL_ROUNDS, ToolProvider, load_tool_provider
+from heddle.worker.tools import (
+    DEFAULT_TOOL_TIMEOUT_SECONDS,
+    MAX_TOOL_ROUNDS,
+    ToolProvider,
+    load_tool_provider,
+)
 
 if TYPE_CHECKING:
     from heddle.worker.backends import LLMBackend
@@ -147,13 +154,14 @@ def _extract_json(raw: str) -> dict:
     raise ValueError(f"LLM returned non-JSON/YAML: {raw[:200]}")
 
 
-async def execute_with_tools(  # noqa: PLR0915
+async def execute_with_tools(  # noqa: PLR0912, PLR0915
     backend: LLMBackend,
     system_prompt: str,
     user_message: str,
     tool_providers: dict[str, ToolProvider],
     tool_defs: list[dict[str, Any]] | None,
     max_tokens: int = 2000,
+    tool_timeout_seconds: float = DEFAULT_TOOL_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     """Execute an LLM call with multi-round tool-use loop.
 
@@ -162,6 +170,7 @@ async def execute_with_tools(  # noqa: PLR0915
 
     - Initial LLM call with optional tool definitions
     - Multi-turn tool execution loop (up to ``MAX_TOOL_ROUNDS``)
+    - Per-tool execution timeout (default ``DEFAULT_TOOL_TIMEOUT_SECONDS``)
     - Token count aggregation across rounds
     - Error handling for unknown tools and tool execution failures
 
@@ -172,6 +181,10 @@ async def execute_with_tools(  # noqa: PLR0915
         tool_providers: Map of tool name → ToolProvider for execution.
         tool_defs: Tool definitions list for the LLM (or None for no tools).
         max_tokens: Maximum output tokens per LLM call.
+        tool_timeout_seconds: Per-tool execution timeout.  ``0`` disables
+            the bound (subject to ``MAX_TOOL_ROUNDS`` and the outer
+            orchestrator timeout).  Defaults to
+            :data:`DEFAULT_TOOL_TIMEOUT_SECONDS` (30s).
 
     Returns:
         Dict with keys: content, model, prompt_tokens, completion_tokens,
@@ -246,8 +259,39 @@ async def execute_with_tools(  # noqa: PLR0915
                 tool_result = json.dumps({"error": f"Unknown tool: {tool_name}"})
                 logger.warning("worker.unknown_tool", tool=tool_name)
             else:
+                # Per-tool timeout — a misbehaving ToolProvider
+                # (synchronous DuckDB query that hangs, a network
+                # call without its own timeout, a deadlocked sync→
+                # async bridge) would otherwise wedge the worker
+                # until the outer orchestrator timeout fires.  We
+                # wrap in ``asyncio.wait_for`` with the config-time
+                # ``tool_timeout_seconds``; ``0`` disables (the
+                # worker logged a WARN at startup if so).
+                tool_started = time.monotonic()
                 try:
-                    tool_result = await provider.execute(call["arguments"])
+                    if tool_timeout_seconds > 0:
+                        tool_result = await asyncio.wait_for(
+                            provider.execute(call["arguments"]),
+                            timeout=tool_timeout_seconds,
+                        )
+                    else:
+                        tool_result = await provider.execute(call["arguments"])
+                except TimeoutError:
+                    elapsed_ms = int((time.monotonic() - tool_started) * 1000)
+                    tool_result = json.dumps(
+                        {
+                            "error": (
+                                f"Tool '{tool_name}' exceeded {tool_timeout_seconds:.1f}s timeout"
+                            ),
+                        }
+                    )
+                    logger.warning(
+                        "worker.tool.timeout",
+                        tool=tool_name,
+                        round=rounds,
+                        timeout_seconds=tool_timeout_seconds,
+                        elapsed_ms=elapsed_ms,
+                    )
                 except Exception as e:
                     tool_result = json.dumps({"error": str(e)})
                     logger.error("worker.tool_execution_failed", tool=tool_name, error=str(e))
@@ -330,7 +374,9 @@ class LLMWorker(TaskWorker):
                         error=str(e),
                     )
 
-    async def process(self, payload: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
+    async def process(  # noqa: PLR0915
+        self, payload: dict[str, Any], metadata: dict[str, Any]
+    ) -> dict[str, Any]:
         """Build prompt, call LLM with tool-use loop, and parse structured output."""
         # 1. Build prompt
         system_prompt = self.config["system_prompt"]
@@ -416,6 +462,13 @@ class LLMWorker(TaskWorker):
         # 4. Call LLM with tool-use loop
         logger.info("worker.calling_llm", tier=tier, tools=len(tool_providers))
         max_tokens = self.config.get("max_output_tokens", 2000)
+        tool_timeout = float(self.config.get("tool_timeout_seconds", DEFAULT_TOOL_TIMEOUT_SECONDS))
+        if tool_timeout == 0 and tool_providers:
+            logger.warning(
+                "worker.tool_timeout_disabled",
+                worker_type=self.config.get("name", "unknown"),
+                hint="tool_timeout_seconds=0 disables per-tool bound",
+            )
         result = await execute_with_tools(
             backend=backend,
             system_prompt=system_prompt,
@@ -423,6 +476,7 @@ class LLMWorker(TaskWorker):
             tool_providers=tool_providers,
             tool_defs=tool_defs,
             max_tokens=max_tokens,
+            tool_timeout_seconds=tool_timeout,
         )
         total_prompt_tokens = result["prompt_tokens"]
         total_completion_tokens = result["completion_tokens"]

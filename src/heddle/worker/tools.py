@@ -102,6 +102,13 @@ class SyncToolProvider(ToolProvider):
 # Maximum number of tool-use rounds before forcing a final answer.
 MAX_TOOL_ROUNDS = 10
 
+# Default per-tool timeout in seconds.  Tools include DB queries
+# that can legitimately run a few seconds; 30s gives slow tools
+# real headroom while bounding a hung process.  Worker config can
+# override via ``tool_timeout_seconds``.  ``0`` disables the bound
+# (the worker logs a WARN at startup so the operator notices).
+DEFAULT_TOOL_TIMEOUT_SECONDS: float = 30.0
+
 
 def load_tool_provider(class_path: str, config: dict[str, Any]) -> ToolProvider:
     """Import and instantiate a ToolProvider by fully qualified class path.
