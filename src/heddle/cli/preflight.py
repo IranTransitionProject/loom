@@ -32,7 +32,11 @@ async def check_nats_connectivity(nats_url: str, timeout: float = 5.0) -> tuple[
         an actionable fix suggestion.
     """
     try:
-        nc = await nats_lib.connect(nats_url, connect_timeout=int(timeout))
+        # ``connect_timeout`` is documented as ``float`` in nats-py.
+        # Earlier this cast to ``int`` silently truncated values
+        # below 1.0 to 0, disabling the timeout entirely; pass the
+        # float through unchanged.
+        nc = await nats_lib.connect(nats_url, connect_timeout=timeout)
         await nc.drain()
         return (True, f"Connected to NATS at {nats_url}")
     except Exception as exc:

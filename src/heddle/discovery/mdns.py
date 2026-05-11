@@ -147,6 +147,18 @@ class HeddleServiceAdvertiser:
         )
 
         self._zeroconf.register_service(info)
+        # zeroconf rewrites ``info.name`` when there's a conflict on
+        # the LAN (another Heddle process on the same machine, or a
+        # collision with another service).  Operators previously had
+        # no signal that the advertised name differed from what they
+        # asked for; log when the rewrite happened.
+        if info.name != name:
+            logger.info(
+                "mdns.service_name_rewritten",
+                requested_name=name,
+                advertised_name=info.name,
+                hint="Another Heddle/Bonjour service exists on the LAN; zeroconf disambiguated.",
+            )
         self._infos.append(info)
         logger.info(
             "mdns.service_registered",
