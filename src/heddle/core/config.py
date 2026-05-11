@@ -178,7 +178,7 @@ _ORCHESTRATOR_REQUIRED: dict[str, type | None] = {
 
 
 def validate_worker_config(  # noqa: PLR0912
-    config: dict[str, Any], path: str | Path = "<unknown>"
+    config: Any, path: str | Path = "<unknown>"
 ) -> list[str]:
     """Validate a worker config dict.
 
@@ -274,7 +274,7 @@ def validate_worker_config(  # noqa: PLR0912
 
 
 def validate_pipeline_config(  # noqa: PLR0912, PLR0915
-    config: dict[str, Any], path: str | Path = "<unknown>"
+    config: Any, path: str | Path = "<unknown>"
 ) -> list[str]:
     """Validate a pipeline orchestrator config.
 
@@ -349,11 +349,7 @@ def validate_pipeline_config(  # noqa: PLR0912, PLR0915
                         errors.append(f"{sp}: input_mapping['{target}'] must be a string path")
                     elif not source_path:
                         errors.append(f"{sp}: input_mapping['{target}'] must not be empty")
-                    elif (
-                        isinstance(source_path, str)
-                        and source_path
-                        and not is_mapping_literal(source_path)
-                    ):
+                    elif not is_mapping_literal(source_path):
                         # Validate source path references goal.* or an existing stage
                         # (literal values wrapped in single quotes are skipped)
                         root = source_path.split(".")[0]
@@ -411,7 +407,7 @@ def validate_pipeline_config(  # noqa: PLR0912, PLR0915
 
 
 def validate_orchestrator_config(  # noqa: PLR0912
-    config: dict[str, Any], path: str | Path = "<unknown>"
+    config: Any, path: str | Path = "<unknown>"
 ) -> list[str]:
     """Validate a dynamic orchestrator (OrchestratorActor) config.
 
@@ -481,7 +477,7 @@ def validate_orchestrator_config(  # noqa: PLR0912
 
 
 def validate_router_rules(  # noqa: PLR0912
-    config: dict[str, Any], path: str | Path = "<unknown>"
+    config: Any, path: str | Path = "<unknown>"
 ) -> list[str]:
     """Validate router_rules.yaml.
 
@@ -545,7 +541,7 @@ def validate_router_rules(  # noqa: PLR0912
 
 
 def _validate_base(
-    config: dict[str, Any],
+    config: Any,
     required: dict[str, type | None],
     config_type: str,
     path: str | Path,

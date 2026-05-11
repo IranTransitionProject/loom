@@ -156,7 +156,7 @@ def call_worker(self, worker_type, payload, tier="standard", timeout=60.0):
 
 ### Type checking gate
 
-CI runs **pyright** in `basic` mode against a narrow surface — only the
+CI runs **pyright** in `strict` mode against a narrow surface — only the
 "hot path" runtime packages:
 
 - `src/heddle/core/`
@@ -171,11 +171,19 @@ follow-up work as type coverage on other packages matures (`router/`,
 
 **Strictness policy:**
 
-- `typeCheckingMode = "basic"` today — surface obvious bugs without
-  drowning in nominally-typed dynamism. Tighten to `standard` once the
-  gated dirs are clean under stricter rules.
+- `typeCheckingMode = "strict"` — full strict mode, with four
+  `Unknown*` rules explicitly downgraded to `warning`:
+  `reportUnknownVariableType`, `reportUnknownMemberType`,
+  `reportUnknownArgumentType`, `reportUnknownParameterType`. These
+  fire on every untyped boundary value (yaml.safe_load,
+  response.json(), Pydantic dumps). Promote each rule back to
+  `error` once its responsible boundary has a typed wrapper or an
+  explicit `cast`.
 - `reportMissingImports = "warning"` — optional/contrib imports inside
   the gated dirs shouldn't fail the build on a partial install.
+- Everything else strict-mode enforces — `reportMissingTypeArgument`,
+  `reportPrivateUsage`, `reportUnnecessaryIsInstance`, etc. — is
+  `error` today.
 
 **Suppressing diagnostics:**
 

@@ -81,7 +81,7 @@ class CheckpointManager:
         """Estimate token count for a string."""
         return len(self.encoder.encode(text))
 
-    def should_checkpoint(self, conversation_history: list[dict]) -> bool:
+    def should_checkpoint(self, conversation_history: list[dict[str, Any]]) -> bool:
         """Check if context has grown enough to trigger compression."""
         total = sum(self.estimate_tokens(json.dumps(msg)) for msg in conversation_history)
         return total > self.token_threshold

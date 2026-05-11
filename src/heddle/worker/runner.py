@@ -531,10 +531,14 @@ def _load_tool_providers(
 
     Returns a dict mapping tool name → ToolProvider instance.
     """
+    # ``_is_required`` / ``_record_skip`` are intra-package helpers
+    # in heddle.worker.knowledge — same pattern as the silo-loading
+    # branch above, kept underscore-prefixed because they're not part
+    # of the worker package's public API.
     from heddle.worker.knowledge import (
         RequiredKnowledgeMissingError,
-        _is_required,
-        _record_skip,
+        _is_required,  # pyright: ignore[reportPrivateUsage]
+        _record_skip,  # pyright: ignore[reportPrivateUsage]
     )
 
     providers: dict[str, ToolProvider] = {}

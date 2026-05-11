@@ -464,7 +464,7 @@ class PipelineOrchestrator(BaseActor):
         )
 
         # Launch all stage coroutines as tasks.
-        task_to_stage: dict[asyncio.Task, dict[str, Any]] = {}
+        task_to_stage: dict[asyncio.Task[Any], dict[str, Any]] = {}
         for stage in level:
             coro = self._execute_stage(
                 stage,
@@ -769,7 +769,7 @@ class PipelineOrchestrator(BaseActor):
         self,
         goal: OrchestratorGoal,
         status: TaskStatus,
-        output: dict | None = None,
+        output: dict[str, Any] | None = None,
         error: str | None = None,
         elapsed: int = 0,
         timeline: list[dict[str, Any]] | None = None,

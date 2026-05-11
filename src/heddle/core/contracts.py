@@ -64,7 +64,7 @@ def _check_uncovered_keywords(schema: dict[str, Any], context: str) -> None:
             return
 
 
-def validate_input(data: dict[str, Any], schema: dict) -> list[str]:
+def validate_input(data: dict[str, Any], schema: dict[str, Any]) -> list[str]:
     """Validate a task's input payload against the worker's input_schema.
 
     Returns an empty list if valid, or a list of human-readable error strings.
@@ -72,7 +72,7 @@ def validate_input(data: dict[str, Any], schema: dict) -> list[str]:
     return _validate(data, schema, "input")
 
 
-def validate_output(data: dict[str, Any], schema: dict) -> list[str]:
+def validate_output(data: dict[str, Any], schema: dict[str, Any]) -> list[str]:
     """Validate a worker's output against its output_schema.
 
     Returns an empty list if valid, or a list of human-readable error strings.
@@ -80,7 +80,7 @@ def validate_output(data: dict[str, Any], schema: dict) -> list[str]:
     return _validate(data, schema, "output")
 
 
-def _validate(data: Any, schema: dict, context: str) -> list[str]:
+def _validate(data: Any, schema: dict[str, Any], context: str) -> list[str]:
     """Basic schema validation. Returns list of error strings (empty = valid).
 
     Only validates top-level required fields and shallow property types.

@@ -263,11 +263,20 @@ style = "dash"
 style = "ordered"
 
 [tool.pyright]
-# Gated type-check surface — only the four "hot path" packages per the
-# 2026-05 repository review (Phase 3 §1). Other packages are deliberately
-# excluded for now; widen this list in follow-up sessions as the type
-# coverage matures. typeCheckingMode is intentionally "basic" — the first
-# pass surfaces obvious bugs without drowning in nominally-typed dynamism.
+# Gated type-check surface — the four "hot path" packages per the
+# 2026-05 repository review (Phase 3 §1).  Other packages remain
+# excluded until their type surface matures; widen this list in
+# follow-up sessions.
+#
+# typeCheckingMode is "strict" with the four Unknown-type rules
+# explicitly downgraded to ``warning``.  Pure-strict surfaces ~200
+# errors today, almost all from ``dict[Unknown, Unknown]`` / Any-
+# typed leakage at our YAML/JSON/HTTP boundaries.  Strict-minus-
+# Unknowns catches everything else (missing type arguments, private-
+# symbol leakage, tautological isinstance, etc.) and gives a clear
+# roadmap: promote each Unknown-rule back to ``error`` after the
+# responsible boundary (yaml, jsonschema, httpx response, etc.) has
+# a typed wrapper or an explicit ``cast``.
 include = [
     "src/heddle/core",
     "src/heddle/bus",
@@ -280,11 +289,21 @@ exclude = [
     ".venv",
 ]
 pythonVersion = "3.11"
-typeCheckingMode = "basic"
+typeCheckingMode = "strict"
 venvPath = "."
 venv = ".venv"
 # Reduce noise from optional/contrib imports until we widen the surface.
 reportMissingImports = "warning"
+# Unknown-type rules — deferred to follow-up sessions.  These fire
+# on every ``yaml.safe_load`` / ``response.json()`` / Pydantic-dump
+# result that flows untyped through the codebase.  Demoting to
+# ``warning`` keeps the noise visible in editor tooltips without
+# failing CI.  Promote each rule back to ``error`` once its
+# responsible boundary has a typed wrapper or an explicit ``cast``.
+reportUnknownVariableType = "warning"
+reportUnknownMemberType = "warning"
+reportUnknownArgumentType = "warning"
+reportUnknownParameterType = "warning"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/heddle"]

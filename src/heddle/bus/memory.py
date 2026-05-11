@@ -100,21 +100,28 @@ class InMemoryBus(MessageBus):
             return
 
         # Partition into ungrouped and grouped subscribers.
-        ungrouped = [(g, s) for g, s in subs if g is None and s._active]
+        # ``InMemorySubscription._active`` / ``_deliver`` are intra-module-
+        # private — the bus owns the subscription lifecycle and pushes
+        # data into it through these helpers.  No public override
+        # exists because no external caller should drive delivery.
+        ungrouped = [(g, s) for g, s in subs if g is None and s._active]  # pyright: ignore[reportPrivateUsage]
         grouped: dict[str, list[InMemorySubscription]] = defaultdict(list)
         for group, sub in subs:
-            if group is not None and sub._active:
+            if group is not None and sub._active:  # pyright: ignore[reportPrivateUsage]
                 grouped[group].append(sub)
 
         # Build the list of coroutines to drive concurrently.
-        deliveries: list[Coroutine[Any, Any, None]] = [sub._deliver(data) for _, sub in ungrouped]
+        deliveries: list[Coroutine[Any, Any, None]] = [
+            sub._deliver(data)  # pyright: ignore[reportPrivateUsage]
+            for _, sub in ungrouped
+        ]
 
         # One delivery per queue group (round-robin selection).
         for group, members in grouped.items():
             if not members:
                 continue
             idx = self._group_counters[subject][group] % len(members)
-            deliveries.append(members[idx]._deliver(data))
+            deliveries.append(members[idx]._deliver(data))  # pyright: ignore[reportPrivateUsage]
             self._group_counters[subject][group] += 1
 
         if deliveries:

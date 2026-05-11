@@ -4,6 +4,7 @@
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://getheddle.github.io/heddle/)
 [![codecov](https://codecov.io/github/getheddle/heddle/graph/badge.svg?token=4N0F5XBZW9)](https://codecov.io/github/getheddle/heddle)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![pyright: strict](https://img.shields.io/badge/pyright-strict-1f78b4.svg)](https://github.com/microsoft/pyright)
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 <!-- Keep in sync with pyproject.toml version -->
