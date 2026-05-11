@@ -1,0 +1,280 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 2400" width="1200" height="2400">
+<defs><marker id="arrow_1" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 3 L 0 6 z" fill="#8a909a"/></marker>
+<marker id="arrow_2" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 3 L 0 6 z" fill="#8a909a"/></marker>
+<marker id="arrow_3" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 3 L 0 6 z" fill="#8a909a"/></marker></defs>
+<rect width="1200" height="2400" rx="12" fill="#e6e6ec"/>
+<text x="40" y="38" font-family="Inter, system-ui, sans-serif" font-size="26" font-weight="700" fill="#e6e6ec" text-anchor="start" dominant-baseline="central">Loom Workshop — UI Overview</text>
+<text x="40" y="62" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="400" fill="#8a909a" text-anchor="start" dominant-baseline="central">Web-based worker lifecycle management  ·  FastAPI + HTMX + Pico CSS</text>
+<rect x="30" y="100" width="1140" height="50" rx="8" fill="#1a1a2e"/>
+<text x="55" y="125" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="700" fill="#f5c72e" text-anchor="middle" dominant-baseline="central">HEDDLE WORKSHOP</text>
+<text x="250" y="125" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="500" fill="#9aa0aa" text-anchor="middle" dominant-baseline="central">Workers</text>
+<text x="370" y="125" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="500" fill="#9aa0aa" text-anchor="middle" dominant-baseline="central">Pipelines</text>
+<text x="490" y="125" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="500" fill="#9aa0aa" text-anchor="middle" dominant-baseline="central">Apps</text>
+<text x="610" y="125" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="500" fill="#9aa0aa" text-anchor="middle" dominant-baseline="central">RAG</text>
+<text x="730" y="125" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="500" fill="#9aa0aa" text-anchor="middle" dominant-baseline="central">Dead Letters</text>
+<circle cx="1120" cy="125" r="10" fill="#a0a0ab"/>
+<text x="1120" y="125" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600" fill="#9aa0aa" text-anchor="middle" dominant-baseline="central">D</text>
+<text x="40" y="180" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="700" fill="#e6e6ec" text-anchor="start" dominant-baseline="central">Workers List</text>
+<rect x="30" y="210" width="1140" height="40" rx="6" fill="#f4f4f6"/>
+<text x="50" y="230" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="400" fill="#aaa" text-anchor="start" dominant-baseline="central">Search workers...</text>
+<rect x="30" y="265" width="1140" height="35" rx="4" fill="#c0c0c8"/>
+<text x="50" y="283" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">Name</text>
+<text x="250" y="283" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">Description</text>
+<text x="650" y="283" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">Kind</text>
+<text x="780" y="283" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">Tier</text>
+<text x="920" y="283" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">Actions</text>
+<text x="50" y="324" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600" fill="#5b94f0" text-anchor="start" dominant-baseline="central">summarizer</text>
+<text x="250" y="324" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="400" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">Generate concise summaries</text>
+<rect x="650" y="311" width="80" height="24" rx="12" fill="#ede4ff"/>
+<text x="690" y="323" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#7d52c2" text-anchor="middle" dominant-baseline="central">processor</text>
+<rect x="780" y="311" width="75" height="24" rx="12" fill="#1e2a40"/>
+<text x="817" y="323" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#a0a0ab" text-anchor="middle" dominant-baseline="central">standard</text>
+<rect x="920" y="311" width="50" height="24" rx="4" fill="none" stroke="#2e9e57" stroke-width="1"/>
+<text x="945" y="323" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#2e9e57" text-anchor="middle" dominant-baseline="central">Test</text>
+<rect x="980" y="311" width="50" height="24" rx="4" fill="none" stroke="#5b94f0" stroke-width="1"/>
+<text x="1005" y="323" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#5b94f0" text-anchor="middle" dominant-baseline="central">Eval</text>
+<rect x="30" y="345" width="1140" height="38" rx="0" fill="#fafafa"/>
+<text x="50" y="364" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600" fill="#5b94f0" text-anchor="start" dominant-baseline="central">classifier</text>
+<text x="250" y="364" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="400" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">Multi-label classification</text>
+<rect x="650" y="351" width="80" height="24" rx="12" fill="#ede4ff"/>
+<text x="690" y="363" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#7d52c2" text-anchor="middle" dominant-baseline="central">processor</text>
+<rect x="780" y="351" width="75" height="24" rx="12" fill="#1e2a40"/>
+<text x="817" y="363" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#a0a0ab" text-anchor="middle" dominant-baseline="central">standard</text>
+<rect x="920" y="351" width="50" height="24" rx="4" fill="none" stroke="#2e9e57" stroke-width="1"/>
+<text x="945" y="363" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#2e9e57" text-anchor="middle" dominant-baseline="central">Test</text>
+<rect x="980" y="351" width="50" height="24" rx="4" fill="none" stroke="#5b94f0" stroke-width="1"/>
+<text x="1005" y="363" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#5b94f0" text-anchor="middle" dominant-baseline="central">Eval</text>
+<text x="50" y="404" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600" fill="#5b94f0" text-anchor="start" dominant-baseline="central">extractor</text>
+<text x="250" y="404" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="400" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">Structured data extraction</text>
+<rect x="650" y="391" width="80" height="24" rx="12" fill="#ede4ff"/>
+<text x="690" y="403" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#7d52c2" text-anchor="middle" dominant-baseline="central">processor</text>
+<rect x="780" y="391" width="75" height="24" rx="12" fill="#ffeedd"/>
+<text x="817" y="403" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#a0a0ab" text-anchor="middle" dominant-baseline="central">frontier</text>
+<rect x="920" y="391" width="50" height="24" rx="4" fill="none" stroke="#2e9e57" stroke-width="1"/>
+<text x="945" y="403" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#2e9e57" text-anchor="middle" dominant-baseline="central">Test</text>
+<rect x="980" y="391" width="50" height="24" rx="4" fill="none" stroke="#5b94f0" stroke-width="1"/>
+<text x="1005" y="403" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#5b94f0" text-anchor="middle" dominant-baseline="central">Eval</text>
+<rect x="30" y="425" width="1140" height="38" rx="0" fill="#fafafa"/>
+<text x="50" y="444" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600" fill="#5b94f0" text-anchor="start" dominant-baseline="central">translator</text>
+<text x="250" y="444" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="400" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">Text translation</text>
+<rect x="650" y="431" width="80" height="24" rx="12" fill="#ede4ff"/>
+<text x="690" y="443" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#7d52c2" text-anchor="middle" dominant-baseline="central">processor</text>
+<rect x="780" y="431" width="75" height="24" rx="12" fill="#ddf4de"/>
+<text x="817" y="443" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#a0a0ab" text-anchor="middle" dominant-baseline="central">local</text>
+<rect x="920" y="431" width="50" height="24" rx="4" fill="none" stroke="#2e9e57" stroke-width="1"/>
+<text x="945" y="443" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#2e9e57" text-anchor="middle" dominant-baseline="central">Test</text>
+<rect x="980" y="431" width="50" height="24" rx="4" fill="none" stroke="#5b94f0" stroke-width="1"/>
+<text x="1005" y="443" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#5b94f0" text-anchor="middle" dominant-baseline="central">Eval</text>
+<text x="40" y="460" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="700" fill="#e6e6ec" text-anchor="start" dominant-baseline="central">Test Bench: summarizer</text>
+<rect x="40" y="495" width="90" height="26" rx="13" fill="#ddf4de"/>
+<text x="85" y="508" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#2e9e57" text-anchor="middle" dominant-baseline="central">Anthropic</text>
+<rect x="140" y="495" width="75" height="26" rx="13" fill="#ddf4de"/>
+<text x="177" y="508" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#2e9e57" text-anchor="middle" dominant-baseline="central">Ollama</text>
+<rect x="40" y="535" width="500" height="30" rx="6" fill="#f8f8fa" stroke="#a0a0ab" stroke-width="1"/>
+<text x="60" y="550" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="500" fill="#8a909a" text-anchor="start" dominant-baseline="central">> Input Schema (click to expand)</text>
+<text x="40" y="580" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600" fill="#d0d0d6" text-anchor="start" dominant-baseline="central">Test Payload (JSON):</text>
+<rect x="40" y="600" width="500" height="100" rx="6" fill="#fff" stroke="#9aa0aa" stroke-width="1"/>
+<text x="52" y="618" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a0a0ab" text-anchor="start">
+  <tspan x="52" dy="0">{</tspan>
+  <tspan x="52" dy="15.399999999999999">  "text": "The quick brown fox...",</tspan>
+  <tspan x="52" dy="15.399999999999999">  "max_length": 100</tspan>
+  <tspan x="52" dy="15.399999999999999">}</tspan>
+</text>
+<text x="40" y="715" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600" fill="#d0d0d6" text-anchor="start" dominant-baseline="central">Tier:</text>
+<rect x="80" y="700" width="120" height="30" rx="4" fill="#fff" stroke="#9aa0aa" stroke-width="1"/>
+<text x="140" y="715" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a0a0ab" text-anchor="middle" dominant-baseline="central">standard</text>
+<rect x="220" y="700" width="100" height="30" rx="6" fill="#5b94f0"/>
+<text x="270" y="715" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">Run Test</text>
+<rect x="580" y="535" width="530" height="210" rx="8" fill="#f0fff0" stroke="#c5e8c5" stroke-width="1"/>
+<text x="600" y="555" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="700" fill="#2e9e57" text-anchor="start" dominant-baseline="central">Test Result</text>
+<rect x="740" y="544" width="50" height="22" rx="11" fill="#2e9e57"/>
+<text x="765" y="555" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">PASS</text>
+<text x="600" y="582" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a0a0ab" text-anchor="start">
+  <tspan x="600" dy="0">Model: claude-sonnet-4-20250514</tspan>
+  <tspan x="600" dy="17.6">Latency: 1,234 ms</tspan>
+  <tspan x="600" dy="17.6">Tokens: 150 prompt + 85 completion</tspan>
+  <tspan x="600" dy="17.6"></tspan>
+  <tspan x="600" dy="17.6">Output:</tspan>
+  <tspan x="600" dy="17.6">{ "summary": "A fox jumped over a lazy dog..." }</tspan>
+</text>
+<text x="40" y="790" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="700" fill="#e6e6ec" text-anchor="start" dominant-baseline="central">Eval Dashboard: summarizer</text>
+<rect x="40" y="825" width="500" height="140" rx="8" fill="#f8f8fa" stroke="#c0c0c8" stroke-width="1"/>
+<text x="55" y="845" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="600" fill="#d0d0d6" text-anchor="start" dominant-baseline="central">Run New Evaluation</text>
+<text x="55" y="868" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="500" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">Test Suite (YAML):</text>
+<rect x="55" y="882" width="470" height="48" rx="4" fill="#fff" stroke="#a0a0ab" stroke-width="1"/>
+<text x="65" y="898" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="400" fill="#8a909a" text-anchor="start">
+  <tspan x="65" dy="0">- name: basic_summary</tspan>
+  <tspan x="65" dy="14.0">  input: {text: 'Hello world'}</tspan>
+</text>
+<rect x="55" y="938" width="100" height="28" rx="6" fill="#5b94f0"/>
+<text x="105" y="952" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">Run Eval</text>
+<text x="580" y="835" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="600" fill="#d0d0d6" text-anchor="start" dominant-baseline="central">Past Runs</text>
+<rect x="580" y="855" width="530" height="30" rx="4" fill="#c0c0c8"/>
+<text x="595" y="870" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">Run ID</text>
+<text x="700" y="870" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">Tier</text>
+<text x="770" y="870" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">Result</text>
+<text x="860" y="870" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">Cases</text>
+<text x="920" y="870" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">Date</text>
+<text x="595" y="900" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#5b94f0" text-anchor="start" dominant-baseline="central">run_abc123</text>
+<text x="700" y="900" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="400" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">standard</text>
+<rect x="770" y="890" width="70" height="22" rx="11" fill="#2e9e57"/>
+<text x="805" y="901" font-family="Inter, system-ui, sans-serif" font-size="9" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">PASS</text>
+<text x="860" y="900" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="400" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">5/5</text>
+<text x="920" y="900" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="400" fill="#999" text-anchor="start" dominant-baseline="central">2026-03-28</text>
+<text x="595" y="932" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#5b94f0" text-anchor="start" dominant-baseline="central">run_def456</text>
+<text x="700" y="932" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="400" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">frontier</text>
+<rect x="770" y="922" width="70" height="22" rx="11" fill="#d4a820"/>
+<text x="805" y="933" font-family="Inter, system-ui, sans-serif" font-size="9" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">PARTIAL</text>
+<text x="860" y="932" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="400" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">3/5</text>
+<text x="920" y="932" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="400" fill="#999" text-anchor="start" dominant-baseline="central">2026-03-27</text>
+<text x="595" y="964" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#5b94f0" text-anchor="start" dominant-baseline="central">run_ghi789</text>
+<text x="700" y="964" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="400" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">local</text>
+<rect x="770" y="954" width="70" height="22" rx="11" fill="#e85c5c"/>
+<text x="805" y="965" font-family="Inter, system-ui, sans-serif" font-size="9" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">FAIL</text>
+<text x="860" y="964" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="400" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">0/5</text>
+<text x="920" y="964" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="400" fill="#999" text-anchor="start" dominant-baseline="central">2026-03-26</text>
+<text x="40" y="1020" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="700" fill="#e6e6ec" text-anchor="start" dominant-baseline="central">Pipeline Editor: analysis_pipeline</text>
+<text x="40" y="1048" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="400" fill="#8a909a" text-anchor="start" dominant-baseline="central">4 stages  ·  3 execution levels</text>
+<rect x="40" y="1075" width="700" height="280" rx="10" fill="#faf8ff" stroke="#e8e0f5" stroke-width="1"/>
+<text x="55" y="1092" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="600" fill="#7d52c2" text-anchor="start" dominant-baseline="central">Execution Graph</text>
+<text x="55" y="1125" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600" fill="#999" text-anchor="start" dominant-baseline="central">Level 0</text>
+<rect x="130" y="1112" width="200" height="40" rx="8" fill="#7d52c2"/>
+<text x="230.0" y="1132.0" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">extract (extractor)</text>
+<line x1="230" y1="1152" x2="230" y2="1170" stroke="#8a909a" stroke-width="2" marker-end="url(#arrow_1)"/>
+<text x="55" y="1185" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600" fill="#999" text-anchor="start" dominant-baseline="central">Level 1</text>
+<rect x="130" y="1172" width="200" height="40" rx="8" fill="#7d52c2"/>
+<text x="230.0" y="1192.0" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">classify (classifier)</text>
+<rect x="370" y="1172" width="200" height="40" rx="8" fill="#7d52c2"/>
+<text x="470.0" y="1192.0" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">summarize (summarizer)</text>
+<line x1="230" y1="1212" x2="230" y2="1230" stroke="#8a909a" stroke-width="2" marker-end="url(#arrow_2)"/>
+<line x1="470" y1="1212" x2="350" y2="1230" stroke="#8a909a" stroke-width="2" marker-end="url(#arrow_3)"/>
+<text x="55" y="1245" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600" fill="#999" text-anchor="start" dominant-baseline="central">Level 2</text>
+<rect x="130" y="1232" width="200" height="40" rx="8" fill="#7d52c2"/>
+<text x="230.0" y="1252.0" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">review (reviewer)</text>
+<text x="370" y="1280" font-family="Inter, system-ui, sans-serif" font-size="9" font-weight="400" fill="#a888d8" text-anchor="start">
+  <tspan x="370" dy="0">Dependencies inferred from input_mapping references.</tspan>
+  <tspan x="370" dy="12.6">Parallel stages run with asyncio.wait(FIRST_COMPLETED).</tspan>
+</text>
+<rect x="780" y="1075" width="380" height="280" rx="8" fill="#f8f8fa" stroke="#c0c0c8" stroke-width="1"/>
+<text x="800" y="1095" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="600" fill="#d0d0d6" text-anchor="start" dominant-baseline="central">Stage Operations</text>
+<rect x="800" y="1120" width="340" height="40" rx="6" fill="#fff" stroke="#a0a0ab" stroke-width="1"/>
+<text x="820" y="1140" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="500" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">> Insert Stage</text>
+<rect x="800" y="1175" width="340" height="40" rx="6" fill="#fff" stroke="#a0a0ab" stroke-width="1"/>
+<text x="820" y="1195" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="500" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">> Swap Worker</text>
+<rect x="800" y="1230" width="340" height="40" rx="6" fill="#fff" stroke="#a0a0ab" stroke-width="1"/>
+<text x="820" y="1250" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="500" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">> Remove Stage</text>
+<rect x="800" y="1285" width="340" height="40" rx="6" fill="#fff" stroke="#a0a0ab" stroke-width="1"/>
+<text x="820" y="1305" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="500" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">> Add Parallel Branch</text>
+<text x="40" y="1380" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="700" fill="#e6e6ec" text-anchor="start" dominant-baseline="central">App Deployment</text>
+<rect x="40" y="1415" width="500" height="80" rx="8" fill="#fff8f0" stroke="#f0dfc0" stroke-width="1"/>
+<text x="55" y="1435" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="600" fill="#cc7333" text-anchor="start" dominant-baseline="central">Deploy New App</text>
+<rect x="55" y="1455" width="300" height="28" rx="4" fill="#fff" stroke="#a0a0ab" stroke-width="1"/>
+<text x="70" y="1469" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="400" fill="#aaa" text-anchor="start" dominant-baseline="central">Choose .zip file...</text>
+<rect x="370" y="1455" width="80" height="28" rx="6" fill="#cc7333"/>
+<text x="410" y="1469" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">Deploy</text>
+<text x="40" y="1520" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="600" fill="#d0d0d6" text-anchor="start" dominant-baseline="central">Deployed Apps</text>
+<rect x="40" y="1540" width="1120" height="30" rx="4" fill="#c0c0c8"/>
+<text x="55" y="1555" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">Name</text>
+<text x="250" y="1555" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">Version</text>
+<text x="400" y="1555" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">Workers</text>
+<text x="520" y="1555" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">Pipelines</text>
+<text x="650" y="1555" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">Actions</text>
+<text x="55" y="1587" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600" fill="#cc7333" text-anchor="start" dominant-baseline="central">baft-itp</text>
+<text x="250" y="1587" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="400" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">v0.3.0</text>
+<text x="400" y="1587" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="400" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">13</text>
+<text x="520" y="1587" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="400" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">4</text>
+<rect x="650" y="1574" width="70" height="24" rx="4" fill="none" stroke="#e85c5c" stroke-width="1"/>
+<text x="685" y="1586" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#e85c5c" text-anchor="middle" dominant-baseline="central">Remove</text>
+<text x="40" y="1620" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="700" fill="#e6e6ec" text-anchor="start" dominant-baseline="central">Dead Letters</text>
+<text x="200" y="1625" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="700" fill="#e85c5c" text-anchor="start" dominant-baseline="central">3</text>
+<rect x="40" y="1655" width="1120" height="30" rx="4" fill="#c0c0c8"/>
+<text x="55" y="1670" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">Timestamp</text>
+<text x="250" y="1670" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">Task ID</text>
+<text x="450" y="1670" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">Worker</text>
+<text x="600" y="1670" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">Reason</text>
+<text x="900" y="1670" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="600" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">Actions</text>
+<text x="55" y="1702" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="400" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">14:23:05</text>
+<text x="250" y="1702" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="500" fill="#a0a0ab" text-anchor="start" dominant-baseline="central">task_a1b2c3</text>
+<rect x="450" y="1692" width="90" height="22" rx="11" fill="#ffeedd"/>
+<text x="495" y="1703" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#cc7333" text-anchor="middle" dominant-baseline="central">extractor</text>
+<text x="600" y="1702" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="400" fill="#8a909a" text-anchor="start" dominant-baseline="central">Timeout after 30s</text>
+<rect x="900" y="1692" width="65" height="22" rx="4" fill="none" stroke="#5b94f0" stroke-width="1"/>
+<text x="932" y="1703" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#5b94f0" text-anchor="middle" dominant-baseline="central">Replay</text>
+<text x="55" y="1737" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="400" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">14:20:12</text>
+<text x="250" y="1737" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="500" fill="#a0a0ab" text-anchor="start" dominant-baseline="central">task_d4e5f6</text>
+<rect x="450" y="1727" width="90" height="22" rx="11" fill="#ffeedd"/>
+<text x="495" y="1738" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#cc7333" text-anchor="middle" dominant-baseline="central">classifier</text>
+<text x="600" y="1737" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="400" fill="#8a909a" text-anchor="start" dominant-baseline="central">Output schema validation failed</text>
+<rect x="900" y="1727" width="65" height="22" rx="4" fill="none" stroke="#5b94f0" stroke-width="1"/>
+<text x="932" y="1738" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#5b94f0" text-anchor="middle" dominant-baseline="central">Replay</text>
+<text x="55" y="1772" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="400" fill="#9aa0aa" text-anchor="start" dominant-baseline="central">14:18:44</text>
+<text x="250" y="1772" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="500" fill="#a0a0ab" text-anchor="start" dominant-baseline="central">task_g7h8i9</text>
+<rect x="450" y="1762" width="90" height="22" rx="11" fill="#ffeedd"/>
+<text x="495" y="1773" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#cc7333" text-anchor="middle" dominant-baseline="central">translator</text>
+<text x="600" y="1772" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="400" fill="#8a909a" text-anchor="start" dominant-baseline="central">Backend connection refused</text>
+<rect x="900" y="1762" width="65" height="22" rx="4" fill="none" stroke="#5b94f0" stroke-width="1"/>
+<text x="932" y="1773" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="500" fill="#5b94f0" text-anchor="middle" dominant-baseline="central">Replay</text>
+<text x="40" y="1830" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="700" fill="#e6e6ec" text-anchor="start" dominant-baseline="central">RAG Pipeline</text>
+<rect x="40" y="1865" width="350" height="120" rx="8" fill="#f8f8fa" stroke="#c0c0c8" stroke-width="1"/>
+<text x="55" y="1885" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="600" fill="#d0d0d6" text-anchor="start" dominant-baseline="central">Vector Store</text>
+<text x="55" y="1910" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="400" fill="#8a909a" text-anchor="start" dominant-baseline="central">Total chunks:</text>
+<text x="200" y="1910" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#d0d0d6" text-anchor="start" dominant-baseline="central">12,450</text>
+<text x="55" y="1932" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="400" fill="#8a909a" text-anchor="start" dominant-baseline="central">Unique posts:</text>
+<text x="200" y="1932" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#d0d0d6" text-anchor="start" dominant-baseline="central">3,200</text>
+<text x="55" y="1954" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="400" fill="#8a909a" text-anchor="start" dominant-baseline="central">Unique channels:</text>
+<text x="200" y="1954" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#d0d0d6" text-anchor="start" dominant-baseline="central">156</text>
+<rect x="420" y="1865" width="350" height="120" rx="8" fill="#f8f8fa" stroke="#c0c0c8" stroke-width="1"/>
+<text x="435" y="1885" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="600" fill="#d0d0d6" text-anchor="start" dominant-baseline="central">Channels</text>
+<text x="435" y="1910" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="400" fill="#8a909a" text-anchor="start" dominant-baseline="central">156 channels  ·  142 verified</text>
+<text x="435" y="1932" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="400" fill="#999" text-anchor="start" dominant-baseline="central">Factions: reformist, principlist, irgc,</text>
+<text x="435" y="1948" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="400" fill="#999" text-anchor="start" dominant-baseline="central">independent, state_media</text>
+<rect x="40" y="2005" width="730" height="100" rx="8" fill="#fff" stroke="#a0a0ab" stroke-width="1"/>
+<text x="55" y="2025" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="600" fill="#d0d0d6" text-anchor="start" dominant-baseline="central">Quick Search</text>
+<rect x="55" y="2045" width="400" height="30" rx="4" fill="#fff" stroke="#9aa0aa" stroke-width="1"/>
+<text x="70" y="2060" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="400" fill="#aaa" text-anchor="start" dominant-baseline="central">Enter search query...</text>
+<rect x="470" y="2045" width="60" height="30" rx="4" fill="#fff" stroke="#9aa0aa" stroke-width="1"/>
+<text x="500" y="2060" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="400" fill="#a0a0ab" text-anchor="middle" dominant-baseline="central">10</text>
+<rect x="545" y="2045" width="80" height="30" rx="6" fill="#5b94f0"/>
+<text x="585" y="2060" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">Search</text>
+<text x="40" y="2120" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="700" fill="#e6e6ec" text-anchor="start" dominant-baseline="central">Navigation Map</text>
+<rect x="40" y="2155" width="205" height="40" rx="6" fill="#1a1a2e"/>
+<text x="142" y="2175" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#f5c72e" text-anchor="middle" dominant-baseline="central">Workers List</text>
+<text x="142" y="2205" font-family="Inter, system-ui, sans-serif" font-size="9" font-weight="400" fill="#8a909a" text-anchor="middle" dominant-baseline="central">/workers</text>
+<rect x="55" y="2225" width="185" height="24" rx="4" fill="#f4f4f6" stroke="#a0a0ab" stroke-width="1"/>
+<text x="147" y="2237" font-family="Inter, system-ui, sans-serif" font-size="8" font-weight="400" fill="#9aa0aa" text-anchor="middle" dominant-baseline="central">/{name} — Worker Detail</text>
+<line x1="142" y1="2195" x2="142" y2="2225" stroke="#a0a0ab" stroke-width="1" stroke-dasharray="3 3"/>
+<rect x="55" y="2253" width="185" height="24" rx="4" fill="#f4f4f6" stroke="#a0a0ab" stroke-width="1"/>
+<text x="147" y="2265" font-family="Inter, system-ui, sans-serif" font-size="8" font-weight="400" fill="#9aa0aa" text-anchor="middle" dominant-baseline="central">/{name}/test — Test Bench</text>
+<line x1="142" y1="2195" x2="142" y2="2253" stroke="#a0a0ab" stroke-width="1" stroke-dasharray="3 3"/>
+<rect x="55" y="2281" width="185" height="24" rx="4" fill="#f4f4f6" stroke="#a0a0ab" stroke-width="1"/>
+<text x="147" y="2293" font-family="Inter, system-ui, sans-serif" font-size="8" font-weight="400" fill="#9aa0aa" text-anchor="middle" dominant-baseline="central">/{name}/eval — Eval Dashboard</text>
+<line x1="142" y1="2195" x2="142" y2="2281" stroke="#a0a0ab" stroke-width="1" stroke-dasharray="3 3"/>
+<rect x="55" y="2309" width="185" height="24" rx="4" fill="#f4f4f6" stroke="#a0a0ab" stroke-width="1"/>
+<text x="147" y="2321" font-family="Inter, system-ui, sans-serif" font-size="8" font-weight="400" fill="#9aa0aa" text-anchor="middle" dominant-baseline="central">/{name}/eval/{id} — Eval Detail</text>
+<line x1="142" y1="2195" x2="142" y2="2309" stroke="#a0a0ab" stroke-width="1" stroke-dasharray="3 3"/>
+<rect x="265" y="2155" width="205" height="40" rx="6" fill="#1a1a2e"/>
+<text x="367" y="2175" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#f5c72e" text-anchor="middle" dominant-baseline="central">Pipelines List</text>
+<text x="367" y="2205" font-family="Inter, system-ui, sans-serif" font-size="9" font-weight="400" fill="#8a909a" text-anchor="middle" dominant-baseline="central">/pipelines</text>
+<rect x="280" y="2225" width="185" height="24" rx="4" fill="#f4f4f6" stroke="#a0a0ab" stroke-width="1"/>
+<text x="372" y="2237" font-family="Inter, system-ui, sans-serif" font-size="8" font-weight="400" fill="#9aa0aa" text-anchor="middle" dominant-baseline="central">/{name} — Pipeline Editor</text>
+<line x1="367" y1="2195" x2="367" y2="2225" stroke="#a0a0ab" stroke-width="1" stroke-dasharray="3 3"/>
+<rect x="490" y="2155" width="205" height="40" rx="6" fill="#1a1a2e"/>
+<text x="592" y="2175" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#f5c72e" text-anchor="middle" dominant-baseline="central">Apps List</text>
+<text x="592" y="2205" font-family="Inter, system-ui, sans-serif" font-size="9" font-weight="400" fill="#8a909a" text-anchor="middle" dominant-baseline="central">/apps</text>
+<rect x="505" y="2225" width="185" height="24" rx="4" fill="#f4f4f6" stroke="#a0a0ab" stroke-width="1"/>
+<text x="597" y="2237" font-family="Inter, system-ui, sans-serif" font-size="8" font-weight="400" fill="#9aa0aa" text-anchor="middle" dominant-baseline="central">/{name} — App Detail</text>
+<line x1="592" y1="2195" x2="592" y2="2225" stroke="#a0a0ab" stroke-width="1" stroke-dasharray="3 3"/>
+<rect x="715" y="2155" width="205" height="40" rx="6" fill="#1a1a2e"/>
+<text x="817" y="2175" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#f5c72e" text-anchor="middle" dominant-baseline="central">RAG Dashboard</text>
+<text x="817" y="2205" font-family="Inter, system-ui, sans-serif" font-size="9" font-weight="400" fill="#8a909a" text-anchor="middle" dominant-baseline="central">/rag</text>
+<rect x="730" y="2225" width="185" height="24" rx="4" fill="#f4f4f6" stroke="#a0a0ab" stroke-width="1"/>
+<text x="822" y="2237" font-family="Inter, system-ui, sans-serif" font-size="8" font-weight="400" fill="#9aa0aa" text-anchor="middle" dominant-baseline="central">/search — Semantic Search</text>
+<line x1="817" y1="2195" x2="817" y2="2225" stroke="#a0a0ab" stroke-width="1" stroke-dasharray="3 3"/>
+<rect x="730" y="2253" width="185" height="24" rx="4" fill="#f4f4f6" stroke="#a0a0ab" stroke-width="1"/>
+<text x="822" y="2265" font-family="Inter, system-ui, sans-serif" font-size="8" font-weight="400" fill="#9aa0aa" text-anchor="middle" dominant-baseline="central">/channels — Channel Registry</text>
+<line x1="817" y1="2195" x2="817" y2="2253" stroke="#a0a0ab" stroke-width="1" stroke-dasharray="3 3"/>
+<rect x="940" y="2155" width="205" height="40" rx="6" fill="#1a1a2e"/>
+<text x="1042" y="2175" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#f5c72e" text-anchor="middle" dominant-baseline="central">Dead Letters</text>
+<text x="1042" y="2205" font-family="Inter, system-ui, sans-serif" font-size="9" font-weight="400" fill="#8a909a" text-anchor="middle" dominant-baseline="central">/dead-letters</text>
+</svg>

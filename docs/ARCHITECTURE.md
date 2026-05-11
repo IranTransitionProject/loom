@@ -12,15 +12,18 @@ deterministic task dispatch with rate limiting. Workers call LLM backends or
 run processing backends, validate I/O against JSON Schema contracts, and
 publish results back to the orchestrator.
 
-![Architecture Overview](images/architecture-overview.svg)
+![Architecture Overview](images/architecture-overview.svg#only-light)
+![Architecture Overview](images/architecture-overview-dark.svg#only-dark)
 
 ### NATS Subject Topology
 
-![NATS Topology](images/nats-topology.svg)
+![NATS Topology](images/nats-topology.svg#only-light)
+![NATS Topology](images/nats-topology-dark.svg#only-dark)
 
 ### Data Flow — Goal Lifecycle
 
-![Data Flow](images/data-flow.svg)
+![Data Flow](images/data-flow.svg#only-light)
+![Data Flow](images/data-flow-dark.svg#only-dark)
 
 ---
 

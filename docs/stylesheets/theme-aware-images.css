@@ -1,0 +1,22 @@
+/* Theme-aware image switching.
+ *
+ * Markdown pages embed two variants of every architecture diagram:
+ *
+ *   ![Architecture overview](images/architecture-overview.svg#only-light)
+ *   ![Architecture overview](images/architecture-overview-dark.svg#only-dark)
+ *
+ * The rules below show exactly one based on Material's active palette.
+ * The URL fragment is purely a CSS selector hook; browsers ignore it
+ * when fetching the image, so both variants still load (but only the
+ * matching one renders).
+ */
+
+/* Light mode (Material's default ``scheme: default``). */
+[data-md-color-scheme="default"] img[src$="#only-dark"] {
+  display: none;
+}
+
+/* Dark mode (Material's ``scheme: slate``). */
+[data-md-color-scheme="slate"] img[src$="#only-light"] {
+  display: none;
+}

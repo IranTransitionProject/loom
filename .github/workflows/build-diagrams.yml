@@ -4,9 +4,13 @@ on:
   push:
     paths:
       - 'docs/diagrams/**.drawio'
+      - 'docs/diagrams/make_dark_variants.py'
+      - 'docs/generate_diagrams.py'
   pull_request:
     paths:
       - 'docs/diagrams/**.drawio'
+      - 'docs/diagrams/make_dark_variants.py'
+      - 'docs/generate_diagrams.py'
   workflow_dispatch:
 
 permissions:
@@ -28,8 +32,14 @@ jobs:
           output: ../images
           embed-diagram: true
           remove-page-suffix: true
+      - name: Set up Python (for dark-variant post-processor)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Generate dark variants
+        run: python docs/diagrams/make_dark_variants.py
       - name: Commit exported SVGs
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           file_pattern: 'docs/images/*.svg'
-          commit_message: 'chore(diagrams): auto-export drawio → svg'
+          commit_message: 'chore(diagrams): auto-export drawio + dark variants'

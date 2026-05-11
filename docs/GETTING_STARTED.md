@@ -2,7 +2,8 @@
 
 New to Heddle? Start with [Concepts](CONCEPTS.md) to understand the mental model.
 
-![Developer Workflow](images/developer-workflow.svg)
+![Developer Workflow](images/developer-workflow.svg#only-light)
+![Developer Workflow](images/developer-workflow-dark.svg#only-dark)
 
 ---
 

@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" width="1200" height="700">
+<defs><marker id="arrow_1" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 3 L 0 6 z" fill="#8a909a"/></marker>
+<marker id="arrow_2" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 3 L 0 6 z" fill="#8a909a"/></marker>
+<marker id="arrow_3" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 3 L 0 6 z" fill="#8a909a"/></marker>
+<marker id="arrow_4" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 3 L 0 6 z" fill="#8a909a"/></marker>
+<marker id="arrow_5" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 3 L 0 6 z" fill="#8a909a"/></marker>
+<marker id="arrow_6" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 3 L 0 6 z" fill="#8a909a"/></marker>
+<marker id="arrow_7" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 3 L 0 6 z" fill="#8a909a"/></marker>
+<marker id="arrow_8" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 3 L 0 6 z" fill="#8a909a"/></marker>
+<marker id="arrow_9" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 3 L 0 6 z" fill="#8a909a"/></marker>
+<marker id="arrow_10" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 3 L 0 6 z" fill="#8a909a"/></marker>
+<marker id="arrow_11" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 3 L 0 6 z" fill="#8a909a"/></marker>
+<marker id="arrow_12" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 3 L 0 6 z" fill="#8a909a"/></marker></defs>
+<rect width="1200" height="700" rx="12" fill="#e6e6ec"/>
+<text x="40" y="38" font-family="Inter, system-ui, sans-serif" font-size="26" font-weight="700" fill="#e6e6ec" text-anchor="start" dominant-baseline="central">Loom — Developer Workflow</text>
+<text x="40" y="62" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="400" fill="#8a909a" text-anchor="start" dominant-baseline="central">Define workers, build pipelines, test, evaluate, and deploy</text>
+<rect x="30" y="90" width="1140" height="140" rx="10" fill="#f8f8fa"/>
+<text x="50" y="106" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="700" fill="#5b94f0" text-anchor="start" dominant-baseline="hanging">DEFINE</text>
+<rect x="30" y="270" width="1140" height="140" rx="10" fill="#f8f8fa"/>
+<text x="50" y="286" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="700" fill="#7d52c2" text-anchor="start" dominant-baseline="hanging">CONFIGURE</text>
+<rect x="30" y="450" width="1140" height="140" rx="10" fill="#f8f8fa"/>
+<text x="50" y="466" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="700" fill="#2e9e57" text-anchor="start" dominant-baseline="hanging">TEST &amp; EVAL</text>
+<rect x="30" y="630" width="1140" height="140" rx="10" fill="#f8f8fa"/>
+<text x="50" y="646" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="700" fill="#cc7333" text-anchor="start" dominant-baseline="hanging">DEPLOY</text>
+<rect x="60" y="120" width="180" height="50" rx="8" fill="#5b94f0"/>
+<text x="150.0" y="145.0" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">Write Worker YAML</text>
+<line x1="240" y1="145" x2="280" y2="145" stroke="#8a909a" stroke-width="2" marker-end="url(#arrow_1)"/>
+<rect x="290" y="120" width="180" height="50" rx="8" fill="#5b94f0"/>
+<text x="380.0" y="145.0" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">Set Processing Backend</text>
+<line x1="470" y1="145" x2="510" y2="145" stroke="#8a909a" stroke-width="2" marker-end="url(#arrow_2)"/>
+<rect x="520" y="120" width="180" height="50" rx="8" fill="#5b94f0"/>
+<text x="610.0" y="145.0" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">Define I/O Schema</text>
+<line x1="700" y1="145" x2="740" y2="145" stroke="#8a909a" stroke-width="2" marker-end="url(#arrow_3)"/>
+<rect x="750" y="120" width="200" height="50" rx="8" fill="#5b94f0"/>
+<text x="850.0" y="145.0" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">schema_ref (Pydantic)</text>
+<rect x="60" y="300" width="180" height="50" rx="8" fill="#7d52c2"/>
+<text x="150.0" y="325.0" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">Build Pipeline YAML</text>
+<line x1="240" y1="325" x2="280" y2="325" stroke="#8a909a" stroke-width="2" marker-end="url(#arrow_4)"/>
+<rect x="290" y="300" width="200" height="50" rx="8" fill="#7d52c2"/>
+<text x="390.0" y="325.0" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">Set Stage Dependencies</text>
+<line x1="490" y1="325" x2="530" y2="325" stroke="#8a909a" stroke-width="2" marker-end="url(#arrow_5)"/>
+<rect x="540" y="300" width="180" height="50" rx="8" fill="#7d52c2"/>
+<text x="630.0" y="325.0" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">Input Mappings</text>
+<line x1="720" y1="325" x2="760" y2="325" stroke="#8a909a" stroke-width="2" marker-end="url(#arrow_6)"/>
+<rect x="770" y="300" width="200" height="50" rx="8" fill="#7d52c2"/>
+<text x="870.0" y="325.0" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">Config Validation</text>
+<rect x="60" y="480" width="180" height="50" rx="8" fill="#2e9e57"/>
+<text x="150.0" y="505.0" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">Workshop Test Bench</text>
+<line x1="240" y1="505" x2="280" y2="505" stroke="#8a909a" stroke-width="2" marker-end="url(#arrow_7)"/>
+<rect x="290" y="480" width="200" height="50" rx="8" fill="#2e9e57"/>
+<text x="390.0" y="505.0" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">Write Eval Test Suite</text>
+<line x1="490" y1="505" x2="530" y2="505" stroke="#8a909a" stroke-width="2" marker-end="url(#arrow_8)"/>
+<rect x="540" y="480" width="180" height="50" rx="8" fill="#2e9e57"/>
+<text x="630.0" y="505.0" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">Run Evaluations</text>
+<line x1="720" y1="505" x2="760" y2="505" stroke="#8a909a" stroke-width="2" marker-end="url(#arrow_9)"/>
+<rect x="770" y="480" width="200" height="50" rx="8" fill="#2e9e57"/>
+<text x="870.0" y="505.0" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">Promote Baseline</text>
+<text x="540" y="540" font-family="Inter, system-ui, sans-serif" font-size="9" font-weight="400" fill="#6a6" text-anchor="start">
+  <tspan x="540" dy="0">Scoring: field_match | exact | llm_judge</tspan>
+  <tspan x="540" dy="12.6">Comparison: baseline regression checks</tspan>
+</text>
+<rect x="60" y="660" width="180" height="50" rx="8" fill="#cc7333"/>
+<text x="150.0" y="685.0" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">Build App Bundle</text>
+<line x1="240" y1="685" x2="280" y2="685" stroke="#8a909a" stroke-width="2" marker-end="url(#arrow_10)"/>
+<rect x="290" y="660" width="200" height="50" rx="8" fill="#cc7333"/>
+<text x="390.0" y="685.0" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">Upload ZIP to Workshop</text>
+<line x1="490" y1="685" x2="530" y2="685" stroke="#8a909a" stroke-width="2" marker-end="url(#arrow_11)"/>
+<rect x="540" y="660" width="180" height="50" rx="8" fill="#cc7333"/>
+<text x="630.0" y="685.0" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">Config Hot-Reload</text>
+<line x1="720" y1="685" x2="760" y2="685" stroke="#8a909a" stroke-width="2" marker-end="url(#arrow_12)"/>
+<rect x="770" y="660" width="200" height="50" rx="8" fill="#cc7333"/>
+<text x="870.0" y="685.0" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="600" fill="#fff" text-anchor="middle" dominant-baseline="central">Monitor Dead Letters</text>
+<text x="60" y="725" font-family="Inter, system-ui, sans-serif" font-size="9" font-weight="400" fill="#b07040" text-anchor="start">
+  <tspan x="60" dy="0">scripts/build-app.sh</tspan>
+  <tspan x="60" dy="12.6">manifest.yaml + configs</tspan>
+</text>
+</svg>

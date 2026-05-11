@@ -35,6 +35,9 @@ theme:
   icon:
     repo: fontawesome/brands/github
 
+extra_css:
+  - stylesheets/theme-aware-images.css
+
 plugins:
   - search
   - mkdocstrings:
