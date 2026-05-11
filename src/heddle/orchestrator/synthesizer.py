@@ -157,11 +157,19 @@ class ResultSynthesizer:
             - ``failed`` — list of dicts, each containing ``task_id``,
               ``worker_type``, ``error``, and ``processing_time_ms`` for every
               failed result.
+            - ``in_flight`` — list of dicts, each containing ``task_id``,
+              ``worker_type``, ``status``, and ``processing_time_ms`` for any
+              task still in a non-terminal state.  Empty under the current
+              dynamic-orchestrator caller (cc49783 converts pending tasks
+              to synthetic ``FAILED`` placeholders before synthesis).
             - ``metadata`` — aggregate statistics: ``total``, ``succeeded``,
-              ``failed``, ``total_processing_time_ms``, ``models_used``, and
-              ``total_tokens``.
+              ``failed``, ``in_flight``, ``total_processing_time_ms``,
+              ``models_used``, and ``total_tokens``.
         """
-        succeeded, failed = self._partition(results)
+        parts = self._partition(results)
+        succeeded = parts["succeeded"]
+        failed = parts["failed"]
+        in_flight = parts["in_flight"]
 
         succeeded_entries = [
             {
@@ -184,6 +192,16 @@ class ResultSynthesizer:
             for r in failed
         ]
 
+        in_flight_entries = [
+            {
+                "task_id": r.task_id,
+                "worker_type": r.worker_type,
+                "status": r.status.value,
+                "processing_time_ms": r.processing_time_ms,
+            }
+            for r in in_flight
+        ]
+
         # Aggregate token usage across all results (succeeded or not).
         total_tokens: dict[str, int] = {}
         for r in results:
@@ -197,11 +215,22 @@ class ResultSynthesizer:
             "total": len(results),
             "succeeded": len(succeeded),
             "failed": len(failed),
+            "in_flight": len(in_flight),
             "total_processing_time_ms": sum(r.processing_time_ms for r in results),
             "models_used": models_used,
             "total_tokens": total_tokens,
         }
 
+        if in_flight:
+            # Distinct event from merge_partial_failure: in-flight tasks
+            # are *not* errors and a future caller passing live state
+            # should be observable as a separate operator signal.
+            logger.warning(
+                "synthesizer.merge_with_in_flight",
+                total=len(results),
+                in_flight=len(in_flight),
+                in_flight_workers=[r.worker_type for r in in_flight],
+            )
         if failed:
             logger.warning(
                 "synthesizer.merge_partial_failure",
@@ -209,7 +238,7 @@ class ResultSynthesizer:
                 failed=len(failed),
                 failed_workers=[r.worker_type for r in failed],
             )
-        else:
+        if not failed and not in_flight:
             logger.info(
                 "synthesizer.merge_complete",
                 total=len(results),
@@ -218,6 +247,7 @@ class ResultSynthesizer:
         return {
             "succeeded": succeeded_entries,
             "failed": failed_entries,
+            "in_flight": in_flight_entries,
             "metadata": metadata,
         }
 
@@ -276,21 +306,38 @@ class ResultSynthesizer:
     @staticmethod
     def _partition(
         results: list[TaskResult],
-    ) -> tuple[list[TaskResult], list[TaskResult]]:
-        """Split results into (succeeded, failed) lists.
+    ) -> dict[str, list[TaskResult]]:
+        """Split results into ``succeeded``, ``failed``, and ``in_flight`` buckets.
 
-        A result is considered "succeeded" if its status is
-        :attr:`TaskStatus.COMPLETED`; everything else (``FAILED``,
-        ``PENDING``, ``PROCESSING``, ``RETRY``) is treated as failed.
+        - ``succeeded`` — ``TaskStatus.COMPLETED``.
+        - ``failed`` — ``TaskStatus.FAILED``.
+        - ``in_flight`` — ``PENDING`` / ``PROCESSING`` / ``RETRY``.
+          A non-terminal result should never reach the synthesizer
+          today (the dynamic orchestrator converts pending tasks to
+          synthetic ``FAILED`` placeholders via cc49783 before
+          calling).  The bucket exists to keep the API honest if a
+          future caller starts passing live state — the synthesizer
+          MUST NOT silently relabel "still running" as "failed", which
+          is what the prior ``(succeeded, failed)`` shape did.
+
+        Returns a dict so callers ask for the keys they care about
+        rather than positional unpack — adding ``in_flight`` to a
+        tuple would have been a silent breakage at every callsite.
         """
-        succeeded: list[TaskResult] = []
-        failed: list[TaskResult] = []
+        buckets: dict[str, list[TaskResult]] = {
+            "succeeded": [],
+            "failed": [],
+            "in_flight": [],
+        }
         for r in results:
             if r.status == TaskStatus.COMPLETED:
-                succeeded.append(r)
+                buckets["succeeded"].append(r)
+            elif r.status == TaskStatus.FAILED:
+                buckets["failed"].append(r)
             else:
-                failed.append(r)
-        return succeeded, failed
+                # PENDING / PROCESSING / RETRY — still in flight.
+                buckets["in_flight"].append(r)
+        return buckets
 
     def _build_user_message(
         self,
@@ -300,20 +347,24 @@ class ResultSynthesizer:
         """Build the user-facing prompt for the LLM synthesis call.
 
         The prompt contains the original goal followed by a numbered list of
-        worker outputs.  Failed tasks are listed separately so the LLM can
-        reason about missing information.
+        worker outputs.  Failed and in-flight tasks are listed separately
+        so the LLM can reason about missing information without conflating
+        the two categories — "did not respond yet" is a different epistemic
+        state from "responded with an error."
 
         Individual outputs that exceed :attr:`_max_output_chars` are truncated
         to keep the overall prompt within token budget.
         """
-        succeeded, failed = self._partition(results)
+        parts = self._partition(results)
+        succeeded = parts["succeeded"]
+        failed = parts["failed"]
+        in_flight = parts["in_flight"]
 
-        sections: list[str] = [
-            f"GOAL: {goal}",
-            "",
-            f"WORKER RESULTS ({len(succeeded)} succeeded, {len(failed)} failed):",
-            "",
-        ]
+        header = f"WORKER RESULTS ({len(succeeded)} succeeded, {len(failed)} failed"
+        if in_flight:
+            header += f", {len(in_flight)} still in flight"
+        header += "):"
+        sections: list[str] = [f"GOAL: {goal}", "", header, ""]
 
         # Succeeded outputs.
         for i, r in enumerate(succeeded, 1):
@@ -331,6 +382,16 @@ class ResultSynthesizer:
             sections.extend(
                 f"  - {r.worker_type} (task {r.task_id}): {r.error or 'unknown error'}"
                 for r in failed
+            )
+            sections.append("")
+
+        # In-flight tasks — listed under their own header so the LLM
+        # knows these workers have not yet produced output (not failed).
+        if in_flight:
+            sections.append("STILL-IN-FLIGHT TASKS (no output yet, treat as missing not failed):")
+            sections.extend(
+                f"  - {r.worker_type} (task {r.task_id}): status={r.status.value}"
+                for r in in_flight
             )
             sections.append("")
 

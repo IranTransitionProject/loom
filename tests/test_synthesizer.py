@@ -130,6 +130,31 @@ class TestMerge:
         merged = synth.merge(results)
         assert merged["metadata"]["total_processing_time_ms"] == 350
 
+    def test_merge_surfaces_in_flight_bucket(self):
+        """An in-flight result lands in its own bucket and metadata count.
+
+        Pins the contract for a future caller passing live state.  The
+        current dynamic orchestrator never reaches this branch (cc49783
+        pre-converts pending tasks to FAILED), but the synthesizer's
+        API has to be honest about what it sees.
+        """
+        results = [
+            _make_result(worker_type="summarizer"),  # COMPLETED
+            _make_result(
+                worker_type="extractor",
+                status=TaskStatus.PROCESSING,
+            ),
+        ]
+        synth = ResultSynthesizer()
+        merged = synth.merge(results)
+
+        assert len(merged["succeeded"]) == 1
+        assert merged["failed"] == []
+        assert len(merged["in_flight"]) == 1
+        assert merged["in_flight"][0]["worker_type"] == "extractor"
+        assert merged["in_flight"][0]["status"] == "processing"
+        assert merged["metadata"]["in_flight"] == 1
+
 
 # ---------------------------------------------------------------------------
 # _partition() tests
@@ -137,21 +162,52 @@ class TestMerge:
 
 
 class TestPartition:
-    def test_partition_splits_correctly(self):
+    def test_partition_splits_three_ways(self):
+        """``_partition`` returns three buckets: succeeded / failed / in_flight.
+
+        Constructs ``TaskResult`` objects with each non-terminal status
+        directly so the test pins the API contract independent of any
+        upstream caller.  No current caller produces non-terminal
+        states (the dynamic orchestrator synthesises FAILED placeholders
+        for pending tasks before reaching the synthesizer, per cc49783)
+        — this contract guards against a *future* caller that does.
+        """
         results = [
             _make_result(status=TaskStatus.COMPLETED),
             _make_result(status=TaskStatus.FAILED),
             _make_result(status=TaskStatus.RETRY),
+            _make_result(status=TaskStatus.PROCESSING),
+            _make_result(status=TaskStatus.PENDING),
             _make_result(status=TaskStatus.COMPLETED),
         ]
-        succeeded, failed = ResultSynthesizer._partition(results)
-        assert len(succeeded) == 2
-        assert len(failed) == 2
+        parts = ResultSynthesizer._partition(results)
+        assert len(parts["succeeded"]) == 2
+        assert len(parts["failed"]) == 1
+        assert len(parts["in_flight"]) == 3
+        # Spot-check: every non-terminal status lands in in_flight.
+        flight_statuses = {r.status for r in parts["in_flight"]}
+        assert flight_statuses == {
+            TaskStatus.PENDING,
+            TaskStatus.PROCESSING,
+            TaskStatus.RETRY,
+        }
 
     def test_partition_empty(self):
-        succeeded, failed = ResultSynthesizer._partition([])
-        assert succeeded == []
-        assert failed == []
+        parts = ResultSynthesizer._partition([])
+        assert parts == {"succeeded": [], "failed": [], "in_flight": []}
+
+    def test_partition_does_not_relabel_in_flight_as_failed(self):
+        """Regression guard for the prior ``(succeeded, failed)`` shape.
+
+        The old API silently dumped PENDING/PROCESSING/RETRY into the
+        ``failed`` bucket, which then surfaced to the LLM as "these
+        tasks failed."  This test confirms the new shape keeps them
+        distinct.
+        """
+        results = [_make_result(status=TaskStatus.PROCESSING)]
+        parts = ResultSynthesizer._partition(results)
+        assert parts["failed"] == []
+        assert len(parts["in_flight"]) == 1
 
 
 # ---------------------------------------------------------------------------
