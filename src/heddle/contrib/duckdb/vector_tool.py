@@ -27,7 +27,6 @@ See Also:
 
 from __future__ import annotations
 
-import asyncio
 import json
 from typing import Any
 
@@ -165,7 +164,14 @@ class DuckDBVectorTool(SyncToolProvider):
         return json.dumps(result, default=str)
 
     def _embed_query(self, text: str) -> list[float] | None:
-        """Generate embedding for the query text."""
+        """Generate embedding for the query text via the provider's sync path.
+
+        ``asyncio.run(provider.embed(...))`` was the old shape and broke
+        the moment a caller invoked this from a thread that already had
+        a live event loop (TestClient flows, nested sync→async→sync
+        chains).  ``embed_sync`` uses a sync ``httpx.Client`` instead
+        and is safe in every threading context.
+        """
         from heddle.worker.embeddings import OllamaEmbeddingProvider
 
         provider = OllamaEmbeddingProvider(
@@ -173,7 +179,7 @@ class DuckDBVectorTool(SyncToolProvider):
             base_url=self.ollama_url,
         )
         try:
-            return asyncio.run(provider.embed(text))
+            return provider.embed_sync(text)
         except Exception as exc:
             logger.warning(
                 "duckdb_vector.embed_query_failed",

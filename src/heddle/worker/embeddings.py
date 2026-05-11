@@ -33,7 +33,22 @@ logger = structlog.get_logger()
 
 
 class EmbeddingProvider(ABC):
-    """Common interface for generating vector embeddings from text."""
+    """Common interface for generating vector embeddings from text.
+
+    Two parallel call paths are exposed: an async path (``embed`` /
+    ``embed_batch``) used from async worker code, and a sync path
+    (``embed_sync`` / ``embed_batch_sync``) used from sync code (RAG
+    tools, processor workers, ``ProcessingBackend.process_sync``).
+
+    Why both: callers running on a worker thread cannot safely fall
+    back to ``asyncio.run(provider.embed(...))`` in every harness.
+    ``asyncio.run`` raises ``RuntimeError: cannot be called from a
+    running event loop`` whenever the calling thread already has a
+    live loop (TestClient flows, nested sync→async→sync chains, and
+    some pytest-asyncio fixtures all surface this).  Providing a
+    real sync path eliminates the ambiguity — pick the method that
+    matches your call site, no event-loop juggling required.
+    """
 
     @abstractmethod
     async def embed(self, text: str) -> list[float]:
@@ -43,6 +58,23 @@ class EmbeddingProvider(ABC):
     @abstractmethod
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """Return embedding vectors for a batch of texts."""
+        ...
+
+    @abstractmethod
+    def embed_sync(self, text: str) -> list[float]:
+        """Synchronous counterpart to :meth:`embed`.
+
+        Implementations use a sync HTTP client so the call is safe
+        from a worker thread regardless of whether the calling
+        thread has a live event loop.  Prefer the async path from
+        async code; reach for the sync path only when the caller is
+        itself sync.
+        """
+        ...
+
+    @abstractmethod
+    def embed_batch_sync(self, texts: list[str]) -> list[list[float]]:
+        """Synchronous counterpart to :meth:`embed_batch`."""
         ...
 
     @property
@@ -55,8 +87,9 @@ class EmbeddingProvider(ABC):
         """Release any I/O resources held by this provider.
 
         Subclasses that hold open connections (e.g. an
-        ``httpx.AsyncClient``) override this to close them. Idempotent —
-        safe to call more than once. Default is a no-op.
+        ``httpx.AsyncClient`` and/or an ``httpx.Client``) override this
+        to close them. Idempotent — safe to call more than once.
+        Default is a no-op.
         """
 
 
@@ -82,6 +115,14 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
         self.base_url = base_url or os.environ.get("OLLAMA_URL") or "http://localhost:11434"
         self._dimensions: int | None = None
         self._client = httpx.AsyncClient(base_url=self.base_url, timeout=120.0)
+        # Sync client is created lazily on first ``embed_sync`` call —
+        # async-only callers don't pay for it.
+        self._sync_client: httpx.Client | None = None
+
+    def _get_sync_client(self) -> httpx.Client:
+        if self._sync_client is None:
+            self._sync_client = httpx.Client(base_url=self.base_url, timeout=120.0)
+        return self._sync_client
 
     async def embed(self, text: str) -> list[float]:
         """Generate embedding for a single text string."""
@@ -121,6 +162,39 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
 
         return embeddings
 
+    def embed_sync(self, text: str) -> list[float]:
+        """Synchronous single-text embedding via a sync ``httpx.Client``."""
+        resp = self._get_sync_client().post(
+            "/api/embed",
+            json={"model": self.model, "input": text},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        embedding = data["embeddings"][0]
+
+        if self._dimensions is None:
+            self._dimensions = len(embedding)
+
+        return embedding
+
+    def embed_batch_sync(self, texts: list[str]) -> list[list[float]]:
+        """Synchronous batch embedding via a sync ``httpx.Client``."""
+        if not texts:
+            return []
+
+        resp = self._get_sync_client().post(
+            "/api/embed",
+            json={"model": self.model, "input": texts},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        embeddings = data["embeddings"]
+
+        if self._dimensions is None and embeddings:
+            self._dimensions = len(embeddings[0])
+
+        return embeddings
+
     @property
     def dimensions(self) -> int:
         """Return embedding dimensionality (detected from first call)."""
@@ -131,8 +205,10 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
         return self._dimensions
 
     async def aclose(self) -> None:
-        """Close the underlying ``httpx.AsyncClient``."""
+        """Close the underlying ``httpx.AsyncClient`` and sync ``httpx.Client``."""
         await self._client.aclose()
+        if self._sync_client is not None:
+            self._sync_client.close()
 
 
 class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
@@ -171,11 +247,23 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
         self.base_url = normalized
         self._dimensions: int | None = None
         key = api_key or os.environ.get("OPENAI_API_KEY") or "not-needed"
+        self._auth_header = {"Authorization": f"Bearer {key}"}
         self._client = httpx.AsyncClient(
             base_url=normalized,
-            headers={"Authorization": f"Bearer {key}"},
+            headers=self._auth_header,
             timeout=120.0,
         )
+        # Sync client is created lazily on first ``embed_sync`` call.
+        self._sync_client: httpx.Client | None = None
+
+    def _get_sync_client(self) -> httpx.Client:
+        if self._sync_client is None:
+            self._sync_client = httpx.Client(
+                base_url=self.base_url,
+                headers=self._auth_header,
+                timeout=120.0,
+            )
+        return self._sync_client
 
     async def embed(self, text: str) -> list[float]:
         """Generate embedding for a single text string."""
@@ -214,6 +302,41 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
 
         return embeddings
 
+    def embed_sync(self, text: str) -> list[float]:
+        """Synchronous single-text embedding via a sync ``httpx.Client``."""
+        resp = self._get_sync_client().post(
+            "/v1/embeddings",
+            json={"model": self.model, "input": text},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        embedding = data["data"][0]["embedding"]
+
+        if self._dimensions is None:
+            self._dimensions = len(embedding)
+
+        return embedding
+
+    def embed_batch_sync(self, texts: list[str]) -> list[list[float]]:
+        """Synchronous batch embedding via a sync ``httpx.Client``."""
+        if not texts:
+            return []
+
+        resp = self._get_sync_client().post(
+            "/v1/embeddings",
+            json={"model": self.model, "input": texts},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        # Same order-by-index defensiveness as the async path.
+        items = sorted(data["data"], key=lambda d: d.get("index", 0))
+        embeddings = [item["embedding"] for item in items]
+
+        if self._dimensions is None and embeddings:
+            self._dimensions = len(embeddings[0])
+
+        return embeddings
+
     @property
     def dimensions(self) -> int:
         """Return embedding dimensionality (detected from first call)."""
@@ -224,5 +347,7 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
         return self._dimensions
 
     async def aclose(self) -> None:
-        """Close the underlying ``httpx.AsyncClient``."""
+        """Close the underlying ``httpx.AsyncClient`` and sync ``httpx.Client``."""
         await self._client.aclose()
+        if self._sync_client is not None:
+            self._sync_client.close()

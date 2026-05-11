@@ -144,6 +144,26 @@ class TestEmbeddingProviderLifecycle:
         await provider.aclose()
         await provider.aclose()
 
+    @pytest.mark.asyncio
+    async def test_aclose_closes_sync_client_when_created(self, label, factory):
+        """If ``embed_sync`` has been used, ``aclose`` must close the sync client too.
+
+        The sync client is lazy.  Force creation via ``_get_sync_client``
+        and confirm ``aclose`` actually closed it (``is_closed`` flips).
+        """
+        provider = factory()
+        sync_client = provider._get_sync_client()
+        assert not sync_client.is_closed
+        await provider.aclose()
+        assert sync_client.is_closed
+
+    @pytest.mark.asyncio
+    async def test_aclose_with_no_sync_client_is_safe(self, label, factory):
+        """``aclose`` on a provider that never used embed_sync still works."""
+        provider = factory()
+        assert provider._sync_client is None
+        await provider.aclose()  # must not raise
+
 
 # ---------------------------------------------------------------------------
 # Chat bridges — heddle.contrib.chatbridge.*
@@ -260,6 +280,12 @@ async def test_embedding_provider_abc_aclose_default_is_noop():
             return []
 
         async def embed_batch(self, texts):
+            return []
+
+        def embed_sync(self, text):
+            return []
+
+        def embed_batch_sync(self, texts):
             return []
 
         @property

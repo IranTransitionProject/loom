@@ -118,16 +118,16 @@ class LanceDBVectorStore(VectorStore):
             base_url=self.ollama_url,
         )
 
-    def _embed_texts(self, texts: list[str]) -> list[list[float]]:  # pragma: no cover
-        """Generate embeddings for a batch of texts synchronously."""
-        import asyncio
+    def _embed_texts(self, texts: list[str]) -> list[list[float]]:
+        """Generate embeddings for a batch of texts synchronously.
 
+        Uses the provider's ``embed_batch_sync`` path.  The previous
+        shape (``loop.run_until_complete`` on a fresh event loop)
+        worked in isolation but mishandled provider-owned resources
+        on subsequent calls and was awkward to test.
+        """
         embedder = self._get_embedder()
-        loop = asyncio.new_event_loop()
-        try:
-            embeddings = loop.run_until_complete(embedder.embed_batch(texts))
-        finally:
-            loop.close()
+        embeddings = embedder.embed_batch_sync(texts)
 
         if embeddings and self._embedding_dim is None:
             self._embedding_dim = len(embeddings[0])

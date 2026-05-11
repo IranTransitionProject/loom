@@ -488,7 +488,7 @@ class TestVectorSearch:
             def __init__(self, **kw):
                 pass
 
-            async def embed(self, text):
+            def embed_sync(self, text):
                 raise RuntimeError("Ollama unreachable")
 
         monkeypatch.setattr(
@@ -509,7 +509,7 @@ class TestVectorSearch:
             def __init__(self, **kw):
                 pass
 
-            async def embed(self, text):
+            def embed_sync(self, text):
                 return [0.8, 0.2, 0.0]
 
         monkeypatch.setattr(

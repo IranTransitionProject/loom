@@ -25,7 +25,6 @@ See Also:
 
 from __future__ import annotations
 
-import asyncio
 import json
 from typing import Any
 
@@ -144,8 +143,13 @@ class LanceDBVectorTool(SyncToolProvider):
         except Exception as e:
             return json.dumps({"error": str(e)})
 
-    def _embed_query(self, text: str) -> list[float] | None:  # pragma: no cover
-        """Generate embedding for the query text."""
+    def _embed_query(self, text: str) -> list[float] | None:
+        """Generate embedding for the query text via the provider's sync path.
+
+        Uses ``embed_sync`` rather than ``asyncio.run(provider.embed())``
+        because the latter races with outer running loops in test
+        harnesses (TestClient flows) and nested sync→async→sync chains.
+        """
         from heddle.worker.embeddings import OllamaEmbeddingProvider
 
         provider = OllamaEmbeddingProvider(
@@ -153,7 +157,7 @@ class LanceDBVectorTool(SyncToolProvider):
             base_url=self.ollama_url,
         )
         try:
-            return asyncio.run(provider.embed(text))
+            return provider.embed_sync(text)
         except Exception as exc:
             logger.warning(
                 "lancedb_vector.embed_query_failed",

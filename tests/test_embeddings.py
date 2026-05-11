@@ -27,6 +27,12 @@ class TestEmbeddingProviderABC:
             async def embed_batch(self, texts):
                 return []
 
+            def embed_sync(self, text):
+                return []
+
+            def embed_batch_sync(self, texts):
+                return []
+
             @property
             def dimensions(self):
                 return 0
@@ -39,6 +45,57 @@ class TestEmbeddingProviderABC:
 
         class Partial(EmbeddingProvider):
             async def embed(self, text):
+                return []
+
+            def embed_sync(self, text):
+                return []
+
+            def embed_batch_sync(self, texts):
+                return []
+
+            @property
+            def dimensions(self):
+                return 0
+
+        with pytest.raises(TypeError):
+            Partial()
+
+    def test_requires_embed_sync(self):
+        """Subclasses must implement embed_sync().
+
+        The sync path is mandatory because callers running on a worker
+        thread cannot reliably fall back to ``asyncio.run(provider.embed())``
+        — see :class:`EmbeddingProvider` docstring for the rationale.
+        """
+
+        class Partial(EmbeddingProvider):
+            async def embed(self, text):
+                return []
+
+            async def embed_batch(self, texts):
+                return []
+
+            def embed_batch_sync(self, texts):
+                return []
+
+            @property
+            def dimensions(self):
+                return 0
+
+        with pytest.raises(TypeError):
+            Partial()
+
+    def test_requires_embed_batch_sync(self):
+        """Subclasses must implement embed_batch_sync()."""
+
+        class Partial(EmbeddingProvider):
+            async def embed(self, text):
+                return []
+
+            async def embed_batch(self, texts):
+                return []
+
+            def embed_sync(self, text):
                 return []
 
             @property
@@ -56,6 +113,12 @@ class TestEmbeddingProviderABC:
                 return []
 
             async def embed_batch(self, texts):
+                return []
+
+            def embed_sync(self, text):
+                return []
+
+            def embed_batch_sync(self, texts):
                 return []
 
         with pytest.raises(TypeError):
@@ -140,6 +203,69 @@ class TestOllamaEmbeddingProvider:
         provider = OllamaEmbeddingProvider(base_url="http://test:11434")
         result = await provider.embed_batch([])
         assert result == []
+
+    def test_embed_sync_single(self):
+        """``embed_sync`` posts via a sync ``httpx.Client``.
+
+        Pins the sync path that the duckdb / lancedb vector tools and
+        rag vectorstores rely on.  Patches the lazily-created sync
+        client's ``post`` with a regular ``Mock`` (not ``AsyncMock``) so
+        the underlying call is genuinely synchronous.
+        """
+        from unittest.mock import Mock
+
+        provider = OllamaEmbeddingProvider(
+            model="nomic-embed-text",
+            base_url="http://test:11434",
+        )
+
+        sync_client = provider._get_sync_client()
+        mock_response = httpx.Response(
+            200,
+            json={"embeddings": [[0.1, 0.2, 0.3, 0.4]]},
+            request=httpx.Request("POST", "http://test:11434/api/embed"),
+        )
+        sync_client.post = Mock(return_value=mock_response)
+
+        result = provider.embed_sync("hello world")
+        assert result == [0.1, 0.2, 0.3, 0.4]
+        assert provider.dimensions == 4
+        sync_client.post.assert_called_once()
+
+    def test_embed_batch_sync(self):
+        """``embed_batch_sync`` posts via the sync client."""
+        from unittest.mock import Mock
+
+        provider = OllamaEmbeddingProvider(base_url="http://test:11434")
+        sync_client = provider._get_sync_client()
+        sync_client.post = Mock(
+            return_value=httpx.Response(
+                200,
+                json={"embeddings": [[0.1, 0.2], [0.3, 0.4]]},
+                request=httpx.Request("POST", "http://test:11434/api/embed"),
+            )
+        )
+
+        result = provider.embed_batch_sync(["t1", "t2"])
+        assert result == [[0.1, 0.2], [0.3, 0.4]]
+        assert provider.dimensions == 2
+
+    def test_embed_batch_sync_empty(self):
+        """Empty batch returns empty list without an HTTP call."""
+        provider = OllamaEmbeddingProvider(base_url="http://test:11434")
+        # No sync client created yet — exercise the empty-batch short-circuit.
+        assert provider._sync_client is None
+        assert provider.embed_batch_sync([]) == []
+        # Empty batch still short-circuits before client creation.
+        assert provider._sync_client is None
+
+    def test_sync_client_is_lazy(self):
+        """Sync client is not created until the first sync call."""
+        provider = OllamaEmbeddingProvider(base_url="http://test:11434")
+        assert provider._sync_client is None
+        # Async-only use should never trigger creation.
+        assert provider._client is not None
+        assert provider._sync_client is None
 
 
 class TestOpenAICompatibleEmbeddingProvider:
@@ -231,3 +357,67 @@ class TestOpenAICompatibleEmbeddingProvider:
         provider = OpenAICompatibleEmbeddingProvider(base_url="http://test:1234/v1")
         result = await provider.embed_batch([])
         assert result == []
+
+    def test_embed_sync_single(self):
+        """``embed_sync`` posts to /v1/embeddings via the sync client."""
+        from unittest.mock import Mock
+
+        provider = OpenAICompatibleEmbeddingProvider(
+            model="text-embedding-3-small",
+            base_url="http://test:1234/v1",
+        )
+
+        sync_client = provider._get_sync_client()
+        sync_client.post = Mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "object": "list",
+                    "data": [{"object": "embedding", "index": 0, "embedding": [0.1, 0.2, 0.3]}],
+                },
+                request=httpx.Request("POST", "http://test:1234/v1/embeddings"),
+            )
+        )
+
+        result = provider.embed_sync("hello world")
+        assert result == [0.1, 0.2, 0.3]
+        assert provider.dimensions == 3
+        called_path = sync_client.post.call_args[0][0]
+        assert called_path == "/v1/embeddings"
+
+    def test_embed_batch_sync_preserves_index_order(self):
+        """``embed_batch_sync`` re-sorts by ``index`` like the async path."""
+        from unittest.mock import Mock
+
+        provider = OpenAICompatibleEmbeddingProvider(
+            model="text-embedding-3-small",
+            base_url="http://test:1234/v1",
+        )
+
+        sync_client = provider._get_sync_client()
+        sync_client.post = Mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "object": "list",
+                    "data": [
+                        {"object": "embedding", "index": 1, "embedding": [0.9, 0.9]},
+                        {"object": "embedding", "index": 0, "embedding": [0.1, 0.1]},
+                    ],
+                },
+                request=httpx.Request("POST", "http://test:1234/v1/embeddings"),
+            )
+        )
+
+        result = provider.embed_batch_sync(["t1", "t2"])
+        assert result[0] == [0.1, 0.1]
+        assert result[1] == [0.9, 0.9]
+
+    def test_sync_client_carries_auth_header(self):
+        """The lazily-created sync client uses the same Bearer token as async."""
+        provider = OpenAICompatibleEmbeddingProvider(
+            base_url="http://test:1234/v1",
+            api_key="test-key-123",
+        )
+        sync_client = provider._get_sync_client()
+        assert sync_client.headers["authorization"] == "Bearer test-key-123"

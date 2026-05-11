@@ -24,7 +24,6 @@ See Also:
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import json
 from pathlib import Path
@@ -380,7 +379,12 @@ class DuckDBQueryBackend(SyncProcessingBackend):
             base_url=embedding_config.get("ollama_url"),
         )
         try:
-            query_embedding = asyncio.run(provider.embed(query_text))
+            # Sync path: this backend runs inside ``process_sync`` on a
+            # worker thread.  ``asyncio.run`` raced with outer running
+            # loops in test harnesses (TestClient flows in particular);
+            # ``embed_sync`` uses a sync ``httpx.Client`` and is safe in
+            # every threading context.
+            query_embedding = provider.embed_sync(query_text)
         except Exception as exc:
             raise DuckDBQueryError(f"Failed to generate query embedding: {exc}") from exc
 

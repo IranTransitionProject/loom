@@ -138,15 +138,14 @@ class DuckDBVectorStore(VectorStore):
         )
 
     def _embed_texts(self, texts: list[str]) -> list[list[float]]:
-        """Generate embeddings for a batch of texts synchronously."""
-        import asyncio
+        """Generate embeddings for a batch of texts synchronously.
 
+        Uses the provider's ``embed_batch_sync`` path — matches the
+        :class:`heddle.contrib.lancedb.store.LanceDBStore` shape so the
+        two RAG vector stores have the same call discipline.
+        """
         embedder = self._get_embedder()
-        loop = asyncio.new_event_loop()
-        try:
-            embeddings = loop.run_until_complete(embedder.embed_batch(texts))
-        finally:
-            loop.close()
+        embeddings = embedder.embed_batch_sync(texts)
 
         if embeddings and self._embedding_dim is None:
             self._embedding_dim = len(embeddings[0])
