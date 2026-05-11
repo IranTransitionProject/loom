@@ -103,3 +103,47 @@ class TestSentenceChunker:
         cfg = ChunkConfig(strategy=ChunkStrategy.FIXED_CHAR, max_chars=500, min_chars=10)
         chunks = chunk_post(post, config=cfg)
         assert len(chunks) == 3
+
+    def test_offset_invariant_with_leading_whitespace_and_duplicates(self):
+        """Pin C2: ``text[char_start:char_end] == chunk.text`` holds.
+
+        Earlier the chunker post-stripped each segment then used
+        ``text.find(seg, cumulative_offset)`` to recover offsets in
+        the original text.  With leading whitespace + embedded
+        duplicate phrases, ``find`` could land on the wrong
+        occurrence (or fall back to ``cumulative_offset``), so chunk
+        citations pointed at the wrong span.  Offsets are now tracked
+        natively through split + merge, no ``.find`` round-trips.
+        """
+        from heddle.contrib.rag.chunker.sentence_chunker import ChunkConfig, chunk_post
+
+        # Leading whitespace + the duplicated phrase "Hello world" in
+        # two separated paragraphs.  Without offset tracking, the
+        # find-based recovery would have located the wrong occurrence
+        # on at least one chunk.
+        text = "   Hello world. Hello world.\n\nHello world again. Hello world."
+        post = _make_post(text)
+        cfg = ChunkConfig(target_chars=15, max_chars=40, min_chars=5)
+        chunks = chunk_post(post, config=cfg)
+        assert chunks, "expected at least one chunk"
+        for c in chunks:
+            assert text[c.char_start : c.char_end] == c.text, (
+                f"offset slice mismatch for chunk {c.chunk_index}: "
+                f"slice={text[c.char_start : c.char_end]!r}, chunk_text={c.text!r}"
+            )
+
+    def test_offsets_strictly_increasing_without_overlap(self):
+        """Non-overlapping mode: each chunk's start >= prior chunk's end."""
+        from heddle.contrib.rag.chunker.sentence_chunker import ChunkConfig, chunk_post
+
+        text = "First sentence here. Second sentence here.\n\nThird sentence."
+        post = _make_post(text)
+        cfg = ChunkConfig(target_chars=20, max_chars=40, min_chars=5, overlap_chars=0)
+        chunks = chunk_post(post, config=cfg)
+        from itertools import pairwise
+
+        for prev, curr in pairwise(chunks):
+            assert curr.char_start >= prev.char_end, (
+                f"chunk {curr.chunk_index} starts at {curr.char_start} "
+                f"but previous ended at {prev.char_end}"
+            )
