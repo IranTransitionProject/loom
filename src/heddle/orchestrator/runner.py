@@ -54,6 +54,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from dataclasses import dataclass, field
@@ -513,22 +514,42 @@ class OrchestratorActor(BaseActor):
         Each subtask is registered in ``goal_state.dispatched_tasks`` so we
         know which results to expect during collection.
 
-        All subtasks are published concurrently -- the router and workers
-        handle parallelism.  There is no dependency ordering here; the
-        dynamic orchestrator treats all decomposed subtasks as independent.
-        (For sequential dependencies, use PipelineOrchestrator instead.)
+        All subtasks are published concurrently via ``asyncio.gather`` —
+        the dynamic orchestrator treats decomposed subtasks as
+        independent, so the publishes can race.  Earlier this was a
+        serial ``for`` loop whose docstring claimed concurrency; the
+        difference is small on InMemoryBus but real on NATS where each
+        publish is an awaitable round-trip.  ``return_exceptions=True``
+        so one failed publish doesn't drop the remaining subtasks;
+        per-publish failures fall back to the orchestrator's overall
+        timeout / dead-letter handling.
         """
-        for task in subtasks:
+
+        async def _publish_one(task: TaskMessage) -> None:
             goal_state.dispatched_tasks[task.task_id] = task
             await self.publish(
                 "heddle.tasks.incoming",
                 task.model_dump(mode="json"),
             )
+            # ``decomposer_rationale`` is set by the decomposer when
+            # the LLM explained why this subtask was emitted.  Logging
+            # it at dispatch time gives a permanent audit trail —
+            # operator debugging "why did the orchestrator emit this
+            # subtask?" can grep ``orchestrator.dispatched`` for the
+            # task_id and see the reason.  Earlier it survived on the
+            # task message but nothing read it.
             log.info(
                 "orchestrator.dispatched",
                 task_id=task.task_id,
                 worker_type=task.worker_type,
                 model_tier=task.model_tier.value,
+                decomposer_rationale=task.metadata.get("decomposer_rationale"),
+            )
+
+        if subtasks:
+            await asyncio.gather(
+                *(_publish_one(task) for task in subtasks),
+                return_exceptions=True,
             )
 
         log.info(
