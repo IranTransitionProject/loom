@@ -84,7 +84,7 @@ otel = [
     "opentelemetry-exporter-otlp>=1.20.0", # OTLP gRPC exporter
 ]
 tui = [
-    "textual>=3.0.0",                     # Terminal UI framework (Textualize)
+    "textual>=8.2.5",                     # Terminal UI framework (Textualize)
     "nats-py>=2.7.0",                     # Direct NATS subscription for live view
 ]
 docs = [
