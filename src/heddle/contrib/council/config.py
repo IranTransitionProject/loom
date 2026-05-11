@@ -18,14 +18,38 @@ from heddle.contrib.council.schemas import (
     FacilitatorConfig,
 )
 
+# Absolute floor on per-turn timeout — a frontier-tier first-token
+# latency is routinely 1-3s on cold-start, so 5s is the minimum below
+# which a council run cannot reasonably make progress.  Configs that
+# imply a smaller per-turn budget are rejected at load time so the
+# operator finds out before the first task dispatches, not at the
+# first turn's silent timeout.
+_PER_TURN_TIMEOUT_FLOOR_SECONDS: int = 5
+
 
 class CouncilConfig(BaseModel):
-    """Top-level council configuration, loaded from YAML."""
+    """Top-level council configuration, loaded from YAML.
+
+    Two timeouts compose the overall budget:
+
+    - ``timeout_seconds`` — total wall time for the council run.
+    - ``synthesis_timeout_seconds`` — the budget reserved for the
+      facilitator's synthesis call at the end.  Subtracted from the
+      total to compute the per-turn budget.
+
+    Why a separate synthesis budget: the original shape divided
+    ``timeout_seconds`` evenly across ``max_rounds * len(agents)``
+    turns, leaving synthesis unbounded — which masked spurious
+    timeouts (the synthesis could wedge indefinitely on a frontier
+    model) and made per-turn budgeting fragile.  Carving synthesis
+    out makes both halves explicit and bounded.
+    """
 
     name: str
     protocol: str = "round_robin"
     max_rounds: int = 4
     timeout_seconds: int = 600
+    synthesis_timeout_seconds: int = Field(default=60, ge=1)
     convergence: ConvergenceConfig = Field(default_factory=ConvergenceConfig)
     agents: list[AgentConfig] = Field(min_length=2)
     facilitator: FacilitatorConfig = Field(default_factory=FacilitatorConfig)
@@ -54,7 +78,34 @@ class CouncilConfig(BaseModel):
                     )
                     raise ValueError(msg)
 
+        # Synthesis must leave a usable per-turn budget.
+        per_turn_total = self.timeout_seconds - self.synthesis_timeout_seconds
+        turn_count = max(self.max_rounds * len(self.agents), 1)
+        per_turn = per_turn_total / turn_count
+        if per_turn < _PER_TURN_TIMEOUT_FLOOR_SECONDS:
+            msg = (
+                f"Implied per-turn timeout is "
+                f"{per_turn:.1f}s "
+                f"(({self.timeout_seconds} - {self.synthesis_timeout_seconds}) / "
+                f"({self.max_rounds} rounds * {len(self.agents)} agents)), "
+                f"below the {_PER_TURN_TIMEOUT_FLOOR_SECONDS}s floor.  "
+                "Raise timeout_seconds, lower synthesis_timeout_seconds, "
+                "or reduce max_rounds * agents."
+            )
+            raise ValueError(msg)
+
         return self
+
+    def per_turn_timeout(self) -> float:
+        """Compute the per-turn timeout in seconds.
+
+        Centralised so the orchestrator and any future caller agree on
+        the formula.  Subtracts ``synthesis_timeout_seconds`` from the
+        total budget and divides across rounds * agents.
+        """
+        return (self.timeout_seconds - self.synthesis_timeout_seconds) / max(
+            self.max_rounds * len(self.agents), 1
+        )
 
 
 def load_council_config(path: str | Path) -> CouncilConfig:
@@ -106,5 +157,31 @@ def validate_council_config(raw: dict[str, Any]) -> list[str]:
                 f"convergence.method must be one of "
                 f"'llm_judge', 'position_stability', 'none'; got '{method}'"
             )
+
+    # Timeout sanity: synthesis must leave a usable per-turn budget.
+    # Re-check here so callers using ``validate_council_config`` (e.g.
+    # the smoke test in ``tests/test_examples_smoke.py``) catch the
+    # same gotcha that ``CouncilConfig.model_validator`` raises on load.
+    timeout_seconds = raw.get("timeout_seconds", 600)
+    synthesis_timeout_seconds = raw.get("synthesis_timeout_seconds", 60)
+    max_rounds = raw.get("max_rounds", 4)
+    if (
+        isinstance(timeout_seconds, int)
+        and isinstance(synthesis_timeout_seconds, int)
+        and isinstance(max_rounds, int)
+        and isinstance(agents, list)
+        and len(agents) >= 1
+    ):
+        if synthesis_timeout_seconds < 1:
+            errors.append("synthesis_timeout_seconds must be >= 1")
+        else:
+            per_turn_total = timeout_seconds - synthesis_timeout_seconds
+            turn_count = max(max_rounds * len(agents), 1)
+            per_turn = per_turn_total / turn_count
+            if per_turn < _PER_TURN_TIMEOUT_FLOOR_SECONDS:
+                errors.append(
+                    f"Implied per-turn timeout is {per_turn:.1f}s, "
+                    f"below the {_PER_TURN_TIMEOUT_FLOOR_SECONDS}s floor"
+                )
 
     return errors

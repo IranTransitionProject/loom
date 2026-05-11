@@ -15,6 +15,7 @@ for NATS subscription, result waiting, and final result publishing.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from datetime import UTC, datetime
@@ -109,7 +110,11 @@ class CouncilOrchestrator(BaseActor):
         converged = False
         convergence_score: float | None = None
         rounds_completed = 0
-        per_turn_timeout = cfg.timeout_seconds / max(cfg.max_rounds * len(cfg.agents), 1)
+        # Per-turn budget excludes the reserved synthesis window.
+        # See ``CouncilConfig.per_turn_timeout`` and
+        # ``_PER_TURN_TIMEOUT_FLOOR_SECONDS`` for the rationale; config
+        # load rejects values that would force per_turn below the floor.
+        per_turn_timeout = cfg.per_turn_timeout()
 
         try:
             for round_num in range(1, cfg.max_rounds + 1):
@@ -189,9 +194,23 @@ class CouncilOrchestrator(BaseActor):
                         converged = True
                         break
 
-            # Facilitator synthesis.
+            # Facilitator synthesis.  Bounded by
+            # ``synthesis_timeout_seconds`` so a wedged backend cannot
+            # leave the council without ever publishing a final result.
+            # See ``CouncilConfig.synthesis_timeout_seconds`` for the
+            # split between turn budget and synthesis budget.
             with _tracer.start_as_current_span("council.synthesis"):
-                synthesis = await self._synthesize(cfg, transcript, topic, total_tokens)
+                try:
+                    synthesis = await asyncio.wait_for(
+                        self._synthesize(cfg, transcript, topic, total_tokens),
+                        timeout=cfg.synthesis_timeout_seconds,
+                    )
+                except TimeoutError:
+                    log.warning(
+                        "council.synthesis.timeout",
+                        timeout_seconds=cfg.synthesis_timeout_seconds,
+                    )
+                    synthesis = f"[Synthesis timed out after {cfg.synthesis_timeout_seconds}s]"
 
             elapsed = int((time.monotonic() - start) * 1000)
             log.info(

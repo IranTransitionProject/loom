@@ -35,11 +35,17 @@ def _write_yaml(data: dict) -> str:
 
 
 def _council_config(max_rounds=2, convergence_method="none"):
+    # ``timeout_seconds`` and ``synthesis_timeout_seconds`` are sized
+    # to pass the per-turn-floor validation (K3 / commit msg):
+    # (120 - 20) / (max_rounds * 2 agents) >= 5s for max_rounds <= 10.
+    # The wall-clock values don't matter under mocked workers, but
+    # the implied per-turn budget must clear the 5s floor.
     return {
         "name": "test_council",
         "protocol": "round_robin",
         "max_rounds": max_rounds,
-        "timeout_seconds": 10,
+        "timeout_seconds": 120,
+        "synthesis_timeout_seconds": 20,
         "convergence": {"method": convergence_method, "threshold": 0.9},
         "agents": [
             {
@@ -76,13 +82,27 @@ class MockFacilitatorBackend(LLMBackend):
         }
 
 
-async def _simulate_worker(bus: InMemoryBus, respond_to_n: int = 10) -> None:
+async def _simulate_worker(
+    bus: InMemoryBus,
+    respond_to_n: int = 10,
+    ready: asyncio.Event | None = None,
+) -> None:
     """Subscribe to heddle.tasks.incoming and respond with mock results.
 
     Simulates the router+worker path: reads TaskMessage from incoming,
     publishes TaskResult to the appropriate result subject.
+
+    If ``ready`` is provided, it is ``set()`` once the subscription is
+    live so the caller can wait for subscribe-before-publish ordering
+    (Design Invariant 17).  Without this, a fast orchestrator
+    dispatches before the worker subscribes, the result is dropped,
+    and the test waits the per-turn timeout for nothing.  K3's 5s
+    per-turn floor amplified this latent race into a 25s-per-turn
+    test slowdown.
     """
     sub = await bus.subscribe("heddle.tasks.incoming")
+    if ready is not None:
+        ready.set()
     count = 0
     async for data in sub:
         parent_id = data.get("parent_task_id", "default")
@@ -151,7 +171,12 @@ class TestCouncilOrchestrator:
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
         # 2 agents * 2 rounds = 4 worker responses needed.
-        worker_task = asyncio.create_task(_simulate_worker(bus, respond_to_n=4))
+        # Subscribe-before-publish (Invariant 17): wait for the worker
+        # task to confirm its subscription is live before the
+        # orchestrator dispatches.
+        ready = asyncio.Event()
+        worker_task = asyncio.create_task(_simulate_worker(bus, respond_to_n=4, ready=ready))
+        await ready.wait()
 
         # Run the orchestrator's message handler directly.
         await orch.handle_message(goal_data)
@@ -190,7 +215,9 @@ class TestCouncilOrchestrator:
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
         # Provide enough responses for up to 5 rounds (but expect early stop).
-        worker_task = asyncio.create_task(_simulate_worker(bus, respond_to_n=10))
+        ready = asyncio.Event()
+        worker_task = asyncio.create_task(_simulate_worker(bus, respond_to_n=10, ready=ready))
+        await ready.wait()
 
         await orch.handle_message(goal.model_dump(mode="json"))
 
@@ -204,14 +231,35 @@ class TestCouncilOrchestrator:
         worker_task.cancel()
         await bus.close()
 
-    async def test_worker_timeout_produces_error_entry(self):
-        """When a worker doesn't respond, the transcript notes the timeout."""
+    async def test_worker_timeout_produces_error_entry(self, monkeypatch):
+        """When a worker doesn't respond, the transcript notes the timeout.
+
+        Originally configured a sub-second ``timeout_seconds`` so the
+        per-turn wait would fire fast.  K3 introduced a 5s floor on
+        per-turn budget, which would make this test wait 5s * 2 agents
+        before the final result fires — a 10x slowdown for a behaviour
+        test that doesn't need real timing.
+
+        Patches ``dispatch_and_wait_for_result`` to return ``None``
+        immediately (the signature for "no worker responded") so the
+        transcript exercises the timeout-noted-in-entry path without
+        depending on wall-clock.
+        """
         bus = InMemoryBus()
         await bus.connect()
 
-        config = _council_config(max_rounds=1)
-        config["timeout_seconds"] = 1  # Very short timeout
-        config_path = _write_yaml(config)
+        # Patch the dispatch helper to simulate worker non-response
+        # without paying the per-turn wait.  Module-level patch covers
+        # both ``orchestrator.dispatch_and_wait_for_result`` imports.
+        async def _fake_dispatch(*args, **kwargs):
+            return None
+
+        monkeypatch.setattr(
+            "heddle.contrib.council.orchestrator.dispatch_and_wait_for_result",
+            _fake_dispatch,
+        )
+
+        config_path = _write_yaml(_council_config(max_rounds=1))
         backend = MockFacilitatorBackend()
 
         orch = CouncilOrchestrator(
@@ -224,7 +272,6 @@ class TestCouncilOrchestrator:
         goal = OrchestratorGoal(instruction="Test timeout")
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        # Don't start any workers — all dispatches will timeout.
         await orch.handle_message(goal.model_dump(mode="json"))
 
         final = await _get_final_result(result_sub, goal.goal_id)
@@ -253,9 +300,14 @@ class TestCouncilOrchestrator:
         goal = OrchestratorGoal(instruction="Test failure")
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        # Simulate a worker that returns FAILED.
+        # Simulate a worker that returns FAILED.  Signals readiness
+        # before consuming so the test waits for subscribe-before-publish
+        # (Invariant 17) rather than relying on per-turn timeout slack.
+        worker_ready = asyncio.Event()
+
         async def _failing_worker():
             sub = await bus.subscribe("heddle.tasks.incoming")
+            worker_ready.set()
             count = 0
             async for data in sub:
                 parent_id = data.get("parent_task_id", "default")
@@ -279,6 +331,7 @@ class TestCouncilOrchestrator:
                     break
 
         worker_task = asyncio.create_task(_failing_worker())
+        await worker_ready.wait()
         await orch.handle_message(goal.model_dump(mode="json"))
 
         final = await _get_final_result(result_sub, goal.goal_id)
@@ -304,7 +357,9 @@ class TestCouncilOrchestrator:
 
         goal = OrchestratorGoal(instruction="Test subject")
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
-        worker_task = asyncio.create_task(_simulate_worker(bus, respond_to_n=2))
+        ready = asyncio.Event()
+        worker_task = asyncio.create_task(_simulate_worker(bus, respond_to_n=2, ready=ready))
+        await ready.wait()
 
         await orch.handle_message(goal.model_dump(mode="json"))
 

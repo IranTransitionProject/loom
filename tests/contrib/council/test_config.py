@@ -80,6 +80,66 @@ class TestCouncilConfig:
         assert cfg.agents[0].sees_transcript_from == ["a2"]
 
 
+class TestCouncilTimeouts:
+    """Timeout-related config invariants — synthesis budget + per-turn floor."""
+
+    def test_synthesis_timeout_default(self):
+        cfg = CouncilConfig(**_minimal_config())
+        assert cfg.synthesis_timeout_seconds == 60
+
+    def test_synthesis_timeout_must_be_positive(self):
+        with pytest.raises(ValidationError):
+            CouncilConfig(**_minimal_config(synthesis_timeout_seconds=0))
+
+    def test_per_turn_timeout_excludes_synthesis_budget(self):
+        """``per_turn_timeout`` subtracts synthesis_timeout_seconds from total.
+
+        Pins the formula so a future contributor changing
+        ``per_turn_timeout`` keeps the synthesis carve-out — without it,
+        the K3 fix dissolves and per-turn budgets silently include
+        synthesis again.
+        """
+        cfg = CouncilConfig(
+            **_minimal_config(
+                timeout_seconds=600,
+                synthesis_timeout_seconds=60,
+                max_rounds=2,
+                # 2 agents per _minimal_config()
+            )
+        )
+        # (600 - 60) / (2 * 2) = 135s per turn.
+        assert cfg.per_turn_timeout() == 135.0
+
+    def test_implied_per_turn_below_floor_rejected(self):
+        """5s floor on per-turn budget — frontier first-token latency
+        is routinely 1-3s on cold-start, so 5s is the minimum below
+        which a council run cannot reasonably make progress.
+
+        Configures a 60s total with a 50s synthesis budget across 2
+        rounds * 2 agents = 4 turns: per_turn = 10/4 = 2.5s -> reject.
+        """
+        with pytest.raises(ValidationError, match=r"below the .*floor"):
+            CouncilConfig(
+                **_minimal_config(
+                    timeout_seconds=60,
+                    synthesis_timeout_seconds=50,
+                    max_rounds=2,
+                )
+            )
+
+    def test_floor_exactly_5s_accepted(self):
+        """Exactly 5s/turn is at the floor and should pass."""
+        cfg = CouncilConfig(
+            **_minimal_config(
+                timeout_seconds=80,
+                synthesis_timeout_seconds=40,
+                max_rounds=2,
+                # 2 agents, 2 rounds → 4 turns → (80-40)/4 = 10s
+            )
+        )
+        assert cfg.per_turn_timeout() == 10.0
+
+
 class TestLoadCouncilConfig:
     def test_load_valid_yaml(self):
         raw = _minimal_config()
@@ -127,3 +187,24 @@ class TestValidateCouncilConfig:
 
     def test_not_dict(self):
         assert validate_council_config("not a dict") == ["Config must be a dict"]
+
+    def test_validate_per_turn_floor(self):
+        """``validate_council_config`` flags the same per-turn floor that
+        ``CouncilConfig.model_validator`` raises on load.
+
+        Both paths matter: the model validator catches eager loaders
+        (e.g. ``load_council_config``); the dict-validator catches the
+        smoke-test path that runs every example config through it.
+        """
+        errors = validate_council_config(
+            _minimal_config(
+                timeout_seconds=60,
+                synthesis_timeout_seconds=50,
+                max_rounds=2,
+            )
+        )
+        assert any("below the" in e and "floor" in e for e in errors), errors
+
+    def test_validate_synthesis_timeout_must_be_positive(self):
+        errors = validate_council_config(_minimal_config(synthesis_timeout_seconds=0))
+        assert any("synthesis_timeout_seconds" in e for e in errors), errors
