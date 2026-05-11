@@ -18,11 +18,17 @@ vector similarity in a single embedded database.
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..schemas.embedding import EmbeddedChunk, SimilarityResult
 from .base import VectorStore
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
+
 
 if TYPE_CHECKING:
     from ..schemas.chunk import TextChunk
@@ -324,10 +330,20 @@ class DuckDBVectorStore(VectorStore):
         return row[0] if row else 0
 
     def get(self, chunk_id: str) -> EmbeddedChunk | None:
-        """Retrieve a single embedded chunk by ID."""
+        """Retrieve a single embedded chunk by ID.
+
+        Returns every column the row stores — earlier this method
+        selected seven columns and silently dropped
+        ``source_channel_name``, ``chunk_index``, ``total_chunks``,
+        ``strategy``, ``timestamp_unix``, and ``embedded_at`` so any
+        consumer that round-tripped a chunk through ``get`` saw
+        defaults in those positions.
+        """
         row = self._conn.execute(
             f"""SELECT chunk_id, source_global_id, source_channel_id,
-                       text, embedding, embedding_model, embedding_dim
+                       source_channel_name, text, embedding, embedding_model,
+                       embedding_dim, chunk_index, total_chunks, strategy,
+                       timestamp_unix, embedded_at
                 FROM {self.TABLE_NAME} WHERE chunk_id = ?""",
             [chunk_id],
         ).fetchone()
@@ -339,10 +355,16 @@ class DuckDBVectorStore(VectorStore):
             chunk_id=row[0],
             source_global_id=row[1],
             source_channel_id=row[2],
-            text=row[3],
-            embedding=list(row[4]) if row[4] else [],
-            model=row[5] or "",
-            dimensions=row[6] or 0,
+            source_channel_name=row[3] or "",
+            text=row[4],
+            embedding=list(row[5]) if row[5] else [],
+            model=row[6] or "",
+            dimensions=row[7] or 0,
+            chunk_index=row[8] or 0,
+            total_chunks=row[9] or 1,
+            strategy=row[10] or "sentence",
+            timestamp_unix=row[11] or 0,
+            embedded_at=row[12] if row[12] is not None else _utcnow(),
         )
 
     def delete(self, chunk_id: str) -> bool:

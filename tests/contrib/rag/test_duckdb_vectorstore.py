@@ -160,6 +160,51 @@ class TestGetDelete:
     def test_get_nonexistent(self, store):
         assert store.get("nonexistent") is None
 
+    def test_get_returns_full_chunk_with_provenance(self, store):
+        """Pin C5a: ``get`` returns every stored column, not a truncated subset.
+
+        Earlier ``get`` selected only ``chunk_id``, ``source_global_id``,
+        ``source_channel_id``, ``text``, ``embedding``, ``model``, and
+        ``dimensions`` — silently dropping ``source_channel_name``,
+        ``chunk_index``, ``total_chunks``, ``strategy``,
+        ``timestamp_unix``, and ``embedded_at``.  Consumers that round-
+        tripped a chunk through ``get`` saw schema defaults.
+        """
+        chunk = TextChunk(
+            chunk_id="full_chunk",
+            source_global_id="post_42",
+            source_channel_id=999,
+            source_channel_name="MyChannel",
+            text="Round-trip provenance check.",
+            char_start=10,
+            char_end=37,
+            chunk_index=3,
+            total_chunks=7,
+            strategy=ChunkStrategy.SENTENCE,
+            timestamp_unix=1740000000,
+        )
+
+        # Patch the embedder at the store-level (``_get_embedder``)
+        # to avoid the Ollama dependency in unit tests.
+        class _FakeEmbedder:
+            def embed_batch_sync(self, texts):
+                return _fake_embeddings(list(texts))
+
+        with patch.object(store, "_get_embedder", return_value=_FakeEmbedder()):
+            store.add_chunks([chunk])
+
+        got = store.get("full_chunk")
+        assert got is not None
+        assert got.chunk_id == "full_chunk"
+        assert got.source_global_id == "post_42"
+        # The dropped-then-restored fields all come back populated.
+        assert got.source_channel_name == "MyChannel"
+        assert got.chunk_index == 3
+        assert got.total_chunks == 7
+        assert got.strategy == "sentence"
+        assert got.timestamp_unix == 1740000000
+        assert got.embedded_at is not None
+
     def test_delete_existing(self, store):
         store.add_embedded_chunks([_make_embedded_chunk("ec1")])
         assert store.delete("ec1") is True

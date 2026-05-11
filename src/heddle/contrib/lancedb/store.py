@@ -379,7 +379,16 @@ class LanceDBVectorStore(VectorStore):
         return before - self._table.count_rows()
 
     def stats(self) -> dict[str, Any]:
-        """Return summary statistics about the store."""
+        """Return summary statistics about the store.
+
+        Earlier ``to_pandas()`` on the full table OOM'd on large
+        stores (a 10M-chunk LanceDB table with 768-dim float32
+        vectors is ~30 GB once materialised).  We now project to
+        scalar columns only via ``search().select(...).to_list()``
+        so the ``vector`` column is never copied out of LanceDB.
+        Falls back to a row count if even the projected scan
+        fails (e.g. backend doesn't support the API combination).
+        """
         if self._table is None:
             return {"total_chunks": 0}
 
@@ -388,14 +397,36 @@ class LanceDBVectorStore(VectorStore):
             if total == 0:
                 return {"total_chunks": 0}
 
-            # Get basic stats via pandas for aggregate queries
-            df = self._table.to_pandas()
+            # Project only the cheap scalar columns.  The
+            # ``search()`` API is the vector-similarity entry point;
+            # called without a vector query it scans the table, and
+            # ``select`` constrains the columns LanceDB materialises.
+            rows = (
+                self._table.search()
+                .select(["source_global_id", "source_channel_id", "timestamp_unix"])
+                .limit(total)
+                .to_list()
+            )
+
+            unique_posts: set[str] = set()
+            unique_channels: set[int] = set()
+            earliest = None
+            latest = None
+            for row in rows:
+                unique_posts.add(row["source_global_id"])
+                unique_channels.add(row["source_channel_id"])
+                ts = row["timestamp_unix"]
+                if earliest is None or ts < earliest:
+                    earliest = ts
+                if latest is None or ts > latest:
+                    latest = ts
+
             return {
                 "total_chunks": total,
-                "unique_posts": df["source_global_id"].nunique(),
-                "unique_channels": df["source_channel_id"].nunique(),
-                "earliest_timestamp": int(df["timestamp_unix"].min()),
-                "latest_timestamp": int(df["timestamp_unix"].max()),
+                "unique_posts": len(unique_posts),
+                "unique_channels": len(unique_channels),
+                "earliest_timestamp": int(earliest) if earliest is not None else 0,
+                "latest_timestamp": int(latest) if latest is not None else 0,
                 "db_path": str(self.db_path),
             }
         except Exception as exc:
