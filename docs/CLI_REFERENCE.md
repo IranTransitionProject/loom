@@ -312,6 +312,14 @@ Example:
 heddle submit "Process document" --context file_ref=test.pdf --context lang=en
 ```
 
+!!! warning "`--context` values are not redacted"
+    Anything passed to `--context` flows into the NATS message that
+    workers see, and may end up in actor logs, dead-letter entries,
+    and eval-result rows. Treat values the same way you'd treat
+    anything written to stdout — don't put secrets (API keys,
+    tokens, passwords) on the command line. Use env-var
+    references in the worker config or knowledge silos instead.
+
 ---
 
 ## UI & Discovery Commands
@@ -330,8 +338,30 @@ heddle workshop [OPTIONS]
 | `--host` | `127.0.0.1` | Bind address |
 | `--configs-dir` | `configs/` | Directory of worker configs |
 | `--db-path` | `~/.heddle/workshop.duckdb` | Workshop database |
-| `--nats-url` | *(none)* | Optional NATS URL for live status |
+| `--nats-url` | *(none)* | Optional NATS URL for dead-letter inbox and reload broadcast |
 | `--apps-dir` | `~/.heddle/apps` | Custom apps directory |
+
+#### Workshop security
+
+The Workshop binds to `127.0.0.1` by default and ships with no auth —
+appropriate for a developer dashboard on a single workstation. Before
+exposing it on a non-loopback address (`--host 0.0.0.0`, a LAN IP, a
+container's external interface), set `HEDDLE_WORKSHOP_TOKEN` so every
+mutating request requires the token via `Authorization: Bearer` or
+the session cookie:
+
+```bash
+export HEDDLE_WORKSHOP_TOKEN="$(openssl rand -hex 32)"
+heddle workshop --host 0.0.0.0 --port 8080
+```
+
+A non-loopback bind without `HEDDLE_WORKSHOP_TOKEN` is a P1
+misconfiguration. The CLI emits a `workshop.insecure_bind` warning at
+startup; the operator must fix it before the process is reachable from
+the network. See [`SECURITY_MODEL.md`](SECURITY_MODEL.md) §2 for the
+full trust model and the
+[`runbooks/deploy-workshop-safely.md`](runbooks/deploy-workshop-safely.md)
+checklist for the deploy flow.
 
 ### heddle ui
 

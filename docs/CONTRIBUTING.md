@@ -31,7 +31,7 @@ accept copyleft terms, while keeping the public license open for everyone else.
 The CLA bot will prompt you automatically when you open your first pull request.
 Sign electronically in that flow. It takes under a minute.
 
-If you have questions about the CLA before contributing, contact: <admin@irantransitionproject.org>
+If you have questions about the CLA before contributing, contact: <admin@getheddle.dev>
 
 ---
 
@@ -137,4 +137,4 @@ messages, stateless workers, validated I/O contracts, and test coverage.
 
 ## Contact
 
-<admin@irantransitionproject.org>
+<admin@getheddle.dev>

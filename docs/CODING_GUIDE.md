@@ -286,7 +286,7 @@ class PipelineOrchestrator(BaseActor):
 
 ### Docstring format
 
-Use **Google-style** docstrings (compatible with Sphinx `napoleon` extension):
+Use **Google-style** docstrings (rendered via mkdocstrings):
 
 ```python
 async def call_worker(
@@ -341,8 +341,10 @@ async def call_worker(
   non-obvious choice.
 - **Gotchas and edge cases** — especially Python quirks (e.g., `bool` is a
   subclass of `int`).
-- **TODO markers** — use `# TODO: Strategy X — ...` for planned future work.
-  Reference the strategy letter from CLAUDE.md so the item is traceable.
+- **TODO markers** — use `# TODO(scope): ...` for planned future work,
+  where `scope` is a short tag (issue number, review section, or feature
+  name) that lets the next reader trace it back to the source review or
+  tracking issue.
 - **Performance notes** — if code is written a certain way for performance,
   say so.
 
@@ -548,8 +550,9 @@ not gate per package, so these are enforced by review, not CI):
 
 A package below its floor is a release blocker unless explicitly
 waived in the PR description. Today `core/` sits at ~94% — the delta
-is concentrated in `core/config.py`; lifting it is queued for the
-centralization refactor (session I).
+is concentrated in `core/config.py`; lifting it is queued as part of
+the ongoing core/contracts hardening work tracked in the repository
+review reports.
 
 Use `# pragma: no cover` only for truly unreachable code (e.g.,
 `if __name__ == "__main__"` guards, `TYPE_CHECKING` blocks).

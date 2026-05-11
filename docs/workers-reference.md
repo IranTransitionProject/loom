@@ -269,6 +269,24 @@ provides background on what the content should achieve. Only issues above
 
 ---
 
+## RAG Workers (`contrib/rag`)
+
+The RAG pipeline ships with six processor workers for ingestion,
+mux, chunking, embedding, vector storage, and trend analysis.
+They aren't generic LLM workers — they wrap ``SyncProcessingBackend``
+classes — but they show up as workers in deployed apps and pipelines:
+
+- `rag_ingestor`, `rag_mux`, `rag_chunker`,
+- `rag_vectorstore` (DuckDB) / `rag_vectorstore_lance` (LanceDB), and
+- `rag_trend_analyzer`.
+
+For their I/O contracts, config keys, and end-to-end pipeline
+examples see [`rag-howto.md`](rag-howto.md) — the full RAG how-to
+documents every shipped worker plus the ``VectorStoreBackend``
+configuration knobs (`embedding_model`, `ollama_url`, `db_path`).
+
+---
+
 ## Document Processing (`contrib/docproc`)
 
 Three extraction backends for PDF, DOCX, and other document formats. All

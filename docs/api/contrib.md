@@ -7,6 +7,7 @@ capabilities. Each module requires its own optional dependency extra.
 |--------|-------|---------|
 | `contrib.council` | `council` | Multi-round agent deliberation framework |
 | `contrib.chatbridge` | `chatbridge` | External chat/LLM session adapters |
+| `contrib.docproc` | `docproc` | Document extraction backends (PDF / DOCX / Markdown) |
 | `contrib.duckdb` | `duckdb` | Embedded analytics and vector search |
 | `contrib.lancedb` | `lancedb` | ANN vector search via LanceDB |
 | `contrib.redis` | `redis` | Production checkpoint persistence |
@@ -100,3 +101,17 @@ datasets. Implements the `VectorStore` ABC.
 Semantic similarity search via LanceDB, exposed as an LLM tool.
 
 ::: heddle.contrib.lancedb.tool
+
+## Document Processing — Extractors
+
+Pluggable extractors for PDF / DOCX / Markdown / HTML inputs. All backends
+produce the same `ExtractorOutput` so downstream pipeline stages don't
+need to know which engine ran.
+
+::: heddle.contrib.docproc.contracts
+    options:
+      members: [ExtractorInput, ExtractorOutput]
+
+::: heddle.contrib.docproc.markitdown_backend
+
+::: heddle.contrib.docproc.docling_backend

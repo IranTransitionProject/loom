@@ -655,3 +655,27 @@ This is disabled by default to avoid storing sensitive data in your tracing back
 | `gen_ai.usage.output_tokens` | Completion token count |
 | `gen_ai.request.temperature` | Sampling temperature |
 | `gen_ai.request.max_tokens` | Max output tokens requested |
+
+---
+
+## ChatBridge horizontal scaling: split-brain sessions
+
+**Symptom:** Multi-turn conversations through a ChatBridge worker
+"lose" earlier turns under load — the next turn for the same
+session appears to start from scratch, or the model gets confused
+because half the history is missing.
+
+**Cause:** ChatBridge sessions
+(`heddle.contrib.chatbridge.base._Session`) live in the bridge
+instance's in-memory `bridge._sessions` dict. Each worker replica
+constructs its own bridge instance, so a follow-up turn that the
+router sends to a different replica sees an empty session.
+``Invariant 32`` exempts ChatBridge from worker statelessness for
+exactly this reason — sessions are *intended* state — but routing
+must keep the same session on the same replica.
+
+**Fix:** Deploy ChatBridge workers with `replicas=1`, or front the
+worker queue with a session-affinity load balancer that hashes on
+`session_id`. See [`BLIND_AUDIT.md`](BLIND_AUDIT.md) for the
+broader invariant and `Invariant 32` in
+[`DESIGN_INVARIANTS.md`](DESIGN_INVARIANTS.md).

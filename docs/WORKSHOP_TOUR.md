@@ -165,6 +165,40 @@ that include worker configs, pipeline configs, and data files.
 **When to use it:** When you receive a pre-packaged Heddle application from
 someone else and want to deploy it locally.
 
+### Deploy preview
+
+Browser deploys land on a confirmation page that lists every powerful
+field the bundle's configs reference: subprocess backends, knowledge
+silos, workspace dirs, MCP bindings, environment variables. Nothing
+extracts onto disk until you click **Confirm Deploy**; Cancel discards
+the staged ZIP. CI / scripted deploys that have audited the bundle
+out-of-band can use the `?auto_approve=1` query parameter to skip the
+preview. See
+[`runbooks/deploy-workshop-safely.md`](runbooks/deploy-workshop-safely.md)
+for the operator checklist.
+
+---
+
+## Dead Letters
+
+**What you see:** A table of dead-letter entries — tasks the router
+could not deliver because no worker subscribed to their tier/type,
+or because the rate limiter rejected the dispatch.
+
+**What you can do:**
+
+- Inspect each entry's original task payload and dead-letter reason.
+- Click **Replay** to re-publish a single entry to
+  `heddle.tasks.incoming` (so the router gets a second chance).
+- **Clear All** to drop every entry from the buffer.
+
+The replay audit log keeps a record of every replay attempt, including
+the original reason, so post-incident debugging is straightforward.
+The interpretation flow lives in
+[`runbooks/interpret-dead-letters.md`](runbooks/interpret-dead-letters.md)
+(once a NATS bus is wired in via `--nats-url`, the panel shows live
+traffic; without it the panel is empty by design).
+
 ---
 
 ## What's Next

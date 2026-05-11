@@ -176,7 +176,7 @@ Start here:
 | **[Why Heddle?](docs/WHY_HEDDLE.md)** | How Heddle compares to other frameworks — and when not to use it |
 | **[Workshop Tour](docs/WORKSHOP_TOUR.md)** | What each Workshop screen does and when to use it |
 | **[Configuration](docs/CONFIG.md)** | `~/.heddle/config.yaml` reference and priority chain |
-| **[CLI Reference](docs/CLI_REFERENCE.md)** | All 17 commands with every flag and default |
+| **[CLI Reference](docs/CLI_REFERENCE.md)** | Every CLI command with every flag and default |
 | **[Workers Reference](docs/workers-reference.md)** | 6 shipped workers with I/O schemas and examples |
 
 Tutorials (step-by-step, phased examples in the repo):

@@ -444,7 +444,7 @@ from heddle.contrib.rag.analysis.llm_analyzers import (
 # LLM backend (auto-routes by model prefix)
 backend = LLMBackend(
     model="ollama:llama3.2:3b",           # local via Ollama
-    # model="anthropic:claude-sonnet-4-6",   # cloud via Anthropic
+    # model="anthropic:claude-sonnet-4-20250514",   # cloud via Anthropic
 )
 
 # Trend analysis

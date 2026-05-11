@@ -398,6 +398,6 @@ final report that incorporates the reviewer's concerns.
 - **[Why Heddle?](WHY_HEDDLE.md)** — how the blind audit pattern fits into
   Heddle's input-layer approach
 - **[Design Invariants](DESIGN_INVARIANTS.md)** — architectural rules
-  for knowledge isolation (invariants 17-19)
+  for knowledge isolation (Part II, invariants 18-27)
 - **[Workers Reference](workers-reference.md)** — the shipped `reviewer`
   worker is a generalized version of this pattern

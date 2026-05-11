@@ -2,7 +2,7 @@
 
 **Heddle — Config-driven multi-LLM workflows**
 **Effective:** 2026
-**Contact:** admin@irantransitionproject.org
+**Contact:** admin@getheddle.dev
 
 ---
 
@@ -26,11 +26,12 @@ leadership review.
 |------|--------|-------|
 | Founder / Copyright Holder | Hooman (hooman@mac.com) | Full authority while active |
 | GitHub Org Owner | IranTransitionProject org | Administrative control |
-| Co-owner (succession backup) | To be designated | Prevents single-point-of-failure |
+| Co-owner (succession backup) | To be designated <!-- TODO(governance): designate before the next signed release per the "not optional" rule below --> | Prevents single-point-of-failure |
 
 **A designated co-owner with GitHub org Owner rights must be in place at all times.**
 This is not optional. A project with one owner has no succession — it has a
-single point of failure.
+single point of failure. **Status (2026-05-11):** governance debt — the
+co-owner slot is unfilled. Designation is on the next-release punch list.
 
 ---
 

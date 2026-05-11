@@ -105,7 +105,7 @@ A FastAPI lifespan context manager starts/stops mDNS advertisement when the
 ```text
 src/heddle/workshop/
 ├── __init__.py           # Package docstring only
-├── app.py                # FastAPI app factory (create_app), 34 route handlers, mDNS lifespan
+├── app.py                # FastAPI app factory (create_app), 36 route handlers, mDNS lifespan
 ├── app_manager.py        # AppManager — ZIP deploy, list, remove app bundles
 ├── test_runner.py        # WorkerTestRunner — single-payload LLM execution
 ├── eval_runner.py        # EvalRunner — batch test suite with scoring
@@ -337,6 +337,8 @@ when a baseline exists. `remove_baseline(worker_name)` clears the baseline.
 |--------|------|---------|----------|-------------|
 | GET | `/` | `root` | — | Redirect to `/workers` |
 | GET | `/health` | `health` | — | JSON: `{status, backends}` |
+| GET | `/login` | `login_form` | inline HTML | Token bootstrap form (404 when `HEDDLE_WORKSHOP_TOKEN` is unset) |
+| POST | `/login` | `login_submit` | — | Validate token from form body, set cookie (redirect 303) |
 | GET | `/workers` | `workers_list` | `workers/list.html` | Worker table |
 | GET | `/workers/{name}` | `worker_detail` | `workers/detail.html` | Config editor + version history |
 | POST | `/workers/{name}` | `worker_save` | — | Save edited YAML (redirect 303) |
