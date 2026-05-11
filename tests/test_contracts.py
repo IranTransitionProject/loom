@@ -77,3 +77,38 @@ def test_number_type_check():
 
     errors = validate_input({"score": "high"}, schema)
     assert any("expected number" in e for e in errors)
+
+
+def test_uncovered_keyword_warns_once(capsys):
+    """G8: schemas using oneOf/allOf/anyOf/$ref without ``type`` warn.
+
+    Heddle's shallow validator does not interpret those keywords;
+    a schema relying on them without a top-level ``type`` silently
+    accepts every payload — operators expecting strict enforcement
+    get an open-world contract.  The warning fires once per
+    (schema, keyword) pair so logs don't flood.
+    """
+    from heddle.core.contracts import _warned_schemas
+
+    _warned_schemas.clear()
+
+    schema = {"oneOf": [{"type": "object"}, {"type": "array"}]}
+    # First call → warn (structlog renders to stdout).
+    validate_input({"anything": 1}, schema)
+    out = capsys.readouterr().out
+    assert "schema.uncovered_keyword" in out
+    assert "oneOf" in out
+    # Second call with the same schema → no new warning.
+    validate_input({"anything": 2}, schema)
+    out = capsys.readouterr().out
+    assert "schema.uncovered_keyword" not in out
+
+
+def test_uncovered_keyword_silent_when_type_present():
+    """If the schema already has ``type``, the keyword is consulted as-is."""
+    from heddle.core.contracts import _warned_schemas
+
+    _warned_schemas.clear()
+    schema = {"type": "object", "oneOf": [{"required": ["a"]}]}
+    # Just confirm no AttributeError / KeyError; no warning expected.
+    validate_input({"a": 1}, schema)

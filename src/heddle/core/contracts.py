@@ -20,6 +20,49 @@ from __future__ import annotations
 
 from typing import Any
 
+import structlog
+
+logger = structlog.get_logger()
+
+# Schemas Heddle's shallow validator does not interpret.  When a
+# schema relies on these without a sibling ``type`` the validator
+# silently accepts anything — operators expecting strict
+# enforcement get an open-world contract.  We warn ONCE per
+# (schema_id, missing_keyword) pair so the misconfiguration is
+# visible without flooding logs.
+_UNCOVERED_KEYWORDS: tuple[str, ...] = ("$ref", "allOf", "oneOf", "anyOf")
+_warned_schemas: set[tuple[int, str]] = set()
+
+
+def _check_uncovered_keywords(schema: dict[str, Any], context: str) -> None:
+    """Log a one-time WARN when a schema uses keywords this validator skips.
+
+    Only fires when the schema relies on the uncovered keyword *and*
+    has no top-level ``type`` — i.e. validation would silently pass
+    everything.  Set ``HEDDLE_STRICT_SCHEMAS=1`` to also raise (off
+    by default to keep backwards-compat while operators audit).
+    """
+    if schema.get("type"):
+        return
+    for keyword in _UNCOVERED_KEYWORDS:
+        if keyword in schema:
+            key = (id(schema), keyword)
+            if key in _warned_schemas:
+                return
+            _warned_schemas.add(key)
+            logger.warning(
+                "schema.uncovered_keyword",
+                context=context,
+                keyword=keyword,
+                hint=(
+                    "Heddle's shallow validator does not interpret "
+                    f"{keyword}; any payload will pass validation.  "
+                    "Add a top-level ``type`` or migrate to a full "
+                    "jsonschema validator."
+                ),
+            )
+            return
+
 
 def validate_input(data: dict[str, Any], schema: dict) -> list[str]:
     """Validate a task's input payload against the worker's input_schema.
@@ -47,6 +90,8 @@ def _validate(data: Any, schema: dict, context: str) -> list[str]:
 
     if not schema:
         return errors  # No schema = no constraints = always valid
+
+    _check_uncovered_keywords(schema, context)
 
     expected_type = schema.get("type")
     if expected_type == "object" and not isinstance(data, dict):
