@@ -537,7 +537,7 @@ class TestConcurrentGoals:
                             f"heddle.results.{task.parent_task_id}",
                             result.model_dump(mode="json"),
                         )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
 
             worker_task = asyncio.create_task(worker_loop())
@@ -601,7 +601,7 @@ class TestConcurrentGoals:
             # ``test-orchestrator``.  Confirm no second orchestrator
             # message arrives — the actor's _active_goals is empty so
             # it can't synthesize a second answer.
-            with pytest.raises(asyncio.TimeoutError):
+            async def _drain_for_republish() -> None:
                 async with asyncio.timeout(0.5):
                     while True:
                         msg = await result_subs_by_id[late_target_gid].__anext__()
@@ -609,6 +609,9 @@ class TestConcurrentGoals:
                             raise AssertionError(
                                 "Orchestrator republished after _active_goals emptied"
                             )
+
+            with pytest.raises(TimeoutError):
+                await _drain_for_republish()
 
             worker_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
