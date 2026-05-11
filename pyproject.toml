@@ -40,7 +40,7 @@ Issues = "https://github.com/getheddle/heddle/issues"
 
 [project.optional-dependencies]
 redis = [
-    "redis>=5.0.0",            # Redis-backed checkpoint store (async)
+    "redis>=7.4.0",            # Redis-backed checkpoint store (async)
 ]
 local = [
     "ollama>=0.6.2",           # Local model client
@@ -106,7 +106,7 @@ dev = [
     "pytest-cov>=5.0.0",
     "ruff>=0.3.0",
     "duckdb>=1.0.0",
-    "redis>=5.0.0",            # Needed for contrib/redis tests
+    "redis>=7.4.0",            # Needed for contrib/redis tests
     "croniter>=2.0.0",         # Needed for scheduler tests
     "fastmcp>=3.1",            # Needed for MCP gateway tests
     "lancedb>=0.15.0",         # Needed for contrib/lancedb tests
