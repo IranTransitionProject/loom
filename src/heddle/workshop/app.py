@@ -279,6 +279,29 @@ def create_app(  # noqa: PLR0915
         rag_channels=rag_mgr.channel_count(),
     )
 
+    # Multi-worker uvicorn deployment is unsupported: deploy routes
+    # mutate ``ConfigManager.extra_config_dirs`` and swap the
+    # dead-letter bus in-place without locks, on the assumption that
+    # route handlers serialise under a single FastAPI/Uvicorn worker.
+    # If an operator sets WEB_CONCURRENCY > 1 (or runs uvicorn with
+    # --workers N), surface the misconfiguration loudly so they can
+    # fix it before state diverges between replicas.
+    _web_concurrency = os.environ.get("WEB_CONCURRENCY", "1")
+    try:
+        _wc = int(_web_concurrency)
+    except ValueError:
+        _wc = 1
+    if _wc > 1:
+        logger.warning(
+            "workshop.multi_worker_unsupported",
+            web_concurrency=_wc,
+            hint=(
+                "Workshop assumes a single-worker process; deploy routes "
+                "mutate process-local state without locks.  Set "
+                "WEB_CONCURRENCY=1 or run uvicorn without --workers."
+            ),
+        )
+
     # ------------------------------------------------------------------
     # Routes
     # ------------------------------------------------------------------
