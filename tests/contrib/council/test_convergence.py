@@ -2,6 +2,8 @@
 
 from unittest.mock import AsyncMock
 
+import pytest
+
 from heddle.contrib.council.convergence import ConvergenceDetector, _parse_json
 from heddle.contrib.council.schemas import ConvergenceConfig, TranscriptEntry
 from heddle.contrib.council.transcript import TranscriptStore
@@ -154,6 +156,40 @@ class TestLLMJudge:
         store = _store_with_rounds([("a", "X")])
         result = await detector.check(store, 1, "topic")
         assert result.converged is False
+
+    @pytest.mark.parametrize(
+        "score_value",
+        [
+            '"high"',  # ValueError on float()
+            "null",  # TypeError on float()
+            '"0.7; DROP TABLE x"',  # ValueError on float()
+            "[]",  # TypeError on float()
+        ],
+    )
+    async def test_non_numeric_score_returns_parse_failure(self, score_value):
+        """Earlier ``float(parsed.get("score", 0.0))`` raised ValueError /
+        TypeError on non-numeric LLM judge responses, tearing down the
+        whole council.  ADR-004 (skip vs crash) calls for skip-and-log;
+        the typed parse-failure ConvergenceResult is the existing shape.
+        """
+        mock_backend = AsyncMock()
+        mock_backend.complete.return_value = {
+            "content": f'{{"score": {score_value}, "reason": "junk"}}',
+            "model": "mock",
+            "prompt_tokens": 50,
+            "completion_tokens": 10,
+        }
+        detector = ConvergenceDetector(
+            ConvergenceConfig(method="llm_judge", threshold=0.8),
+            backend=mock_backend,
+        )
+        store = _store_with_rounds([("a", "X")])
+        result = await detector.check(store, 1, "topic")
+        # Must NOT propagate; must return a structured failure with
+        # score=0.0 and a descriptive reason.
+        assert result.converged is False
+        assert result.score == 0.0
+        assert "non-numeric score" in result.reason
 
 
 class TestParseJson:

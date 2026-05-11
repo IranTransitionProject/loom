@@ -209,7 +209,28 @@ class ConvergenceDetector:
                 round_num=round_num,
             )
 
-        score = float(parsed.get("score", 0.0))
+        # ``float()`` raises on ``{"score": "high"}`` or
+        # ``{"score": null}``.  Treat any non-numeric score the same
+        # as a JSON parse failure — log + return a parse-failed
+        # ``ConvergenceResult`` rather than propagating, matching
+        # ADR-004 (skip vs crash on malformed messages).  Earlier
+        # the unhandled ValueError/TypeError tore down the entire
+        # council.
+        raw_score = parsed.get("score", 0.0)
+        try:
+            score = float(raw_score)
+        except (ValueError, TypeError):
+            logger.warning(
+                "convergence.llm_judge.parse_failed",
+                reason="score not numeric",
+                raw_score_excerpt=str(raw_score)[:200],
+            )
+            return ConvergenceResult(
+                converged=False,
+                score=0.0,
+                reason=f"LLM judge returned non-numeric score: {str(raw_score)[:200]}",
+                round_num=round_num,
+            )
         reason = parsed.get("reason", "")
         converged = score >= self._config.threshold
 
