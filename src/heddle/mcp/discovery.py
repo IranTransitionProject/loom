@@ -128,6 +128,7 @@ def discover_worker_tools(
 
 def discover_pipeline_tools(
     pipeline_entries: list[dict[str, Any]],
+    gateway_configs_dir: str | None = None,
 ) -> list[dict[str, Any]]:
     """Generate MCP tool definitions from pipeline config entries.
 
@@ -138,6 +139,18 @@ def discover_pipeline_tools(
     For example, ``input_mapping: {file_ref: "goal.context.file_ref"}``
     produces ``inputSchema: {type: object, required: [file_ref],
     properties: {file_ref: {type: string}}}``.
+
+    Args:
+        pipeline_entries: Pipeline config entries from the gateway YAML.
+        gateway_configs_dir: Optional path to the directory containing the
+            gateway's ``workers/`` directory.  When provided, worker
+            configs referenced by pipeline stages are resolved against
+            this directory.  When ``None`` (the legacy default), worker
+            config lookup falls back to deriving the path from each
+            pipeline's own config path — which used to also include a
+            CWD-relative ``configs/workers/...`` fallback that resolved
+            to ``~/configs/workers/...`` under Claude Desktop / Cursor
+            and silently degraded every property type to ``string``.
     """
     tools: list[dict[str, Any]] = []
 
@@ -154,7 +167,7 @@ def discover_pipeline_tools(
 
         # Derive input schema from first stage's input_mapping.
         stages = cfg.get("pipeline_stages", [])
-        input_schema = _pipeline_entry_schema(stages, entry)
+        input_schema = _pipeline_entry_schema(stages, entry, gateway_configs_dir)
 
         tool = make_tool(tool_name, description, input_schema)
         tool["_heddle"] = {
@@ -170,6 +183,7 @@ def discover_pipeline_tools(
 def _pipeline_entry_schema(
     stages: list[dict[str, Any]],
     entry: dict[str, Any],
+    gateway_configs_dir: str | None = None,
 ) -> dict[str, Any]:
     """Compute an MCP input schema from pipeline stage input mappings.
 
@@ -194,7 +208,7 @@ def _pipeline_entry_schema(
         return {"type": "object"}
 
     # Try to get property types from the first stage's worker config.
-    first_stage_types = _load_stage_property_types(stages[0], entry)
+    first_stage_types = _load_stage_property_types(stages[0], entry, gateway_configs_dir)
 
     properties: dict[str, Any] = {}
     for field_name in context_fields:
@@ -211,6 +225,7 @@ def _pipeline_entry_schema(
 def _load_stage_property_types(
     stage: dict[str, Any],
     entry: dict[str, Any],
+    gateway_configs_dir: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Try to load property type info from a stage's worker config.
 
@@ -225,17 +240,31 @@ def _load_stage_property_types(
     if not worker_type:
         return {}
 
-    # Try common config paths.
+    # Resolve worker config paths.  Candidates, in priority order:
+    #
+    # 1. Pipeline-config-anchored ``../workers/{worker_type}.yaml``.
+    #    Standard layout (``configs/orchestrators/foo.yaml`` →
+    #    ``configs/workers/bar.yaml``); resolves correctly even when
+    #    the MCP server runs with an unexpected CWD.
+    # 2. Gateway-anchored ``{gateway_configs_dir}/workers/{worker_type}.yaml``
+    #    when ``gateway_configs_dir`` was threaded in.  Caller passes
+    #    the directory that contains ``workers/`` (typically the same
+    #    directory the gateway YAML lives in).
+    #
+    # The earlier code also fell back to an unanchored
+    # ``configs/workers/{worker_type}.yaml`` resolved against the CWD.
+    # Under Claude Desktop / Cursor (CWD ≈ ``~``) that became
+    # ``~/configs/workers/...`` — never existed, every property type
+    # silently degraded to ``string``.  Dropped.
     import os
 
     config_path = entry.get("config", "")
     config_dir = os.path.dirname(config_path)
     base_dir = os.path.dirname(config_dir)  # up from orchestrators/ to project root
 
-    candidates = [
-        os.path.join(base_dir, "workers", f"{worker_type}.yaml"),
-        os.path.join("configs", "workers", f"{worker_type}.yaml"),
-    ]
+    candidates = [os.path.join(base_dir, "workers", f"{worker_type}.yaml")]
+    if gateway_configs_dir:
+        candidates.append(os.path.join(gateway_configs_dir, "workers", f"{worker_type}.yaml"))
 
     for candidate in candidates:
         try:
@@ -245,6 +274,15 @@ def _load_stage_property_types(
         except Exception:
             continue
 
+    # Nothing found — log once at DEBUG so deployments with non-
+    # standard layouts can see that their schema degraded to
+    # ``{type: string}`` for every property.
+    logger.debug(
+        "mcp.discovery.worker_schema_unresolved",
+        worker_type=worker_type,
+        tried=candidates,
+        hint="Pass gateway_configs_dir to discover_pipeline_tools for non-standard layouts",
+    )
     return {}
 
 

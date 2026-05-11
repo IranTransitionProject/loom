@@ -99,9 +99,23 @@ def create_server(config_path: str) -> tuple[FastMCPType, MCPGateway]:
     tools_config = config.get("tools", {})
     requires_bus = bool(tools_config.get("workers") or tools_config.get("pipelines"))
 
+    # Anchor worker-schema lookup on the gateway config's parent
+    # directory so pipeline-tool discovery resolves
+    # ``workers/{worker_type}.yaml`` correctly even when the MCP
+    # server runs with an unexpected CWD (e.g. ``~`` under Claude
+    # Desktop / Cursor) — see ``discover_pipeline_tools``.
+    import os as _os
+
+    gateway_configs_dir = _os.path.dirname(_os.path.abspath(config_path))
+
     all_tools: list[dict[str, Any]] = []
     all_tools.extend(discover_worker_tools(tools_config.get("workers", [])))
-    all_tools.extend(discover_pipeline_tools(tools_config.get("pipelines", [])))
+    all_tools.extend(
+        discover_pipeline_tools(
+            tools_config.get("pipelines", []),
+            gateway_configs_dir=gateway_configs_dir,
+        )
+    )
     all_tools.extend(discover_query_tools(tools_config.get("queries", [])))
 
     # Workshop tools (optional — only if tools.workshop is present).

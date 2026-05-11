@@ -228,6 +228,121 @@ class TestDiscoverPipelineTools:
         tools = discover_pipeline_tools(entries)
         assert tools == []
 
+    def test_gateway_configs_dir_resolves_worker_schema(self, tmp_path, monkeypatch):
+        """F3: ``gateway_configs_dir`` lets discovery find worker configs
+        when the pipeline-anchored path doesn't.
+
+        Earlier the second candidate was ``configs/workers/...``
+        resolved against CWD — under Claude Desktop / Cursor (CWD ≈
+        ``~``) that became ``~/configs/workers/...``, never existed,
+        and every property type silently degraded to ``string``.
+        The new ``gateway_configs_dir`` parameter anchors lookup on
+        the gateway YAML's directory so non-standard layouts still
+        resolve.
+        """
+        # Build a non-standard layout: pipeline at ``/tmp/mcp/p.yaml``
+        # but the worker config lives at ``{gateway_dir}/workers/
+        # extractor.yaml`` rather than ``../workers/extractor.yaml``
+        # relative to the pipeline.
+        gateway_dir = tmp_path / "gateway"
+        gateway_dir.mkdir()
+        workers_dir = gateway_dir / "workers"
+        workers_dir.mkdir()
+        worker_cfg = {
+            "name": "extractor",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "page_count": {"type": "integer", "minimum": 1},
+                    "file_ref": {"type": "string"},
+                },
+            },
+        }
+        _write_yaml(str(workers_dir), "extractor.yaml", worker_cfg)
+
+        pipeline_dir = tmp_path / "elsewhere"
+        pipeline_dir.mkdir()
+        pipeline_cfg = {
+            "name": "with_int_field",
+            "pipeline_stages": [
+                {
+                    "name": "extract",
+                    "worker_type": "extractor",
+                    "input_mapping": {
+                        "page_count": "goal.context.page_count",
+                    },
+                },
+            ],
+        }
+        pipeline_path = _write_yaml(str(pipeline_dir), "pipeline.yaml", pipeline_cfg)
+
+        entries = [{"config": pipeline_path, "name": "do_thing"}]
+
+        # Without gateway_configs_dir, the pipeline-anchored fallback
+        # looks at ``tmp_path/workers/extractor.yaml`` which doesn't
+        # exist → schema degrades to default ``string``.
+        tools_without = discover_pipeline_tools(entries)
+        assert tools_without[0]["inputSchema"]["properties"]["page_count"] == {
+            "type": "string",
+        }
+
+        # With gateway_configs_dir, the real schema is found.
+        tools_with = discover_pipeline_tools(entries, gateway_configs_dir=str(gateway_dir))
+        page_prop = tools_with[0]["inputSchema"]["properties"]["page_count"]
+        assert page_prop["type"] == "integer"
+        assert page_prop["minimum"] == 1
+
+    def test_cwd_fallback_no_longer_used(self, tmp_path, monkeypatch):
+        """F3: ``configs/workers/...`` is no longer resolved against CWD.
+
+        Pins the regression: even if a worker config exists at
+        ``{cwd}/configs/workers/{worker_type}.yaml``, the discovery
+        loader must not pick it up — that path resolved to
+        ``~/configs/workers/...`` under MCP hosts and is the bug.
+        """
+        # Build a config tree at tmp_path that, if CWD-relative
+        # resolution were still in effect, would resolve.
+        bad_cwd = tmp_path / "bad_cwd"
+        (bad_cwd / "configs" / "workers").mkdir(parents=True)
+        # An "extractor" worker config at the CWD-relative path with
+        # a distinctive schema we can detect.
+        bait_cfg = {
+            "name": "extractor",
+            "input_schema": {
+                "properties": {"page_count": {"type": "boolean"}},
+            },
+        }
+        _write_yaml(
+            str(bad_cwd / "configs" / "workers"),
+            "extractor.yaml",
+            bait_cfg,
+        )
+
+        # Pipeline at an unrelated path; pipeline-anchored fallback
+        # also can't resolve.
+        pipeline_dir = tmp_path / "elsewhere2"
+        pipeline_dir.mkdir()
+        pipeline_cfg = {
+            "name": "p",
+            "pipeline_stages": [
+                {
+                    "name": "extract",
+                    "worker_type": "extractor",
+                    "input_mapping": {"page_count": "goal.context.page_count"},
+                },
+            ],
+        }
+        pipeline_path = _write_yaml(str(pipeline_dir), "p.yaml", pipeline_cfg)
+
+        # Run with CWD set to ``bad_cwd``.  If the old fallback were
+        # still in effect, ``configs/workers/extractor.yaml`` would
+        # resolve and we'd see ``type: boolean`` — instead we should
+        # see the default string.
+        monkeypatch.chdir(bad_cwd)
+        tools = discover_pipeline_tools([{"config": pipeline_path, "name": "p_tool"}])
+        page_prop = tools[0]["inputSchema"]["properties"]["page_count"]
+        assert page_prop == {"type": "string"}
+
 
 # ---------------------------------------------------------------------------
 # Query tools
