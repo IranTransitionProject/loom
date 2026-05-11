@@ -113,6 +113,7 @@ nav:
       - ADR-009 — Per-goal state isolation: adr/009-per-goal-state-isolation.md
       - ADR-010 — Condition-eval defaults: adr/010-condition-eval-defaults.md
       - ADR-011 — FIRST_COMPLETED vs gather: adr/011-first-completed-vs-gather.md
+      - ADR-012 — Drop message-level retry fields: adr/012-drop-message-level-retry.md
   - Vision:
     - Ad-Hoc Clusters: vision/AD_HOC_CLUSTERS.md
   - Deployment:

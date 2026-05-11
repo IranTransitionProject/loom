@@ -1,13 +1,12 @@
 {
   "$defs": {
     "TaskStatus": {
-      "description": "Lifecycle states for a task.\n\nState transitions:\n    PENDING -> PROCESSING -> COMPLETED\n                           -> FAILED\n                           -> RETRY -> PROCESSING (not yet implemented)",
+      "description": "Lifecycle states for a task.\n\nState transitions::\n\n    PENDING -> PROCESSING -> COMPLETED\n                           -> FAILED\n\nNote on retries: Heddle does not implement worker-side retry by\ndesign (see ADR-012).  Stage-level retry lives in\n``PipelineOrchestrator`` via the per-stage ``max_retries`` YAML\nfield, and transient bus-level redelivery is handled by NATS\nqueue-group semantics when an actor disconnects mid-task \u2014 both\nare external to the task's own lifecycle.  ``COMPLETED`` and\n``FAILED`` are the only terminal states.",
       "enum": [
         "pending",
         "processing",
         "completed",
-        "failed",
-        "retry"
+        "failed"
       ],
       "title": "TaskStatus",
       "type": "string"

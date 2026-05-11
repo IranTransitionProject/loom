@@ -311,7 +311,7 @@ class ResultSynthesizer:
 
         - ``succeeded`` — ``TaskStatus.COMPLETED``.
         - ``failed`` — ``TaskStatus.FAILED``.
-        - ``in_flight`` — ``PENDING`` / ``PROCESSING`` / ``RETRY``.
+        - ``in_flight`` — ``PENDING`` / ``PROCESSING`` (any non-terminal state).
           A non-terminal result should never reach the synthesizer
           today (the dynamic orchestrator converts pending tasks to
           synthetic ``FAILED`` placeholders via cc49783 before
@@ -335,7 +335,7 @@ class ResultSynthesizer:
             elif r.status == TaskStatus.FAILED:
                 buckets["failed"].append(r)
             else:
-                # PENDING / PROCESSING / RETRY — still in flight.
+                # PENDING / PROCESSING (any non-terminal status) — still in flight.
                 buckets["in_flight"].append(r)
         return buckets
 

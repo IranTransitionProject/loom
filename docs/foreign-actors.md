@@ -43,8 +43,6 @@ heddle.tasks.{worker_type}.{tier}
    worker_type          str                                   │ ENVELOPE
    model_tier           "local" | "standard" | "frontier"     │
    priority             "low" | "normal" | "high" | "critical"│
-   max_retries          int  (≥ 0)                            │
-   retry_count          int  (≥ 0)                            │
    created_at           str  (ISO 8601 UTC)                   │
    request_id           str | null                            │
    metadata             object                                │
@@ -66,8 +64,8 @@ heddle.results.{parent_task_id or "default"}
    task_id              str  (matches TaskMessage.task_id)    │
    parent_task_id       str | null  (matches TaskMessage)     │
    worker_type          str                                   │ ENVELOPE
-   status               "completed" | "failed" | "pending"    │
-                        | "processing" | "retry"              │
+   status               "completed" | "failed"                │
+                        | "pending" | "processing"             │
    error                str | null                            │
    model_used           str | null                            │
    token_usage          object  ({"prompt_tokens": int, ...}) │

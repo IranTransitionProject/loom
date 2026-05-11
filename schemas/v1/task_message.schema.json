@@ -22,18 +22,12 @@
       "type": "string"
     }
   },
-  "description": "Message sent TO a worker actor.\n\nThe payload dict must conform to the worker's input_schema (JSON Schema).\nContract validation happens in TaskWorker.handle_message(), not here.\n\nBounds on ``max_retries`` / ``retry_count`` are enforced at the\nmessage layer so external senders (CLI tools, third-party\nintegrations, MCP gateway clients) cannot construct a\nnonsense-bound task without going through worker-config\nvalidation.",
+  "description": "Message sent TO a worker actor.\n\nThe payload dict must conform to the worker's input_schema (JSON Schema).\nContract validation happens in TaskWorker.handle_message(), not here.\n\nRetry semantics live OUTSIDE the message envelope by design (see\nADR-012): stage-level ``max_retries`` is in the pipeline YAML, and\nbus-level redelivery on actor disconnect is handled by NATS queue\ngroups.  No retry fields appear on TaskMessage.",
   "properties": {
     "created_at": {
       "format": "date-time",
       "title": "Created At",
       "type": "string"
-    },
-    "max_retries": {
-      "default": 2,
-      "minimum": 0,
-      "title": "Max Retries",
-      "type": "integer"
     },
     "metadata": {
       "additionalProperties": true,
@@ -76,12 +70,6 @@
       ],
       "default": null,
       "title": "Request Id"
-    },
-    "retry_count": {
-      "default": 0,
-      "minimum": 0,
-      "title": "Retry Count",
-      "type": "integer"
     },
     "task_id": {
       "title": "Task Id",

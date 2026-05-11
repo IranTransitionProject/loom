@@ -14,11 +14,16 @@ the merged-output dict can render each bucket separately. Its
 original shape returned a 2-tuple `(succeeded, failed)` — anything
 that wasn't `COMPLETED` was lumped into the second bucket.
 
-Three `TaskStatus` values are not terminal: `PENDING`, `PROCESSING`,
-and `RETRY`. Under the 2-tuple shape they collapsed into `failed`,
+Two `TaskStatus` values are not terminal: `PENDING` and
+`PROCESSING`. Under the 2-tuple shape they collapsed into `failed`,
 so the synthesizer's LLM prompt told the model "these workers
 failed" when the workers were in fact still running — a different
 epistemic state from "responded with an error."
+
+(A third non-terminal status, `RETRY`, existed at the time this ADR
+was written but was removed in ADR-012; the partition's `in_flight`
+bucket is now defined as "every non-terminal status," which is the
+load-bearing contract.)
 
 The bug was not observable in the current caller: the dynamic
 `OrchestratorActor` (commit `cc49783`) converts every pending task to
@@ -41,7 +46,7 @@ The three states map to `TaskStatus` as:
 
 - `succeeded` — `TaskStatus.COMPLETED`.
 - `failed` — `TaskStatus.FAILED`.
-- `in_flight` — `PENDING`, `PROCESSING`, `RETRY`.
+- `in_flight` — any non-terminal status (today `PENDING` or `PROCESSING`).
 
 See `src/heddle/orchestrator/synthesizer.py:306-340` for the
 partition; `:358-394` for the prompt-rendering split.

@@ -175,7 +175,6 @@ class TestPartition:
         results = [
             _make_result(status=TaskStatus.COMPLETED),
             _make_result(status=TaskStatus.FAILED),
-            _make_result(status=TaskStatus.RETRY),
             _make_result(status=TaskStatus.PROCESSING),
             _make_result(status=TaskStatus.PENDING),
             _make_result(status=TaskStatus.COMPLETED),
@@ -183,13 +182,12 @@ class TestPartition:
         parts = ResultSynthesizer._partition(results)
         assert len(parts["succeeded"]) == 2
         assert len(parts["failed"]) == 1
-        assert len(parts["in_flight"]) == 3
+        assert len(parts["in_flight"]) == 2
         # Spot-check: every non-terminal status lands in in_flight.
         flight_statuses = {r.status for r in parts["in_flight"]}
         assert flight_statuses == {
             TaskStatus.PENDING,
             TaskStatus.PROCESSING,
-            TaskStatus.RETRY,
         }
 
     def test_partition_empty(self):
