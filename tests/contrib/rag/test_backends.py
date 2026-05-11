@@ -168,6 +168,41 @@ class TestVectorStoreBackend:
         with pytest.raises(ValueError, match="Unknown action"):
             backend.process_sync({"action": "unknown"}, {"db_path": db_path})
 
+    def test_store_is_cached_across_calls(self, tmp_path):
+        """Pin C4: repeated process_sync against same db_path reuses the store.
+
+        Earlier the backend opened + closed the store on every call.
+        Under search-heavy load that leaks FDs and adds connection
+        overhead on the hot path.  The cache reuses one
+        ``DuckDBVectorStore`` for all calls with the same key.
+        """
+        from heddle.contrib.rag.backends import VectorStoreBackend
+
+        db_path = str(tmp_path / "test.duckdb")
+        backend = VectorStoreBackend(db_path=db_path)
+        backend.process_sync({"action": "stats"}, {"db_path": db_path})
+        backend.process_sync({"action": "stats"}, {"db_path": db_path})
+        # One cached store, not two distinct opens.
+        assert len(backend._store_cache) == 1
+        # Same instance both times.
+        cached_keys = list(backend._store_cache.keys())
+        store = backend._store_cache[cached_keys[0]]
+        assert store is backend._get_or_open_store(*cached_keys[0])
+
+    def test_aclose_closes_every_cached_store(self, tmp_path):
+        """``aclose`` releases all cached stores so the worker can shut down clean."""
+        import asyncio
+
+        from heddle.contrib.rag.backends import VectorStoreBackend
+
+        db_path = str(tmp_path / "test.duckdb")
+        backend = VectorStoreBackend(db_path=db_path)
+        backend.process_sync({"action": "stats"}, {"db_path": db_path})
+        assert backend._store_cache  # populated
+
+        asyncio.run(backend.aclose())
+        assert backend._store_cache == {}
+
 
 class TestVectorStoreDirectly:
     """Test DuckDBVectorStore directly (not through backend wrapper)."""

@@ -16,7 +16,10 @@ SyncProcessingBackend which automatically offloads to a thread pool.
 
 from __future__ import annotations
 
+import threading
 from typing import Any
+
+import structlog
 
 from heddle.contrib.rag.chunker.sentence_chunker import ChunkConfig, chunk_post
 from heddle.contrib.rag.ingestion.telegram_ingestor import TelegramIngestor
@@ -24,6 +27,8 @@ from heddle.contrib.rag.mux.stream_mux import StreamMux
 from heddle.contrib.rag.schemas.mux import MuxWindowConfig
 from heddle.contrib.rag.schemas.post import NormalizedPost
 from heddle.worker.processor import SyncProcessingBackend
+
+logger = structlog.get_logger()
 
 
 class IngestorBackend(SyncProcessingBackend):
@@ -208,6 +213,16 @@ class VectorStoreBackend(SyncProcessingBackend):
         self._embedding_model = embedding_model
         self._ollama_url = ollama_url
         self._store_class_path = store_class
+        # ``process_sync`` previously opened + closed the store on
+        # every call.  For a search-heavy worker that's one DuckDB /
+        # LanceDB open per query plus a fresh embedder instantiation
+        # per query — leaks FDs under load and adds noticeable
+        # latency.  Cache by ``(store_class, db_path)`` since those
+        # are the only knobs that vary per call; the lock makes the
+        # check-then-open sequence safe under concurrent thread-pool
+        # dispatch from ``SyncProcessingBackend``.
+        self._store_cache: dict[tuple[type, str], Any] = {}
+        self._cache_lock = threading.Lock()
 
     def _resolve_store_class(self) -> type:
         """Resolve store class from dotted path or return default."""
@@ -221,6 +236,41 @@ class VectorStoreBackend(SyncProcessingBackend):
         mod = importlib.import_module(module_path)
         return getattr(mod, class_name)
 
+    def _get_or_open_store(self, store_cls: type, db_path: str) -> Any:
+        """Return a cached store for ``(store_cls, db_path)`` or open one.
+
+        Caller holds no lock; this method acquires the cache lock for
+        the check-then-open sequence so concurrent thread-pool calls
+        don't each open their own duplicate store.
+        """
+        key = (store_cls, db_path)
+        with self._cache_lock:
+            cached = self._store_cache.get(key)
+            if cached is not None:
+                return cached
+            store = store_cls(
+                db_path=db_path,
+                embedding_model=self._embedding_model,
+                ollama_url=self._ollama_url,
+            ).initialize()
+            self._store_cache[key] = store
+            return store
+
+    async def aclose(self) -> None:
+        """Close every cached vector store."""
+        with self._cache_lock:
+            cached = list(self._store_cache.values())
+            self._store_cache.clear()
+        for store in cached:
+            try:
+                store.close()
+            except Exception as exc:  # pragma: no cover — defensive
+                logger.warning(
+                    "vectorstore_backend.close_failed",
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
+
     def process_sync(self, payload: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
         """Execute a vector store operation (store, search, or stats)."""
         from heddle.contrib.rag.schemas.chunk import TextChunk
@@ -229,42 +279,35 @@ class VectorStoreBackend(SyncProcessingBackend):
         db_path = config.get("db_path", self._db_path)
 
         store_cls = self._resolve_store_class()
-        store = store_cls(
-            db_path=db_path,
-            embedding_model=self._embedding_model,
-            ollama_url=self._ollama_url,
-        ).initialize()
+        store = self._get_or_open_store(store_cls, db_path)
 
         store_name = store_cls.__name__.replace("VectorStore", "").lower() or "vector"
 
-        try:
-            if action == "store":
-                chunks = [TextChunk(**c) for c in payload.get("chunks", [])]
-                count = store.add_chunks(chunks)
-                return {
-                    "output": {"stored_count": count, "total": store.count()},
-                    "model_used": f"{store_name}+{self._embedding_model}",
-                }
+        if action == "store":
+            chunks = [TextChunk(**c) for c in payload.get("chunks", [])]
+            count = store.add_chunks(chunks)
+            return {
+                "output": {"stored_count": count, "total": store.count()},
+                "model_used": f"{store_name}+{self._embedding_model}",
+            }
 
-            if action == "search":
-                query = payload.get("query", "")
-                limit = payload.get("limit", 10)
-                channel_ids = payload.get("channel_ids")
-                results = store.search(query, limit=limit, channel_ids=channel_ids)
-                return {
-                    "output": {
-                        "results": [r.model_dump(mode="json") for r in results],
-                        "count": len(results),
-                    },
-                    "model_used": f"{store_name}+{self._embedding_model}",
-                }
+        if action == "search":
+            query = payload.get("query", "")
+            limit = payload.get("limit", 10)
+            channel_ids = payload.get("channel_ids")
+            results = store.search(query, limit=limit, channel_ids=channel_ids)
+            return {
+                "output": {
+                    "results": [r.model_dump(mode="json") for r in results],
+                    "count": len(results),
+                },
+                "model_used": f"{store_name}+{self._embedding_model}",
+            }
 
-            if action == "stats":
-                return {
-                    "output": store.stats(),
-                    "model_used": store_name,
-                }
+        if action == "stats":
+            return {
+                "output": store.stats(),
+                "model_used": store_name,
+            }
 
-            raise ValueError(f"Unknown action '{action}'. Supported: store, search, stats")
-        finally:
-            store.close()
+        raise ValueError(f"Unknown action '{action}'. Supported: store, search, stats")
