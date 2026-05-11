@@ -43,7 +43,7 @@ redis = [
     "redis>=5.0.0",            # Redis-backed checkpoint store (async)
 ]
 local = [
-    "ollama>=0.3.0",           # Local model client
+    "ollama>=0.6.2",           # Local model client
 ]
 docproc = [
     "docling>=2.93.0",          # Document extraction (PDF, DOCX, etc.)
