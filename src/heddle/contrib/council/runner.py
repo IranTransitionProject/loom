@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from heddle.contrib.council._budget import CouncilTimeoutError, call_with_budget
 from heddle.contrib.council.convergence import ConvergenceDetector
 from heddle.contrib.council.protocol import get_protocol
 from heddle.contrib.council.schemas import (
@@ -127,6 +128,12 @@ class CouncilRunner:
         converged = False
         convergence_score: float | None = None
         rounds_completed = 0
+        # Per-turn budget — same formula the orchestrator uses, validated
+        # at config-load time against the 5s floor.  A wedged backend
+        # would otherwise starve the runner indefinitely (the bug B1
+        # closed: the orchestrator path enforced a budget via
+        # ``dispatch_and_wait_for_result``, the runner path did not).
+        per_turn_timeout = cfg.per_turn_timeout()
 
         for round_num in range(1, cfg.max_rounds + 1):
             round_log = log.bind(round=round_num)
@@ -145,6 +152,7 @@ class CouncilRunner:
                     round_num=round_num,
                     topic=topic,
                     config=cfg,
+                    timeout_seconds=per_turn_timeout,
                 )
 
                 transcript.add_entry(entry)
@@ -184,8 +192,21 @@ class CouncilRunner:
                 log.info("council.converged", round=round_num, score=conv_result.score)
                 break
 
-        # Facilitator synthesis.
-        synthesis = await self._synthesize(cfg, transcript, topic, total_tokens)
+        # Facilitator synthesis — budgeted so a wedged backend cannot
+        # leave the runner without ever publishing a final result.
+        # Mirrors the orchestrator's synthesis timeout contract.
+        try:
+            synthesis = await call_with_budget(
+                self._synthesize(cfg, transcript, topic, total_tokens),
+                timeout_seconds=cfg.synthesis_timeout_seconds,
+                label="synthesis",
+            )
+        except CouncilTimeoutError as exc:
+            log.warning(
+                "council.synthesis.timeout",
+                timeout_seconds=exc.timeout_seconds,
+            )
+            synthesis = f"[Synthesis timed out after {exc.timeout_seconds:.0f}s]"
 
         # Build agent summaries (latest position per agent).
         agent_summaries = transcript.get_latest_positions()
@@ -223,6 +244,7 @@ class CouncilRunner:
         round_num: int,
         topic: str,
         config: CouncilConfig,
+        timeout_seconds: float,
     ) -> TranscriptEntry:
         """Execute a single agent's turn.
 
@@ -231,9 +253,15 @@ class CouncilRunner:
         bridge instance so multi-turn conversations work across
         rounds).  Otherwise the runner falls back to the tier-based
         :class:`LLMBackend` path.
+
+        Both paths are bounded by ``timeout_seconds`` so a wedged
+        backend produces a ``[Timeout: ...]`` transcript entry rather
+        than hanging the entire deliberation.
         """
         if agent.bridge:
-            return await self._execute_via_bridge(agent, context, round_num, topic, config)
+            return await self._execute_via_bridge(
+                agent, context, round_num, topic, config, timeout_seconds
+            )
 
         tier = agent.tier.value
         backend = self.backends.get(tier)
@@ -252,11 +280,30 @@ class CouncilRunner:
         user_message = json.dumps(context, ensure_ascii=False, indent=2)
 
         try:
-            response = await backend.complete(
-                system_prompt=system_prompt,
-                user_message=user_message,
-                max_tokens=agent.max_tokens_per_turn,
-                temperature=0.3,
+            response = await call_with_budget(
+                backend.complete(
+                    system_prompt=system_prompt,
+                    user_message=user_message,
+                    max_tokens=agent.max_tokens_per_turn,
+                    temperature=0.3,
+                ),
+                timeout_seconds=timeout_seconds,
+                label=f"agent_turn:{agent.name}",
+            )
+        except CouncilTimeoutError as exc:
+            logger.warning(
+                "council.agent_turn.timeout",
+                agent=agent.name,
+                timeout_seconds=exc.timeout_seconds,
+            )
+            return TranscriptEntry(
+                round_num=round_num,
+                agent_name=agent.name,
+                role=agent.role,
+                content=(
+                    f"[Timeout: {agent.name} did not respond within {exc.timeout_seconds:.0f}s]"
+                ),
+                timestamp=datetime.now(UTC),
             )
         except Exception as e:
             logger.error(
@@ -293,6 +340,7 @@ class CouncilRunner:
         round_num: int,
         topic: str,
         config: CouncilConfig,
+        timeout_seconds: float,
     ) -> TranscriptEntry:
         """Execute a single agent's turn through its :class:`ChatBridge`."""
         try:
@@ -315,10 +363,29 @@ class CouncilRunner:
         user_message = json.dumps(context, ensure_ascii=False, indent=2)
 
         try:
-            response = await bridge.send_turn(
-                message=user_message,
-                context={"round_num": round_num, "topic": topic},
-                session_id=agent.name,
+            response = await call_with_budget(
+                bridge.send_turn(
+                    message=user_message,
+                    context={"round_num": round_num, "topic": topic},
+                    session_id=agent.name,
+                ),
+                timeout_seconds=timeout_seconds,
+                label=f"agent_turn:{agent.name}",
+            )
+        except CouncilTimeoutError as exc:
+            logger.warning(
+                "council.agent_turn.timeout",
+                agent=agent.name,
+                timeout_seconds=exc.timeout_seconds,
+            )
+            return TranscriptEntry(
+                round_num=round_num,
+                agent_name=agent.name,
+                role=agent.role,
+                content=(
+                    f"[Timeout: {agent.name} did not respond within {exc.timeout_seconds:.0f}s]"
+                ),
+                timestamp=datetime.now(UTC),
             )
         except Exception as e:
             logger.error(

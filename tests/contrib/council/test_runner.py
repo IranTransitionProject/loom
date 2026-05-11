@@ -192,6 +192,94 @@ class TestCouncilRunner:
 
 
 # ---------------------------------------------------------------------------
+# Per-turn + synthesis timeouts (B1)
+# ---------------------------------------------------------------------------
+
+
+class TestCouncilRunnerTimeouts:
+    """Pin the per-turn + synthesis budget contract.
+
+    Earlier the runner had no ``asyncio.wait_for`` on either path —
+    only the orchestrator wrapped its calls.  A wedged local backend
+    on the CLI / MCP / tournament path could hang indefinitely.  B1
+    factored ``call_with_budget`` so both paths enforce identical
+    semantics: a per-turn budget produces a ``[Timeout: ...]``
+    transcript entry, a synthesis budget produces a
+    ``[Synthesis timed out after Ns]`` synthesis string.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _lower_per_turn_floor(self, monkeypatch):
+        # The 5s per-turn floor is too coarse for fast unit tests.
+        # Lower the production-tier guard so a config with
+        # sub-second per-turn budgets construct cleanly.
+        import heddle.contrib.council.config as _cfg_mod
+
+        monkeypatch.setattr(_cfg_mod, "_PER_TURN_TIMEOUT_FLOOR_SECONDS", 0)
+
+    async def test_per_turn_timeout_produces_timeout_entry(self):
+        # 1.0s overall, 0.5s synthesis → 0.25s per-turn (2 agents x 1 round).
+        config = _minimal_config(max_rounds=1, timeout_seconds=1, synthesis_timeout_seconds=1)
+
+        async def _slow_complete(**kwargs):
+            import asyncio as _aio
+
+            _ = kwargs
+            await _aio.sleep(1.0)
+            return {"content": "should never see this", "model": "stub"}
+
+        backend = AsyncMock()
+        backend.complete.side_effect = _slow_complete
+        runner = CouncilRunner(backends={"standard": backend})
+
+        result = await runner.run("Topic", config=config)
+
+        entries = result.transcript[0].entries
+        assert entries, "expected at least one transcript entry"
+        # Every agent turn timed out; the backend never returned its
+        # canned content.  The runner produces a ``[Timeout: ...]``
+        # entry per agent, never propagates.
+        assert all("[Timeout" in e.content for e in entries)
+
+    async def test_synthesis_timeout_produces_timeout_synthesis(self):
+        # Per-turn calls succeed quickly; only synthesis sleeps past
+        # its budget.  Verifies the synthesis branch fires and
+        # produces the user-visible ``[Synthesis timed out ...]``
+        # string regardless of how the agent turns went.
+        config = _minimal_config(max_rounds=1, timeout_seconds=2, synthesis_timeout_seconds=1)
+
+        sleep_on_synthesis = {"hit": False}
+
+        async def _conditional_complete(**kwargs):
+            import asyncio as _aio
+
+            # Synthesis call sends a very long user_message starting
+            # with the topic + full transcript; agent turns send the
+            # smaller JSON-encoded context.  Use the length as the
+            # discriminator — synthesis prompts are markedly longer.
+            user_message = kwargs.get("user_message", "")
+            if "FULL DISCUSSION TRANSCRIPT" in user_message:
+                sleep_on_synthesis["hit"] = True
+                await _aio.sleep(2.0)
+                return {"content": "synthesis", "model": "stub"}
+            return {
+                "content": "agent turn",
+                "model": "stub",
+                "prompt_tokens": 5,
+                "completion_tokens": 5,
+            }
+
+        backend = AsyncMock()
+        backend.complete.side_effect = _conditional_complete
+        runner = CouncilRunner(backends={"standard": backend})
+
+        result = await runner.run("Topic", config=config)
+
+        assert sleep_on_synthesis["hit"], "synthesis branch must have run"
+        assert "[Synthesis timed out" in result.synthesis
+
+
+# ---------------------------------------------------------------------------
 # Bridge support
 # ---------------------------------------------------------------------------
 

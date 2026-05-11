@@ -15,7 +15,6 @@ for NATS subscription, result waiting, and final result publishing.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import time
 from datetime import UTC, datetime
@@ -24,6 +23,7 @@ from typing import Any
 import structlog
 import yaml
 
+from heddle.contrib.council._budget import CouncilTimeoutError, call_with_budget
 from heddle.contrib.council.config import CouncilConfig
 from heddle.contrib.council.convergence import ConvergenceDetector
 from heddle.contrib.council.protocol import get_protocol
@@ -198,19 +198,22 @@ class CouncilOrchestrator(BaseActor):
             # ``synthesis_timeout_seconds`` so a wedged backend cannot
             # leave the council without ever publishing a final result.
             # See ``CouncilConfig.synthesis_timeout_seconds`` for the
-            # split between turn budget and synthesis budget.
+            # split between turn budget and synthesis budget.  Shares
+            # the ``call_with_budget`` helper with ``CouncilRunner`` so
+            # both execution paths enforce the same contract.
             with _tracer.start_as_current_span("council.synthesis"):
                 try:
-                    synthesis = await asyncio.wait_for(
+                    synthesis = await call_with_budget(
                         self._synthesize(cfg, transcript, topic, total_tokens),
-                        timeout=cfg.synthesis_timeout_seconds,
+                        timeout_seconds=cfg.synthesis_timeout_seconds,
+                        label="synthesis",
                     )
-                except TimeoutError:
+                except CouncilTimeoutError as exc:
                     log.warning(
                         "council.synthesis.timeout",
-                        timeout_seconds=cfg.synthesis_timeout_seconds,
+                        timeout_seconds=exc.timeout_seconds,
                     )
-                    synthesis = f"[Synthesis timed out after {cfg.synthesis_timeout_seconds}s]"
+                    synthesis = f"[Synthesis timed out after {exc.timeout_seconds:.0f}s]"
 
             elapsed = int((time.monotonic() - start) * 1000)
             log.info(
