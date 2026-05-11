@@ -219,3 +219,55 @@ class TestNormalizeLiveText:
             timestamp=ts,
         )
         assert post.text_rtl is False
+
+
+class TestSecureSessionFile:
+    """E4: Telethon session file is chmod'd 0o600.
+
+    The session file holds a full-account auth token; the default
+    process umask leaves it world-readable.  Heddle's other
+    secret-bearing files (``~/.heddle/config.yaml``) are 0o600 — the
+    session should match.
+    """
+
+    def test_chmod_runs_on_existing_with_extension(self, tmp_path):
+        import stat as _stat
+
+        from heddle.contrib.rag.ingestion.telegram_live import _secure_session_file
+
+        session = tmp_path / "tg.session"
+        session.write_text("fake session data")
+        # Start with permissive perms so the test can observe the change.
+        session.chmod(0o644)
+
+        _secure_session_file(str(session))
+
+        mode = _stat.S_IMODE(session.stat().st_mode)
+        assert mode == 0o600
+
+    def test_chmod_handles_no_extension_case(self, tmp_path):
+        """Telethon also accepts a session path without the extension.
+
+        In that case it creates ``<path>.session`` next to the
+        supplied path.  The helper chmods that derived form too.
+        """
+        import stat as _stat
+
+        from heddle.contrib.rag.ingestion.telegram_live import _secure_session_file
+
+        # Caller passed a path *without* the extension.
+        base = tmp_path / "tg"
+        derived = tmp_path / "tg.session"
+        derived.write_text("fake")
+        derived.chmod(0o644)
+
+        _secure_session_file(str(base))
+
+        mode = _stat.S_IMODE(derived.stat().st_mode)
+        assert mode == 0o600
+
+    def test_missing_file_is_silent(self, tmp_path):
+        from heddle.contrib.rag.ingestion.telegram_live import _secure_session_file
+
+        # No-op when the file doesn't exist — should not raise.
+        _secure_session_file(str(tmp_path / "nope.session"))

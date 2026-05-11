@@ -52,6 +52,34 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _secure_session_file(session_path: str) -> None:
+    """Best-effort chmod 0o600 on the Telethon session file.
+
+    Telethon creates a SQLite session at ``<session_path>`` (or
+    ``<session_path>.session`` if the caller didn't include the
+    extension).  The file holds a full-account auth token; the
+    default process umask leaves it world-readable.  We chmod
+    both candidates so the call works regardless of which form
+    Telethon picked.  Failures are logged at WARNING — chmod is
+    a defence-in-depth measure, not a correctness requirement.
+    """
+    candidates = [Path(session_path)]
+    if not session_path.endswith(".session"):
+        candidates.append(Path(session_path + ".session"))
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        try:
+            os.chmod(candidate, 0o600)
+            logger.debug("telegram_live.session_chmod_ok path=%s", candidate)
+        except OSError as exc:
+            logger.warning(
+                "telegram_live.session_chmod_failed path=%s error=%s",
+                candidate,
+                exc,
+            )
+
+
 class TelegramLiveIngestor(Ingestor):
     """Live Telegram channel monitor using Telethon.
 
@@ -145,6 +173,12 @@ class TelegramLiveIngestor(Ingestor):
         )
 
         await self._client.start()
+        # Telethon's SQLite session file holds a full-account auth
+        # token.  Heddle's other secret-bearing files (``~/.heddle/
+        # config.yaml``) are 0o600; the session file inherits the
+        # process umask (typically 0o644) which leaves the token
+        # world-readable.  Tighten now that the file exists.
+        _secure_session_file(self._session_path)
         logger.info(
             "Connected to Telegram as %s",
             (await self._client.get_me()).username or "unknown",
