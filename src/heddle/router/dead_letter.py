@@ -121,6 +121,18 @@ class DeadLetterConsumer(BaseActor):
         self._entries: list[DeadLetterEntry] = []
         self._replay_log: list[ReplayRecord] = []
 
+    def set_bus(self, bus: MessageBus) -> None:
+        """Replace the underlying message bus.
+
+        Used by the Workshop lifespan to swap in a connected ``NATSBus``
+        after construction.  The consumer is built outside the FastAPI
+        lifespan so route handlers can close over it, but the bus is
+        only known once the async lifespan starts.  Calling this from
+        inside :meth:`run` after :meth:`subscribe` is undefined — only
+        use it before subscription.
+        """
+        self._bus = bus
+
     async def handle_message(self, data: dict[str, Any]) -> None:
         """Process a dead-letter message from the bus.
 

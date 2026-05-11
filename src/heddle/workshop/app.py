@@ -7,11 +7,14 @@ Start via CLI: ``heddle workshop --port 8080``
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import os
 import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
 import structlog
@@ -22,6 +25,9 @@ from fastapi.templating import Jinja2Templates
 
 from heddle.bus.memory import InMemoryBus
 from heddle.router.dead_letter import DeadLetterConsumer
+
+if TYPE_CHECKING:
+    from heddle.bus.base import MessageBus
 from heddle.worker.backends import build_backends_from_env
 from heddle.workshop.app_manager import AppManager
 from heddle.workshop.config_impact import get_impact
@@ -81,10 +87,30 @@ def _build_extra_config_dirs(app_mgr: AppManager) -> list[Path]:
     return dirs
 
 
+async def _drain_dead_letter(consumer: DeadLetterConsumer, bus: MessageBus) -> None:
+    """Subscribe to ``heddle.tasks.dead_letter`` and feed the consumer.
+
+    Mirrors :func:`heddle.mcp.server._drain_dead_letter`: runs as a
+    background task for the lifetime of the Workshop process so the
+    Dead Letters UI sees live NATS traffic.  Cancelled by the
+    lifespan on shutdown.
+    """
+    sub = await bus.subscribe("heddle.tasks.dead_letter")
+    logger.info("workshop.dead_letter_subscribed")
+    try:
+        async for data in sub:
+            await consumer.handle_message(data)
+    except asyncio.CancelledError:
+        raise
+    finally:
+        with contextlib.suppress(Exception):
+            await sub.unsubscribe()
+
+
 def create_app(  # noqa: PLR0915
     configs_dir: str = "configs/",
     db_path: str = "~/.heddle/workshop.duckdb",
-    nats_url: str | None = None,  # noqa: ARG001
+    nats_url: str | None = None,
     apps_dir: str = "~/.heddle/apps",
     rag_db_path: str | None = None,
     rag_store_class: str | None = None,
@@ -95,7 +121,14 @@ def create_app(  # noqa: PLR0915
     Args:
         configs_dir: Root directory containing ``workers/`` and ``orchestrators/``.
         db_path: DuckDB database path (``~`` is expanded).
-        nats_url: Optional NATS URL for live metrics (reserved for future use).
+        nats_url: Optional NATS URL.  When provided and reachable, the
+            Workshop subscribes to ``heddle.tasks.dead_letter`` for the
+            Dead Letters UI and publishes ``heddle.control.reload`` on
+            app deploy/remove so running actors pick up the new
+            configs.  When ``None`` (or NATS is unreachable), both
+            surfaces silently fall back to a process-local
+            ``InMemoryBus`` — the UI works but nothing crosses process
+            boundaries.
         apps_dir: Root directory for deployed app bundles.
         rag_db_path: Optional vector store path for the RAG dashboard.
         rag_store_class: Optional dotted path to a VectorStore subclass.
@@ -105,7 +138,7 @@ def create_app(  # noqa: PLR0915
     _mdns_advertiser = None
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI):  # noqa: ARG001
+    async def lifespan(app: FastAPI):
         nonlocal _mdns_advertiser
         try:
             from heddle.discovery.mdns import HeddleServiceAdvertiser
@@ -116,16 +149,55 @@ def create_app(  # noqa: PLR0915
             logger.info("workshop.mdns_enabled")
         except ImportError:
             logger.info("workshop.mdns_disabled", hint="Install heddle[mdns] for LAN discovery")
-        yield
-        if _mdns_advertiser is not None:
-            await _mdns_advertiser.stop()
-        # Release httpx clients held by LLM backends.  The names below
-        # are bound by the time lifespan's teardown runs (FastAPI calls
-        # the lifespan generator only after create_app() returns).
+
+        # NATS wiring — deferred to lifespan because connect() is async
+        # and we want a graceful fallback (rather than refusing to
+        # start) if the bus is unreachable.  When connected, both the
+        # dead-letter consumer (read path) and the AppManager (write
+        # path for ``heddle.control.reload``) point at the same bus.
+        nats_bus: MessageBus | None = None
+        drain_task: asyncio.Task[None] | None = None
+        if nats_url is not None:
+            from heddle.bus.nats_adapter import NATSBus
+
+            candidate = NATSBus(nats_url)
+            try:
+                await candidate.connect()
+            except Exception as exc:
+                logger.warning(
+                    "workshop.nats.unavailable",
+                    url=nats_url,
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                    hint="Dead Letters UI and reload broadcast will use in-memory fallback",
+                )
+            else:
+                nats_bus = candidate
+                dead_letter_consumer.set_bus(nats_bus)
+                app_mgr.set_bus(nats_bus)
+                drain_task = asyncio.create_task(_drain_dead_letter(dead_letter_consumer, nats_bus))
+                logger.info("workshop.nats.connected", url=nats_url)
+        app.state.nats_bus = nats_bus  # type: ignore[attr-defined]
+
         try:
-            await test_runner.aclose()
-        except Exception as exc:
-            logger.warning("workshop.backends_close_failed", error=str(exc))
+            yield
+        finally:
+            if drain_task is not None:
+                drain_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await drain_task
+            if nats_bus is not None:
+                with contextlib.suppress(Exception):
+                    await nats_bus.close()
+            if _mdns_advertiser is not None:
+                await _mdns_advertiser.stop()
+            # Release httpx clients held by LLM backends.  The names below
+            # are bound by the time lifespan's teardown runs (FastAPI calls
+            # the lifespan generator only after create_app() returns).
+            try:
+                await test_runner.aclose()
+            except Exception as exc:
+                logger.warning("workshop.backends_close_failed", error=str(exc))
 
     app = FastAPI(title="Heddle Workshop", docs_url=None, redoc_url=None, lifespan=lifespan)
 
@@ -841,12 +913,18 @@ def create_app(  # noqa: PLR0915
             },
         )
 
-    @app.post("/dead-letters/{index}/replay", response_class=RedirectResponse)
-    async def dead_letter_replay(request: Request, index: int):  # noqa: ARG001
-        form = await request.form()
-        entry_id = form.get("entry_id", "")
-        bus = dead_letter_consumer._bus
-        await dead_letter_consumer.replay(str(entry_id), bus)
+    @app.post("/dead-letters/{entry_id}/replay", response_class=RedirectResponse)
+    async def dead_letter_replay(entry_id: str):
+        # The path carries the entry UUID (stable across page reloads).
+        # Earlier shape took a positional ``{index}`` and read the real
+        # UUID from a hidden form field, so the path parameter was
+        # ignored and clicking Replay on a list that had since shifted
+        # could not target a specific entry — there was no entry whose
+        # position matched the URL.  The bus comes from
+        # ``dead_letter_consumer`` so replays publish to the same bus
+        # the consumer was wired to in lifespan (NATSBus when
+        # connected, InMemoryBus fallback otherwise).
+        await dead_letter_consumer.replay(entry_id, dead_letter_consumer._bus)
         return RedirectResponse(url="/dead-letters", status_code=303)
 
     @app.post("/dead-letters/clear", response_class=RedirectResponse)

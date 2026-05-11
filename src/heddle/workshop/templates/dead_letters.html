@@ -34,8 +34,7 @@
             <td><kbd>{{ entry.worker_type or '—' }}</kbd></td>
             <td>{{ entry.reason }}</td>
             <td>
-                <form action="/dead-letters/{{ loop.index0 }}/replay" method="post" style="display:inline;">
-                    <input type="hidden" name="entry_id" value="{{ entry.id }}">
+                <form action="/dead-letters/{{ entry.id }}/replay" method="post" style="display:inline;">
                     <button type="submit" class="outline small">Replay</button>
                 </form>
             </td>

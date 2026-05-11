@@ -98,6 +98,17 @@ class AppManager:
         self.apps_dir.mkdir(parents=True, exist_ok=True)
         self._bus = bus
 
+    def set_bus(self, bus: MessageBus | None) -> None:
+        """Replace the reload-publication bus.
+
+        Used by the Workshop lifespan to swap in a connected ``NATSBus``
+        after construction.  ``AppManager`` is built before the FastAPI
+        lifespan runs (so route handlers can close over it); the bus is
+        only known once the async lifespan starts, so it is late-bound
+        here rather than passed at construction.
+        """
+        self._bus = bus
+
     def list_apps(self) -> list[AppManifest]:
         """List all deployed apps by reading their manifests.
 

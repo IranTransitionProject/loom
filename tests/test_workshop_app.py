@@ -188,8 +188,7 @@ class TestDeadLetterReplayLog:
 
         # Replay via HTTP
         resp = client.post(
-            "/dead-letters/0/replay",
-            data={"entry_id": entry.id},
+            f"/dead-letters/{entry.id}/replay",
             follow_redirects=False,
         )
         assert resp.status_code == 303
@@ -205,8 +204,7 @@ class TestDeadLetterReplayLog:
 
         # Replay then clear
         client.post(
-            "/dead-letters/0/replay",
-            data={"entry_id": entry.id},
+            f"/dead-letters/{entry.id}/replay",
             follow_redirects=False,
         )
         client.post("/dead-letters/clear", follow_redirects=False)
@@ -1231,8 +1229,7 @@ class TestDeadLettersList:
 
         # Replay it so replay log is non-empty
         client.post(
-            "/dead-letters/0/replay",
-            data={"entry_id": entry.id},
+            f"/dead-letters/{entry.id}/replay",
             follow_redirects=False,
         )
 
@@ -1255,8 +1252,7 @@ class TestDeadLetterReplay:
         )
 
         resp = client.post(
-            "/dead-letters/0/replay",
-            data={"entry_id": entry.id},
+            f"/dead-letters/{entry.id}/replay",
             follow_redirects=False,
         )
         assert resp.status_code == 303
@@ -1268,8 +1264,7 @@ class TestDeadLetterReplay:
         entry = consumer.store({"y": 1}, "rate_limited", task_id="replay-t2")
 
         client.post(
-            "/dead-letters/0/replay",
-            data={"entry_id": entry.id},
+            f"/dead-letters/{entry.id}/replay",
             follow_redirects=False,
         )
         assert consumer.replay_count() == before + 1
@@ -1281,8 +1276,7 @@ class TestDeadLetterReplay:
         )
 
         client.post(
-            "/dead-letters/0/replay",
-            data={"entry_id": entry.id},
+            f"/dead-letters/{entry.id}/replay",
             follow_redirects=False,
         )
         log = consumer.replay_log()
@@ -1315,8 +1309,7 @@ class TestDeadLettersClear:
         consumer = client.app.state.dead_letter_consumer
         entry = consumer.store({"c": 3}, "test", task_id="clear-t3")
         client.post(
-            "/dead-letters/0/replay",
-            data={"entry_id": entry.id},
+            f"/dead-letters/{entry.id}/replay",
             follow_redirects=False,
         )
         before_replay_count = consumer.replay_count()
@@ -1422,3 +1415,131 @@ class TestPipelineStageEdit:
             follow_redirects=False,
         )
         assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# NATS wiring — dead-letter subscription + reload publish (A1)
+# ---------------------------------------------------------------------------
+
+
+class TestNATSWiring:
+    """Pin the lifespan-time NATS wiring contract.
+
+    The Workshop must:
+    - Use no NATS at all when ``nats_url`` is ``None`` (default for
+      tests and local-dev).
+    - Subscribe to ``heddle.tasks.dead_letter`` and feed entries into
+      the ``DeadLetterConsumer`` when ``nats_url`` points at a
+      reachable bus.
+    - Publish ``heddle.control.reload`` via the ``AppManager`` on
+      ``notify_reload()`` (read of dead-letter UI + write of reload
+      both share the same bus).
+    - Fall back silently to the process-local ``InMemoryBus`` when
+      ``nats_url`` is provided but ``connect()`` raises — the UI must
+      still come up so the operator can inspect deployed apps even
+      when NATS is down.
+    """
+
+    @staticmethod
+    @contextmanager
+    def _build_app(tmp_path, *, nats_url, patched_bus_cls=None):
+        """Build a Workshop app with mDNS stubbed and NATSBus optionally swapped.
+
+        Yielded as a context manager so the patches stay active for the
+        whole ``with TestClient(app) as client`` block — the lifespan
+        runs when ``TestClient`` is entered, well after ``create_app``
+        returns, so the patches must outlive the construction call.
+        """
+        import contextlib as _ctxlib
+
+        configs_dir = tmp_path / "configs"
+        (configs_dir / "workers").mkdir(parents=True, exist_ok=True)
+        (configs_dir / "orchestrators").mkdir(exist_ok=True)
+
+        # mDNS registration uses ``zeroconf`` which spins up its own
+        # event loop on a thread; under ``TestClient`` lifespan that
+        # loop is the test's loop and gets closed between cases,
+        # tripping ``EventLoopBlocked``.  Stub the advertiser to a
+        # no-op so the lifespan path under test (the NATS wiring) is
+        # the only thing exercised.
+        class _NoOpAdvertiser:
+            async def start(self):
+                return None
+
+            def register_workshop(self, port):
+                _ = port
+
+            async def stop(self):
+                return None
+
+        bus_ctx = (
+            mock.patch("heddle.bus.nats_adapter.NATSBus", patched_bus_cls)
+            if patched_bus_cls is not None
+            else _ctxlib.nullcontext()
+        )
+        with (
+            mock.patch("heddle.discovery.mdns.HeddleServiceAdvertiser", _NoOpAdvertiser),
+            bus_ctx,
+        ):
+            yield create_app(
+                configs_dir=str(configs_dir),
+                db_path=":memory:",
+                apps_dir=str(tmp_path / "apps"),
+                nats_url=nats_url,
+            )
+
+    def test_no_nats_url_skips_wiring(self, tmp_path):
+        with self._build_app(tmp_path, nats_url=None) as app, TestClient(app) as client:
+            assert client.app.state.nats_bus is None
+            resp = client.get("/dead-letters")
+            assert resp.status_code == 200
+
+    def test_nats_url_connects_and_shares_bus(self, tmp_path):
+        from heddle.bus.memory import InMemoryBus
+
+        class _StubNATS(InMemoryBus):
+            def __init__(self, url):
+                _ = url
+                super().__init__()
+
+        with (
+            self._build_app(
+                tmp_path, nats_url="nats://stub:4222", patched_bus_cls=_StubNATS
+            ) as app,
+            TestClient(app) as client,
+        ):
+            bus = client.app.state.nats_bus
+            assert isinstance(bus, _StubNATS)
+            # state.nats_bus and the consumer's bus must be the same
+            # instance — otherwise the reload broadcast and the
+            # dead-letter drain are talking past each other (the bug
+            # A1 closed).
+            assert client.app.state.dead_letter_consumer._bus is bus
+
+    def test_nats_unavailable_falls_back_silently(self, tmp_path):
+        class _FailingNATS:
+            def __init__(self, url):
+                self.url = url
+
+            async def connect(self):
+                raise OSError("connection refused")
+
+            async def close(self):
+                pass
+
+        with (
+            self._build_app(
+                tmp_path,
+                nats_url="nats://unreachable:4222",
+                patched_bus_cls=_FailingNATS,
+            ) as app,
+            TestClient(app) as client,
+        ):
+            # Fallback: state.nats_bus is None, but the UI still works.
+            assert client.app.state.nats_bus is None
+            resp = client.get("/dead-letters")
+            assert resp.status_code == 200
+            # The consumer's bus stayed the in-memory default.
+            from heddle.bus.memory import InMemoryBus
+
+            assert isinstance(client.app.state.dead_letter_consumer._bus, InMemoryBus)
