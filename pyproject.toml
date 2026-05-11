@@ -98,7 +98,7 @@ council = [
     # No new deps — reuses core (pydantic, yaml, httpx, structlog)
 ]
 chatbridge = [
-    "openai>=1.0.0",           # OpenAI Chat Completions client
+    "openai>=2.36.0",           # OpenAI Chat Completions client
 ]
 dev = [
     "pytest>=8.0",
