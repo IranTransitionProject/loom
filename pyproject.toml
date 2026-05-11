@@ -46,7 +46,7 @@ local = [
     "ollama>=0.3.0",           # Local model client
 ]
 docproc = [
-    "docling>=2.0.0",          # Document extraction (PDF, DOCX, etc.)
+    "docling>=2.93.0",          # Document extraction (PDF, DOCX, etc.)
 ]
 duckdb = [
     "duckdb>=1.0.0",           # Embedded analytics database
