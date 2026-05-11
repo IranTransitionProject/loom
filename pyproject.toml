@@ -60,7 +60,7 @@ lancedb = [
     "pyarrow>=15.0.0",         # Arrow for LanceDB schema
 ]
 telegram = [
-    "telethon>=1.36.0",        # Telegram MTProto client for live capture
+    "telethon>=1.43.2",        # Telegram MTProto client for live capture
 ]
 scheduler = [
     "croniter>=6.2.2",         # Cron expression parsing for scheduled dispatch
