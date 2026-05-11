@@ -103,6 +103,7 @@ class CouncilOrchestrator(BaseActor):
         log.info("council.started", agents=len(cfg.agents), max_rounds=cfg.max_rounds)
 
         protocol = get_protocol(cfg.protocol)
+        protocol.set_agents(cfg.agents)
         transcript = TranscriptStore()
         detector = ConvergenceDetector(cfg.convergence, backend=self._backend)
 

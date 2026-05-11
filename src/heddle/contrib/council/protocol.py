@@ -43,6 +43,17 @@ class DiscussionProtocol(ABC):
     ) -> dict[str, Any]:
         """Build the payload context for one agent's turn."""
 
+    def set_agents(self, agents: list[AgentConfig]) -> None:
+        """Hand the full agent roster to the protocol before round 1.
+
+        Default is a no-op — only protocols that need a stable
+        identity-to-label mapping across agents (e.g. Delphi
+        anonymization) override this.  Runner + orchestrator must
+        call this immediately after :func:`get_protocol` so the
+        first round has the roster.
+        """
+        _ = agents
+
 
 class RoundRobinProtocol(DiscussionProtocol):
     """All agents speak every round, in config order.
@@ -163,7 +174,30 @@ class DelphiProtocol(DiscussionProtocol):
 
     Agent identities are hidden in the transcript shown to participants.
     Each round includes the previous round's convergence score as feedback.
+
+    The alias map (``agent_name -> "Participant A/B/C"``) is built
+    from the council config's agent order via :meth:`set_agents` so
+    every agent sees a consistent label for every other agent.
+    Earlier the map was rebuilt from iteration order on each call,
+    so a filtered transcript (visibility differences between agents)
+    produced inconsistent labels — Agent X was "Participant A" in
+    one agent's view and "Participant B" in another's.
     """
+
+    _ALIAS_LIMIT: int = 26  # A..Z; raise rather than overflow into ASCII junk.
+
+    def __init__(self) -> None:
+        self._alias_map: dict[str, str] = {}
+
+    def set_agents(self, agents: list[AgentConfig]) -> None:  # noqa: D102
+        if len(agents) > self._ALIAS_LIMIT:
+            msg = (
+                f"DelphiProtocol supports at most {self._ALIAS_LIMIT} agents "
+                f"(A..Z aliases); got {len(agents)}.  Use a different "
+                "protocol or extend ``_build_alias_label`` to AA/AB/AC."
+            )
+            raise ValueError(msg)
+        self._alias_map = {a.name: f"Participant {chr(65 + i)}" for i, a in enumerate(agents)}
 
     def get_turn_order(  # noqa: D102
         self,
@@ -230,25 +264,32 @@ class DelphiProtocol(DiscussionProtocol):
             ctx["audience_reactions"] = audience_block
         return ctx
 
-    @staticmethod
     def _anonymize_transcript(
+        self,
         entries: list,
         self_name: str,
     ) -> str:
-        """Replace agent names with Participant A/B/C labels."""
-        name_map: dict[str, str] = {}
-        label_idx = 0
+        """Replace agent names with Participant A/B/C labels.
 
+        Uses ``self._alias_map`` built once from the council's agent
+        roster.  Agents not in the map (audience interjections, e.g.)
+        fall back to a deterministic late-binding label that doesn't
+        collide with the config-order aliases (prefixed ``Unknown``).
+        """
         blocks: list[str] = []
+        # Late-binding aliases for any entry whose agent_name is
+        # outside the configured roster.  Stable within one call and
+        # never collides with the A..Z aliases above.
+        unknown_map: dict[str, str] = {}
         for e in entries:
             if e.agent_name == self_name:
                 label = "You"
-            elif e.agent_name not in name_map:
-                label = f"Participant {chr(65 + label_idx)}"
-                name_map[e.agent_name] = label
-                label_idx += 1
+            elif e.agent_name in self._alias_map:
+                label = self._alias_map[e.agent_name]
             else:
-                label = name_map[e.agent_name]
+                if e.agent_name not in unknown_map:
+                    unknown_map[e.agent_name] = f"Unknown Participant {len(unknown_map) + 1}"
+                label = unknown_map[e.agent_name]
 
             blocks.append(f"[Round {e.round_num}] {label}:\n{e.content}")
 

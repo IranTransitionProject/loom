@@ -91,7 +91,7 @@ class CouncilRunner:
             raise RuntimeError(msg)
         self._active_transcript.inject_interjection(agent_name, content, role)
 
-    async def run(
+    async def run(  # noqa: PLR0915
         self,
         topic: str,
         config: CouncilConfig | None = None,
@@ -119,6 +119,7 @@ class CouncilRunner:
         log.info("council.start", agents=len(cfg.agents), max_rounds=cfg.max_rounds)
 
         protocol = get_protocol(cfg.protocol)
+        protocol.set_agents(cfg.agents)
         transcript = TranscriptStore()
         self._active_transcript = transcript
         convergence_backend = self.backends.get(cfg.convergence.backend_tier.value)

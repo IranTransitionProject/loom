@@ -111,19 +111,23 @@ class TestStructuredDebateProtocol:
 class TestDelphiProtocol:
     def test_anonymizes_other_agents(self):
         p = DelphiProtocol()
+        p.set_agents(_agents(3))
         agent = AgentConfig(name="agent_0", worker_type="w")
         store = _populated_transcript()
 
         ctx = p.build_agent_context(agent, store, round_num=2, topic="test")
-        # Own entries should show "You"
+        # Own entries show "You"; agent_1 keeps its config-order
+        # alias ("Participant B" because agent_0 is "A" in the
+        # roster — the alias is tied to config position, not to
+        # whether the self agent's turn is present in the view).
         assert "You" in ctx["round_context"]
-        # Other agents should be "Participant A"
-        assert "Participant A" in ctx["round_context"]
-        # Real names should NOT appear
+        assert "Participant B" in ctx["round_context"]
+        # Real names should NOT appear.
         assert "agent_1" not in ctx["round_context"]
 
     def test_convergence_feedback_in_round2(self):
         p = DelphiProtocol()
+        p.set_agents(_agents(3))
         agent = _agents(1)[0]
         store = _populated_transcript()
         store.set_convergence_score(1, 0.6)
@@ -133,8 +137,61 @@ class TestDelphiProtocol:
 
     def test_round1_instructions(self):
         p = DelphiProtocol()
+        p.set_agents(_agents(1))
         agent = _agents(1)[0]
         store = TranscriptStore()
 
         ctx = p.build_agent_context(agent, store, round_num=1, topic="test")
         assert "Delphi" in ctx["instructions"]
+
+    def test_alias_map_stable_across_filtered_views(self):
+        """Pin the bug B3 closed.
+
+        Earlier ``_anonymize_transcript`` rebuilt labels from
+        iteration order on every call.  When agent X had visibility
+        only into a subset of agents (or a transcript where the
+        first turn was filtered out), the labels reassigned and the
+        same real agent could be "Participant A" in one view and
+        "Participant B" in another.  Now the map is built from the
+        council config's agent order once via ``set_agents`` and
+        stays stable across all views.
+        """
+        p = DelphiProtocol()
+        agents = _agents(3)
+        p.set_agents(agents)
+
+        # Full view: agent_2 (a non-self) reads everyone else.
+        store_full = TranscriptStore()
+        store_full.start_round(1)
+        store_full.add_entry(TranscriptEntry(round_num=1, agent_name="agent_0", content="A0"))
+        store_full.add_entry(TranscriptEntry(round_num=1, agent_name="agent_1", content="A1"))
+
+        # Filtered view: same agent's view, but agent_0's turn has
+        # been dropped (e.g. via ``sees_transcript_from`` visibility
+        # rules).  Without B3, agent_1 would re-label as
+        # "Participant A" here because iteration order changed.
+        store_filtered = TranscriptStore()
+        store_filtered.start_round(1)
+        store_filtered.add_entry(TranscriptEntry(round_num=1, agent_name="agent_1", content="A1"))
+
+        ctx_full = p.build_agent_context(agents[2], store_full, round_num=2, topic="t")
+        ctx_filtered = p.build_agent_context(agents[2], store_filtered, round_num=2, topic="t")
+
+        # agent_1's label stays "Participant B" in both views.
+        assert "Participant B" in ctx_full["round_context"]
+        assert "Participant B" in ctx_filtered["round_context"]
+        # agent_0's label is consistent too — appears as "Participant A"
+        # in the full view (and absent from the filtered view).
+        assert "Participant A" in ctx_full["round_context"]
+
+    def test_raises_when_more_than_26_agents(self):
+        """A..Z aliases overflow into ASCII junk past 26 agents.
+
+        Raise at ``set_agents`` so the misconfiguration surfaces
+        before the first turn rather than producing labels like
+        ``Participant [`` mid-discussion.
+        """
+        p = DelphiProtocol()
+        many = [AgentConfig(name=f"a{i}", worker_type="w") for i in range(27)]
+        with pytest.raises(ValueError, match="at most 26 agents"):
+            p.set_agents(many)
