@@ -237,9 +237,19 @@ class OllamaBackend(LLMBackend):
     the trace at request time — wire that through the same flag.
     """
 
-    def __init__(self, model: str = "llama3.2:3b", base_url: str = "http://ollama:11434") -> None:
+    def __init__(
+        self,
+        model: str = "llama3.2:3b",
+        base_url: str | None = None,
+    ) -> None:
+        # Honour ``OLLAMA_URL`` as a constructor-time default so the
+        # backend agrees with the embedding provider's resolution
+        # policy (``OllamaEmbeddingProvider`` already reads the env
+        # var).  Explicit ``base_url=`` still wins.  Falls back to
+        # the container-friendly default if neither is provided.
         self.model = model
-        self.client = httpx.AsyncClient(base_url=base_url, timeout=120.0)
+        resolved_url = base_url or os.environ.get("OLLAMA_URL", "http://ollama:11434")
+        self.client = httpx.AsyncClient(base_url=resolved_url, timeout=120.0)
 
     async def complete(
         self,
@@ -780,14 +790,31 @@ def build_backends_from_env() -> dict[str, LLMBackend]:
         Dict mapping tier name → LLMBackend instance. May be empty if no
         environment variables are set.
     """
-    # Load config.yaml defaults (best-effort; env vars still override)
+    # Load config.yaml defaults (best-effort; env vars still override).
+    # Earlier this silently swallowed every exception, so a malformed
+    # ~/.heddle/config.yaml produced an empty backends dict with no
+    # operator-visible signal — "no backend for tier" errors looked
+    # like missing env vars.  Log at WARN so the operator can grep
+    # for it; missing-file is still allowed (load_config returns an
+    # empty config when the file doesn't exist).
     try:
         from heddle.cli.config import apply_config_to_env, load_config
 
         config = load_config()
         apply_config_to_env(config)
-    except Exception:
-        pass
+    except Exception as exc:
+        import structlog as _structlog
+
+        _structlog.get_logger().warning(
+            "backends.config_load_failed",
+            error=str(exc),
+            error_type=type(exc).__name__,
+            hint=(
+                "~/.heddle/config.yaml could not be loaded; falling back "
+                "to environment variables only.  Fix the YAML or remove the "
+                "file to silence this warning."
+            ),
+        )
 
     backends: dict[str, LLMBackend] = {}
 

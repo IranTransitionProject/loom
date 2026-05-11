@@ -1075,3 +1075,43 @@ class TestBuildBackendsFromEnv:
         assert "standard" in backends
         assert "frontier" in backends
         assert isinstance(backends["standard"], AnthropicBackend)
+
+
+class TestOllamaBackendUrlResolution:
+    """D5: OllamaBackend honours OLLAMA_URL like the embedding provider does."""
+
+    def test_explicit_base_url_wins(self, monkeypatch):
+        monkeypatch.setenv("OLLAMA_URL", "http://env-host:11434")
+        backend = OllamaBackend(base_url="http://explicit:11434")
+        assert str(backend.client.base_url) == "http://explicit:11434"
+
+    def test_env_var_used_when_no_explicit(self, monkeypatch):
+        monkeypatch.setenv("OLLAMA_URL", "http://env-host:11434")
+        backend = OllamaBackend()
+        assert str(backend.client.base_url) == "http://env-host:11434"
+
+    def test_falls_back_to_container_default(self, monkeypatch):
+        monkeypatch.delenv("OLLAMA_URL", raising=False)
+        backend = OllamaBackend()
+        assert str(backend.client.base_url) == "http://ollama:11434"
+
+
+class TestBuildBackendsFromEnvLogging:
+    """D5: malformed config.yaml emits a WARN, doesn't silently no-op."""
+
+    def test_config_load_failure_logged(self, monkeypatch, capsys):
+        # Force load_config to raise so the except branch runs.
+        def _raise(*_a, **_kw):
+            raise RuntimeError("malformed yaml")
+
+        monkeypatch.setattr("heddle.cli.config.load_config", _raise)
+        monkeypatch.delenv("LM_STUDIO_URL", raising=False)
+        monkeypatch.delenv("OLLAMA_URL", raising=False)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        build_backends_from_env()
+        # structlog renders to stdout in the project's default
+        # configuration; the event name is the marker an operator
+        # would grep for.
+        out = capsys.readouterr().out
+        assert "backends.config_load_failed" in out
+        assert "malformed yaml" in out
