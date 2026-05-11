@@ -72,8 +72,12 @@ With the token set:
 
 - Every POST/PUT/PATCH/DELETE requires `Authorization: Bearer <token>`
   or the `heddle_workshop_token` cookie.
-- The cookie is set by visiting `GET /login?token=<TOKEN>` once;
-  subsequent forms POST with the cookie attached.
+- The cookie is set by visiting `GET /login` (form) and submitting
+  the token via `POST /login`. The token is carried in the request
+  body, never the URL, so it does not appear in uvicorn access logs.
+  The legacy `GET /login?token=...` shape from earlier releases is
+  no longer honoured — operators following older runbooks must
+  re-issue the bootstrap step via the form.
 - Cookie attributes: `HttpOnly` + `SameSite=Strict` + `Path=/`.
   Operators terminating TLS in front of the workshop should add
   `Secure` via reverse proxy.
@@ -84,7 +88,7 @@ With the token set:
 
 GET routes remain open even with auth enabled. Auth is about
 preventing unauthorised mutations, not browse-blocking, and keeping
-GETs open lets the `/login` route bootstrap the cookie.
+GETs open lets the `/login` form render before the cookie is set.
 
 The token mode is the only auth shape Heddle ships today. Basic
 auth and session cookies were considered and deferred; if your

@@ -22,8 +22,8 @@ This module provides three reusable defences:
   ``HEDDLE_WORKSHOP_TOKEN``.  Default = no auth, which is safe under
   the trusted-local default bind (127.0.0.1).  When the env var is
   set, mutating requests must carry ``Authorization: Bearer <token>``
-  or the ``heddle_workshop_token`` cookie (set by visiting
-  ``GET /login?token=...`` once).  Same-origin still applies on top.
+  or the ``heddle_workshop_token`` cookie (set by submitting the
+  token via ``POST /login`` once).  Same-origin still applies on top.
 
 All helpers are pure utility — no Workshop-specific state beyond what
 the operator passes in — so they are easy to unit-test.
@@ -226,10 +226,11 @@ async def read_upload_with_size_cap(
 # loopback bind).
 ENV_TOKEN_VAR = "HEDDLE_WORKSHOP_TOKEN"
 
-# Cookie name used for the browser-friendly path.  Set by visiting
-# ``GET /login?token=...`` once; subsequent forms POST with this
+# Cookie name used for the browser-friendly path.  Set by submitting
+# the token to ``POST /login`` once; subsequent forms POST with this
 # cookie attached so the operator doesn't have to set the header
-# manually on every request.
+# manually on every request.  The token never appears in the URL,
+# so uvicorn access logs do not record it.
 TOKEN_COOKIE_NAME = "heddle_workshop_token"
 
 # Hosts treated as loopback for the bind-warning check.  ``localhost``
@@ -282,7 +283,7 @@ class WorkshopAuth:
         1. ``Authorization: Bearer <token>`` header — for CLI / curl /
            fetch clients.
         2. ``heddle_workshop_token`` cookie — for browsers that have
-           visited ``GET /login?token=...`` once.
+           submitted the token via ``POST /login`` once.
 
         Comparison uses :func:`secrets.compare_digest` so a mismatch
         does not leak the matching prefix length via timing.
@@ -318,6 +319,13 @@ def make_token_auth_middleware(
     ) -> Response:
         if not auth.enabled or request.method in _SAFE_METHODS:
             return await call_next(request)
+        # ``POST /login`` is the cookie-bootstrap path; it validates
+        # the form-supplied token itself.  Exempting it here lets the
+        # handler accept the token via POST body (and out of access
+        # logs) without first holding a cookie.  Same-origin still
+        # applies on top — see ``enforce_same_origin``.
+        if request.url.path == "/login":
+            return await call_next(request)
         if auth.request_token_matches(request):
             return await call_next(request)
         # Delay structlog import so the helper stays light when used
@@ -334,8 +342,9 @@ def make_token_auth_middleware(
             content={
                 "error": (
                     "Unauthorized.  Send 'Authorization: Bearer <token>' or "
-                    "set the heddle_workshop_token cookie via "
-                    "GET /login?token=...  HEDDLE_WORKSHOP_TOKEN must match."
+                    "submit POST /login with the token in the form body to "
+                    "set the heddle_workshop_token cookie.  "
+                    "HEDDLE_WORKSHOP_TOKEN must match."
                 ),
             },
         )

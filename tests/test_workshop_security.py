@@ -547,8 +547,28 @@ class TestTokenAuthIntegration:
         )
         assert resp.status_code != 401
 
-    def test_login_sets_cookie_and_redirects(self, authed_workshop_client):
-        resp = authed_workshop_client.get("/login?token=test-token-xyz", follow_redirects=False)
+    def test_login_form_renders(self, authed_workshop_client):
+        """GET /login returns the bootstrap form (no token in URL).
+
+        Token transport moved from URL query to POST body so the
+        token never reaches uvicorn access logs (review §4.2).  The
+        GET path now serves the form only.
+        """
+        resp = authed_workshop_client.get("/login", follow_redirects=False)
+        assert resp.status_code == 200
+        body = resp.text.lower()
+        assert '<form action="/login" method="post"' in body
+        assert 'name="token"' in body
+        # GET must not set the cookie.
+        assert TOKEN_COOKIE_NAME not in resp.headers.get("set-cookie", "")
+
+    def test_login_post_sets_cookie_and_redirects(self, authed_workshop_client):
+        resp = authed_workshop_client.post(
+            "/login",
+            data={"token": "test-token-xyz"},
+            headers=self._SAME_ORIGIN_HEADERS,
+            follow_redirects=False,
+        )
         assert resp.status_code == 303
         assert resp.headers["location"] == "/"
         # Cookie is HttpOnly + SameSite=Strict + Path=/.
@@ -557,9 +577,28 @@ class TestTokenAuthIntegration:
         assert "HttpOnly" in set_cookie
         assert "SameSite=strict" in set_cookie.lower() or "samesite=strict" in set_cookie.lower()
 
-    def test_login_with_wrong_token_returns_401(self, authed_workshop_client):
-        resp = authed_workshop_client.get("/login?token=wrong", follow_redirects=False)
+    def test_login_post_with_wrong_token_returns_401(self, authed_workshop_client):
+        resp = authed_workshop_client.post(
+            "/login",
+            data={"token": "wrong"},
+            headers=self._SAME_ORIGIN_HEADERS,
+            follow_redirects=False,
+        )
         assert resp.status_code == 401
+
+    def test_login_get_with_token_query_ignored(self, authed_workshop_client):
+        """Legacy ``GET /login?token=...`` no longer sets the cookie.
+
+        Pins the migration: even if an operator follows the old
+        runbook wording and visits the URL with a token, no cookie is
+        set and the token never confers session access.  This is the
+        whole point of the move — tokens never reach uvicorn access
+        logs.
+        """
+        resp = authed_workshop_client.get("/login?token=test-token-xyz", follow_redirects=False)
+        # GET returns the form (200), not a redirect with cookie.
+        assert resp.status_code == 200
+        assert TOKEN_COOKIE_NAME not in resp.headers.get("set-cookie", "")
 
     def test_same_origin_still_applies_with_valid_token(self, authed_workshop_client):
         """Cross-origin POST with a valid token must STILL be rejected
@@ -582,5 +621,9 @@ class TestLoginRouteOnOpenWorkshop:
 
     def test_login_returns_404_when_auth_disabled(self, workshop_client):
         # workshop_client fixture above does NOT set the env var.
-        resp = workshop_client.get("/login?token=anything", follow_redirects=False)
+        # Both GET (form) and POST (submit) must 404 so the endpoint
+        # does not advertise its existence on open deployments.
+        resp = workshop_client.get("/login", follow_redirects=False)
+        assert resp.status_code == 404
+        resp = workshop_client.post("/login", data={"token": "anything"}, follow_redirects=False)
         assert resp.status_code == 404

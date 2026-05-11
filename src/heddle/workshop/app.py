@@ -291,30 +291,13 @@ def create_app(  # noqa: PLR0915
     async def health():
         return {"status": "ok", "backends": list(backends.keys())}
 
-    @app.get("/login")
-    async def login(request: Request):
-        """Browser-friendly cookie bootstrap for ``HEDDLE_WORKSHOP_TOKEN``.
-
-        Visit ``GET /login?token=<HEDDLE_WORKSHOP_TOKEN>`` once; the
-        server validates the URL token against the env var, sets a
-        same-site cookie, and redirects to ``/`` (which then rewrites
-        to /workers).  Subsequent forms POST with the cookie attached.
-        Returns 404 if auth is disabled (no env var) so this endpoint
-        does not advertise its existence on open deployments.  Returns
-        401 on token mismatch.
-        """
-        if not auth.enabled:
-            return JSONResponse({"error": "Not Found"}, status_code=404)
-        provided = request.query_params.get("token", "")
-        if not provided or not auth.request_token_matches_value(provided):
-            return JSONResponse({"error": "Invalid token"}, status_code=401)
+    def _set_login_cookie(response: RedirectResponse) -> RedirectResponse:
         # Cookie attributes: HttpOnly so page JS can't exfiltrate;
         # SameSite=Strict so a cross-site redirect can't initiate a
         # POST that pulls the cookie; Path=/ so it works on every
         # mutating route.  ``secure`` is left False because the
         # default bind is plain HTTP loopback — operators terminating
         # TLS in front should set it via reverse proxy.
-        response = RedirectResponse(url="/", status_code=303)
         response.set_cookie(
             key=TOKEN_COOKIE_NAME,
             value=auth.token or "",
@@ -323,6 +306,65 @@ def create_app(  # noqa: PLR0915
             path="/",
         )
         return response
+
+    @app.get("/login", response_class=HTMLResponse)
+    async def login_form():
+        """Render the token bootstrap form (or 404 when auth is disabled).
+
+        The form POSTs the token in the request body so it never lands
+        in uvicorn access logs.  Returns 404 when auth is disabled so
+        this endpoint does not advertise its existence on open
+        deployments.
+        """
+        if not auth.enabled:
+            return JSONResponse({"error": "Not Found"}, status_code=404)
+        # Inline form — deliberately minimal so the page renders
+        # before any styling loads and the operator can paste the
+        # token from a password manager without distraction.  No nav
+        # chrome: the operator has no cookie yet, so the rest of the
+        # workshop is gated anyway.
+        return HTMLResponse(
+            """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Heddle Workshop — Login</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+</head>
+<body>
+<main class="container" style="max-width: 28rem;">
+<hgroup>
+  <h1>Heddle Workshop</h1>
+  <p>Paste your <code>HEDDLE_WORKSHOP_TOKEN</code> to set a session cookie.</p>
+</hgroup>
+<form action="/login" method="post" autocomplete="off">
+  <label>Token
+    <input type="password" name="token" required autofocus>
+  </label>
+  <button type="submit">Sign in</button>
+</form>
+</main>
+</body>
+</html>"""
+        )
+
+    @app.post("/login")
+    async def login_submit(request: Request):
+        """Validate the token and set the session cookie.
+
+        Token comes from the POST form body so it never appears in
+        access logs.  Returns 404 when auth is disabled, 401 on
+        mismatch, and 303 to ``/`` on success (which rewrites to
+        ``/workers``).
+        """
+        if not auth.enabled:
+            return JSONResponse({"error": "Not Found"}, status_code=404)
+        form = await request.form()
+        provided_raw = form.get("token", "")
+        provided = provided_raw if isinstance(provided_raw, str) else ""
+        if not provided or not auth.request_token_matches_value(provided):
+            return JSONResponse({"error": "Invalid token"}, status_code=401)
+        return _set_login_cookie(RedirectResponse(url="/", status_code=303))
 
     # --- Workers ---
 

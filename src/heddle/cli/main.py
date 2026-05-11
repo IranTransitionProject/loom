@@ -774,7 +774,7 @@ def workshop(
             hint=(
                 "Workshop is bound to a non-loopback address without auth.  "
                 "Set HEDDLE_WORKSHOP_TOKEN to require an Authorization header "
-                "(or cookie via GET /login?token=...) on every mutating route, "
+                "(or cookie via POST /login) on every mutating route, "
                 "or rebind to 127.0.0.1."
             ),
         )

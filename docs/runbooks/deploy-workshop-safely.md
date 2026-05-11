@@ -59,10 +59,12 @@ Procedure for a LAN bind:
 3. **Distribute the token.** For browser use, visit once:
 
     ```text
-    http://your-host:8000/login?token=<HEDDLE_WORKSHOP_TOKEN>
+    http://your-host:8000/login
     ```
 
-    Workshop sets a cookie; subsequent requests reuse it. For
+    Paste the token into the form and submit. Workshop sets a
+    cookie; subsequent requests reuse it. The token is sent in the
+    POST body so it never appears in uvicorn access logs. For
     programmatic access, pass `Authorization: Bearer <token>` on
     every mutating request.
 
