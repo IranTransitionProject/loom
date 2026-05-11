@@ -57,7 +57,7 @@ rag = [
 ]
 lancedb = [
     "lancedb>=0.15.0",         # LanceDB embedded vector database
-    "pyarrow>=15.0.0",         # Arrow for LanceDB schema
+    "pyarrow>=24.0.0",         # Arrow for LanceDB schema
 ]
 telegram = [
     "telethon>=1.36.0",        # Telegram MTProto client for live capture
@@ -110,7 +110,7 @@ dev = [
     "croniter>=6.2.2",         # Needed for scheduler tests
     "fastmcp>=3.1",            # Needed for MCP gateway tests
     "lancedb>=0.15.0",         # Needed for contrib/lancedb tests
-    "pyarrow>=15.0.0",         # Needed for LanceDB
+    "pyarrow>=24.0.0",         # Needed for LanceDB
     "mkdocs-material>=9.5",           # Needed for docs build
     "mkdocstrings[python]>=0.24",
     "deepeval>=3.8.0",         # LLM output quality evaluation
