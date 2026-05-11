@@ -42,11 +42,12 @@ from collections import deque
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ..schemas.post import NormalizedPost
 from .base import Ingestor
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+
+    from ..schemas.post import NormalizedPost
 
 logger = logging.getLogger(__name__)
 
@@ -218,18 +219,22 @@ class TelegramLiveIngestor(Ingestor):
 
             from datetime import UTC
 
+            from heddle.contrib.rag.ingestion.normalize import normalize_live_text
+
             timestamp = msg.date.replace(tzinfo=UTC) if msg.date.tzinfo is None else msg.date
 
-            post = NormalizedPost(
-                source_channel_id=channel_id,
-                source_channel_name=channel_name,
+            # Run the shared normalizer so live posts and batch-
+            # imported posts produce matching ``text_clean`` /
+            # ``text_rtl`` / ``language`` (C3).  Telethon doesn't
+            # surface ``text_entities``, so link extraction is the
+            # URL-regex subset; everything else agrees with the
+            # batch path.
+            post = normalize_live_text(
+                text,
+                channel_id=channel_id,
+                channel_name=channel_name,
                 message_id=msg.id,
-                global_id=f"{channel_id}:{msg.id}",
                 timestamp=timestamp,
-                timestamp_unix=int(timestamp.timestamp()),
-                text_raw=text,
-                text_clean=text,  # Basic — full normalization can be applied downstream
-                text_rtl=True,  # Default for Persian channels
                 has_media=msg.media is not None,
                 has_photo=msg.photo is not None,
                 is_forward=msg.forward is not None,

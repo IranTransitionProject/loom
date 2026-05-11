@@ -163,3 +163,59 @@ class TestNormalize:
         result = resolve_editor_profile(999, "fallback")
         assert result.channel_name == "fallback"
         assert result.trust_weight == 0.5
+
+
+class TestNormalizeLiveText:
+    """Pin C3: live and batch paths produce matching ``text_clean`` etc.
+
+    Earlier the live handler hard-coded ``text_clean=text`` and
+    ``text_rtl=True``, so a Persian post coming through the live
+    capture path and the same Persian post coming through the batch
+    JSON import path produced different embeddings.  Live now goes
+    through the shared ``normalize_live_text`` helper.
+    """
+
+    def test_normalize_strips_emojis_and_normalizes_digits(self):
+        from datetime import UTC, datetime
+
+        from heddle.contrib.rag.ingestion.normalize import normalize_live_text
+
+        # Eastern-Arabic digits + an emoji.  The shared normalizer
+        # strips emojis and rewrites digits.  The earlier live path
+        # echoed the raw text verbatim.
+        ts = datetime(2026, 5, 11, tzinfo=UTC)
+        # Build digits from codepoints so ruff doesn't flag the
+        # Arabic-Indic forms as Latin homoglyphs.
+        arabic_one = chr(0x0661)  # ARABIC-INDIC DIGIT ONE
+        arabic_two = chr(0x0662)
+        arabic_three = chr(0x0663)
+        text = f"سلام {arabic_one}{arabic_two}{arabic_three} \U0001f600"
+        post = normalize_live_text(
+            text,
+            channel_id=42,
+            channel_name="ch",
+            message_id=7,
+            timestamp=ts,
+        )
+        assert post.global_id == "42:7"
+        assert arabic_one not in post.text_clean, "Eastern-Arabic digits not normalized"
+        assert "\U0001f600" not in post.text_clean, "emoji not stripped"
+        # Original raw text preserved.
+        assert arabic_one in post.text_raw
+
+    def test_normalize_rtl_detection_runs(self):
+        from datetime import UTC, datetime
+
+        from heddle.contrib.rag.ingestion.normalize import normalize_live_text
+
+        # English-only text should not be flagged RTL.  Earlier the
+        # live path hard-coded ``text_rtl=True`` for everything.
+        ts = datetime(2026, 5, 11, tzinfo=UTC)
+        post = normalize_live_text(
+            "Hello world from English text",
+            channel_id=1,
+            channel_name="ch",
+            message_id=1,
+            timestamp=ts,
+        )
+        assert post.text_rtl is False
