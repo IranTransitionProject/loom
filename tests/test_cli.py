@@ -830,6 +830,8 @@ def test_workshop_starts_uvicorn(tmp_path):
         db_path="/tmp/test.duckdb",
         nats_url=None,
         apps_dir="~/.heddle/apps",
+        host="0.0.0.0",
+        port=9090,
     )
     mock_uvicorn.assert_called_once_with(mock_app, host="0.0.0.0", port=9090, log_level="info")
 
@@ -858,6 +860,8 @@ def test_workshop_with_nats_url(tmp_path):
         db_path="~/.heddle/workshop.duckdb",
         nats_url="nats://localhost:4222",
         apps_dir="~/.heddle/apps",
+        host="127.0.0.1",
+        port=8080,
     )
 
 

@@ -115,6 +115,8 @@ def create_app(  # noqa: PLR0915
     rag_db_path: str | None = None,
     rag_store_class: str | None = None,
     rag_channel_registry: str | None = None,
+    host: str = "127.0.0.1",
+    port: int = 8080,
 ) -> FastAPI:
     """Create the Workshop FastAPI application.
 
@@ -133,6 +135,14 @@ def create_app(  # noqa: PLR0915
         rag_db_path: Optional vector store path for the RAG dashboard.
         rag_store_class: Optional dotted path to a VectorStore subclass.
         rag_channel_registry: Optional path to a channel registry YAML file.
+        host: Bind address (informational here; used by mDNS to decide
+            whether to advertise and by the CLI's startup log).
+            ``127.0.0.1`` / ``localhost`` / ``::1`` suppress the
+            mDNS advertisement entirely so a loopback-only Workshop
+            does not leak its presence on the LAN.
+        port: Bind port; passed through to the mDNS advertisement so
+            clients discover the actual port instead of the hardcoded
+            8080 the earlier code always advertised.
     """
     # mDNS service discovery (optional — only if zeroconf is installed)
     _mdns_advertiser = None
@@ -140,15 +150,32 @@ def create_app(  # noqa: PLR0915
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         nonlocal _mdns_advertiser
-        try:
-            from heddle.discovery.mdns import HeddleServiceAdvertiser
+        from heddle.workshop.security import is_loopback_bind
 
-            _mdns_advertiser = HeddleServiceAdvertiser()
-            await _mdns_advertiser.start()
-            _mdns_advertiser.register_workshop(port=8080)
-            logger.info("workshop.mdns_enabled")
-        except ImportError:
-            logger.info("workshop.mdns_disabled", hint="Install heddle[mdns] for LAN discovery")
+        # Skip mDNS entirely when the workshop is bound to loopback —
+        # there is no LAN audience to advertise to, and announcing
+        # would leak the version banner to anyone on the local
+        # network even though the operator chose loopback as the
+        # security boundary.  Earlier the code always advertised on
+        # the host's outward-facing interface regardless of bind.
+        if is_loopback_bind(host):
+            logger.info("workshop.mdns_skipped", reason="loopback bind", host=host)
+        else:
+            try:
+                from heddle.discovery.mdns import HeddleServiceAdvertiser
+
+                _mdns_advertiser = HeddleServiceAdvertiser()
+                await _mdns_advertiser.start()
+                # Advertise the actual port, not the literal 8080 the
+                # earlier code hard-coded.  Operators running
+                # ``--port 9090`` had the wrong port advertised.
+                _mdns_advertiser.register_workshop(port=port)
+                logger.info("workshop.mdns_enabled", host=host, port=port)
+            except ImportError:
+                logger.info(
+                    "workshop.mdns_disabled",
+                    hint="Install heddle[mdns] for LAN discovery",
+                )
 
         # NATS wiring — deferred to lifespan because connect() is async
         # and we want a graceful fallback (rather than refusing to

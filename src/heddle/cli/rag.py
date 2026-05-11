@@ -421,6 +421,8 @@ def serve(ctx: click.Context, port: int, host: str) -> None:
     app = create_app(
         rag_db_path=str(Path(config.rag_db_path).expanduser()),
         rag_store_class=store_class,
+        host=host,
+        port=port,
     )
 
     click.echo()

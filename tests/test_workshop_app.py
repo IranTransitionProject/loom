@@ -407,6 +407,11 @@ def _lifespan_workshop(tmp_path, *, mdns_module=None, runner_cls_patch=None):
         )
         patches.append(runner_patcher)
 
+    # Default to a non-loopback host so the mDNS code path actually
+    # runs — E3 made loopback binds skip the advertiser entirely.
+    # Tests that don't care about mDNS get the same behaviour either
+    # way; tests that assert on the advertiser need the non-loopback
+    # host so the lifespan calls into ``HeddleServiceAdvertiser``.
     with patches[0]:
         if runner_patcher is not None:
             with runner_patcher:
@@ -414,6 +419,7 @@ def _lifespan_workshop(tmp_path, *, mdns_module=None, runner_cls_patch=None):
                     configs_dir=str(configs_dir),
                     db_path=":memory:",
                     apps_dir=str(tmp_path / "apps"),
+                    host="0.0.0.0",
                 )
                 with TestClient(app) as client:
                     yield client
@@ -422,6 +428,7 @@ def _lifespan_workshop(tmp_path, *, mdns_module=None, runner_cls_patch=None):
                 configs_dir=str(configs_dir),
                 db_path=":memory:",
                 apps_dir=str(tmp_path / "apps"),
+                host="0.0.0.0",
             )
             with TestClient(app) as client:
                 yield client
@@ -1543,3 +1550,81 @@ class TestNATSWiring:
             from heddle.bus.memory import InMemoryBus
 
             assert isinstance(client.app.state.dead_letter_consumer._bus, InMemoryBus)
+
+
+# ---------------------------------------------------------------------------
+# mDNS bind awareness + port propagation (E3)
+# ---------------------------------------------------------------------------
+
+
+class TestMDNSWiring:
+    """Pin the mDNS advertisement contract.
+
+    Earlier the lifespan always called ``register_workshop(port=8080)``
+    regardless of bind interface or actual port:
+
+    - Operators running ``--port 9090`` saw clients fail to connect
+      because 8080 was advertised.
+    - Operators binding to ``127.0.0.1`` leaked the host's
+      outward-facing IP + version banner to the LAN even though they
+      had chosen loopback as the security boundary.
+
+    Now the lifespan: skips mDNS on loopback binds; propagates the
+    actual port on non-loopback binds.
+    """
+
+    @staticmethod
+    @contextmanager
+    def _recording_app(tmp_path, host, port):
+        """Build a workshop app, yielding (app, calls) with the mDNS
+        advertiser stubbed for the whole context.
+
+        The patch must outlive ``create_app()`` because the lifespan
+        imports ``HeddleServiceAdvertiser`` lazily when ``TestClient``
+        enters the context — not at construction time.
+        """
+        configs_dir = tmp_path / "configs"
+        (configs_dir / "workers").mkdir(parents=True, exist_ok=True)
+        (configs_dir / "orchestrators").mkdir(exist_ok=True)
+
+        advertiser_calls = {"start": 0, "register": [], "stop": 0}
+
+        class _RecordingAdvertiser:
+            async def start(self):
+                advertiser_calls["start"] += 1
+
+            def register_workshop(self, port):
+                advertiser_calls["register"].append(port)
+
+            async def stop(self):
+                advertiser_calls["stop"] += 1
+
+        with mock.patch("heddle.discovery.mdns.HeddleServiceAdvertiser", _RecordingAdvertiser):
+            app = create_app(
+                configs_dir=str(configs_dir),
+                db_path=":memory:",
+                apps_dir=str(tmp_path / "apps"),
+                host=host,
+                port=port,
+            )
+            yield app, advertiser_calls
+
+    def test_loopback_bind_skips_mdns(self, tmp_path):
+        with (
+            self._recording_app(tmp_path, host="127.0.0.1", port=9090) as (app, calls),
+            TestClient(app),
+        ):
+            pass
+        assert calls["start"] == 0
+        assert calls["register"] == []
+        assert calls["stop"] == 0
+
+    def test_non_loopback_bind_advertises_actual_port(self, tmp_path):
+        with (
+            self._recording_app(tmp_path, host="0.0.0.0", port=9090) as (app, calls),
+            TestClient(app),
+        ):
+            pass
+        assert calls["start"] == 1
+        assert calls["register"] == [9090]
+        assert calls["stop"] == 1

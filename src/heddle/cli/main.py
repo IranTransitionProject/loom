@@ -743,6 +743,8 @@ def workshop(
         db_path=db_path,
         nats_url=nats_url,
         apps_dir=apps_dir,
+        host=host,
+        port=port,
     )
 
     # E4: explicit bind log so an operator can always grep the launch
