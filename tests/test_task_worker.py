@@ -164,6 +164,60 @@ async def test_task_worker_process_exception(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_task_worker_resets_after_publish_failure(tmp_path):
+    """F1: reset() runs even when ``_publish_result`` raises after ``process()``.
+
+    Pins Invariant 1 (worker statelessness) on the publish-failure path.
+    The earlier review (REPOSITORY_REVIEW_2026-05-10.md §3.4) noted
+    that the invalid-output reset path was pinned (above), but a
+    failure in the bus publish *after* process() succeeded had no
+    regression test — a future refactor that moved
+    ``_publish_result`` outside the ``try`` block would silently
+    break statelessness without failing any test.
+
+    Strategy: wire a publish stub that always raises, send a valid
+    task that succeeds at the output-validation stage, and assert
+    ``reset()`` still ran exactly once despite the publish exception
+    propagating.
+    """
+
+    # Use the echo worker's schema but a stateful subclass so we can
+    # observe reset_count.
+    class StatefulEchoWorker(TaskWorker):
+        async def process(self, payload, metadata):
+            self.scratch.append(payload.get("text", ""))
+            return {
+                "output": {"echo": payload.get("text", "")},
+                "model_used": None,
+                "token_usage": None,
+            }
+
+        async def reset(self):
+            self.reset_count += 1
+            self.scratch = []
+
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(_yaml_dump(ECHO_CONFIG))
+
+    worker = StatefulEchoWorker("test-worker", str(config_file))
+    worker.scratch = []
+    worker.reset_count = 0
+    # Publish always raises — this is the failure path being pinned.
+    worker.publish = AsyncMock(side_effect=RuntimeError("bus down"))
+
+    # The first publish (TaskStatus.COMPLETED) raises; the outer
+    # ``except`` then tries to publish TaskStatus.FAILED, which
+    # also raises and propagates out of ``handle_message``.  The
+    # ``finally`` reset() must still run before the exception
+    # escapes — that's the contract this test pins.
+    with pytest.raises(RuntimeError, match="bus down"):
+        await worker.handle_message(_make_task({"text": "hello"}))
+
+    assert worker.reset_count == 1
+    assert worker.scratch == []
+
+
+@pytest.mark.asyncio
 async def test_task_worker_resets_after_invalid_output(tmp_path):
     """reset() runs even when output validation rejects a mutated state.
 
