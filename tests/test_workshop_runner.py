@@ -532,3 +532,42 @@ class TestFileRefResolution:
 
         assert result.success
         assert result.output == {"summary": "fallback"}
+
+
+class TestPayloadNotMutated:
+    """F5: ``WorkerTestRunner.run`` shallow-copies the caller's payload.
+
+    Earlier the file-ref resolver appended ``_content`` keys to the
+    caller's dict (``payload[f"{f}_content"] = content``).  Eval
+    runs reuse the same case ``input`` dict across rounds, so a
+    leaked ``_content`` key persisted into subsequent cases and
+    diverged the eval-time payload from production.
+    """
+
+    @pytest.mark.asyncio
+    async def test_caller_payload_not_mutated_by_file_ref_resolution(self):
+        config = {
+            **BASIC_CONFIG,
+            "workspace_dir": "/tmp/workspace",
+            "resolve_file_refs": ["doc_ref"],
+        }
+        backend = MockBackend({"summary": "resolved"})
+        runner = WorkerTestRunner({"local": backend})
+
+        caller_payload = {"text": "test", "doc_ref": "file.json"}
+        original_keys = set(caller_payload.keys())
+
+        mock_ws = MagicMock()
+        mock_ws.read_json.return_value = {"key": "value"}
+
+        with patch(
+            "heddle.core.workspace.WorkspaceManager",
+            return_value=mock_ws,
+        ):
+            await runner.run(config, caller_payload)
+
+        # ``doc_ref_content`` must not leak into the caller's dict.
+        assert set(caller_payload.keys()) == original_keys, (
+            "WorkerTestRunner.run() mutated the caller's payload; "
+            f"unexpected keys: {set(caller_payload.keys()) - original_keys}"
+        )

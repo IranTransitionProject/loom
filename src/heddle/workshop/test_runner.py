@@ -112,6 +112,15 @@ class WorkerTestRunner:
         result = WorkerTestResult()
         start = time.monotonic()
 
+        # F5: shallow-copy the payload so file-ref resolution
+        # (``payload[f"{f}_content"] = content``) does not mutate
+        # the caller's dict.  ``EvalRunner`` reuses the same case
+        # ``input`` dict across runs (via ``input=case["input"]``),
+        # so a leaked ``_content`` key would persist into subsequent
+        # cases and diverge the eval-time payload shape from
+        # production.
+        payload = dict(payload)
+
         try:
             # 1. Validate config
             config_errors = validate_worker_config(config)
