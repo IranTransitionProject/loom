@@ -462,6 +462,76 @@ class TestEnvironment:
         call_env = mock_run.call_args.kwargs.get("env", mock_run.call_args[1].get("env"))
         assert call_env is None
 
+    @patch("heddle.contrib.subprocess.backend.subprocess.run")
+    def test_env_template_does_not_leak_operator_env(self, mock_run, monkeypatch):
+        """E1: env={...} alone no longer inherits the operator's env.
+
+        Earlier the subprocess started with ``dict(os.environ)`` and
+        only then merged the template, so a deployed app's tool saw
+        every API key the operator had set.  Now ``env={...}``
+        produces only the explicit keys (plus anything the operator
+        opts into via ``env_passthrough``).
+        """
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-secret")
+        monkeypatch.setenv("HEDDLE_WORKSHOP_TOKEN", "do-not-leak")
+        mock_run.return_value = _mock_run(stdout='{"ok": true}')
+        b = SubprocessBackend(
+            command=["tool"],
+            io_mode="json_stdio",
+            env={"MY_VAR": "hello"},
+        )
+        b.process_sync({}, {})
+        call_env = mock_run.call_args.kwargs.get("env", mock_run.call_args[1].get("env"))
+        assert call_env == {"MY_VAR": "hello"}
+        assert "ANTHROPIC_API_KEY" not in call_env
+        assert "HEDDLE_WORKSHOP_TOKEN" not in call_env
+
+    @patch("heddle.contrib.subprocess.backend.subprocess.run")
+    def test_env_passthrough_explicit_whitelist(self, mock_run, monkeypatch):
+        """E1: env_passthrough copies only the listed operator vars."""
+        monkeypatch.setenv("PATH", "/usr/bin:/bin")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-secret")
+        mock_run.return_value = _mock_run(stdout='{"ok": true}')
+        b = SubprocessBackend(
+            command=["tool"],
+            io_mode="json_stdio",
+            env_passthrough=["PATH"],
+        )
+        b.process_sync({}, {})
+        call_env = mock_run.call_args.kwargs.get("env", mock_run.call_args[1].get("env"))
+        assert call_env == {"PATH": "/usr/bin:/bin"}
+        assert "ANTHROPIC_API_KEY" not in call_env
+
+    @patch("heddle.contrib.subprocess.backend.subprocess.run")
+    def test_env_passthrough_missing_var_silently_skipped(self, mock_run, monkeypatch):
+        """``env_passthrough=["NOT_SET"]`` produces an empty whitelist when unset."""
+        monkeypatch.delenv("NOT_SET", raising=False)
+        mock_run.return_value = _mock_run(stdout='{"ok": true}')
+        b = SubprocessBackend(
+            command=["tool"],
+            io_mode="json_stdio",
+            env={"MY_VAR": "hello"},
+            env_passthrough=["NOT_SET"],
+        )
+        b.process_sync({}, {})
+        call_env = mock_run.call_args.kwargs.get("env", mock_run.call_args[1].get("env"))
+        assert call_env == {"MY_VAR": "hello"}
+
+    @patch("heddle.contrib.subprocess.backend.subprocess.run")
+    def test_env_template_overrides_passthrough(self, mock_run, monkeypatch):
+        """``env`` template takes precedence over ``env_passthrough`` for same key."""
+        monkeypatch.setenv("LANG", "en_US.UTF-8")
+        mock_run.return_value = _mock_run(stdout='{"ok": true}')
+        b = SubprocessBackend(
+            command=["tool"],
+            io_mode="json_stdio",
+            env={"LANG": "fr_FR.UTF-8"},
+            env_passthrough=["LANG"],
+        )
+        b.process_sync({}, {})
+        call_env = mock_run.call_args.kwargs.get("env", mock_run.call_args[1].get("env"))
+        assert call_env["LANG"] == "fr_FR.UTF-8"
+
 
 # ── Working directory ────────────────────────────────────────────────
 

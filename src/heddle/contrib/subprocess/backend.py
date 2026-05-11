@@ -366,8 +366,18 @@ class SubprocessBackend(SyncProcessingBackend):
         subprocess_timeout: Seconds before the subprocess is killed.
         input_mapping: Mode-specific input configuration.
         output_mapping: Mode-specific output configuration.
-        env: Environment variables (merged with ``os.environ``).
-            Values may use ``${payload.field}`` for runtime interpolation.
+        env: Environment variables (merged with the operator's
+            inherited ``env_passthrough`` whitelist).  Values may use
+            ``${payload.field}`` for runtime interpolation.
+        env_passthrough: Explicit list of operator-process env var
+            names the subprocess should inherit.  Empty by default —
+            the subprocess starts with a minimal environment built
+            from this list plus ``env``.  Earlier the subprocess
+            inherited the *entire* operator environment, which meant
+            every API key (``ANTHROPIC_API_KEY``, ``OPENAI_API_KEY``,
+            ``HEDDLE_WORKSHOP_TOKEN``, ``TELEGRAM_API_HASH``) reached
+            every subprocess regardless of what the deployed app
+            actually needed.
         working_dir: Working directory for the subprocess.
         allowed_commands: If set, ``command[0]`` must be in this list.
         model_used: Value for :attr:`TaskResult.model_used`.
@@ -382,6 +392,7 @@ class SubprocessBackend(SyncProcessingBackend):
         input_mapping: dict[str, Any] | None = None,
         output_mapping: dict[str, Any] | None = None,
         env: dict[str, str] | None = None,
+        env_passthrough: list[str] | None = None,
         working_dir: str | None = None,
         allowed_commands: list[str] | None = None,
         model_used: str | None = None,
@@ -400,24 +411,51 @@ class SubprocessBackend(SyncProcessingBackend):
         self._input_mapping: dict[str, Any] = input_mapping or {}
         self._output_mapping: dict[str, Any] = output_mapping or {}
         self._env_template = env
+        self._env_passthrough: list[str] = list(env_passthrough or [])
         self._cwd = working_dir
         self._model_used = model_used or command[0]
 
     def _resolve_env(self, payload: dict[str, Any]) -> dict[str, str] | None:
-        """Build environment dict, interpolating ``${payload.field}`` references."""
-        if self._env_template is None:
+        """Build environment dict for the subprocess.
+
+        Composition (lowest precedence first):
+
+        1. Empty dict by default — the subprocess does NOT inherit
+           the operator's environment.
+        2. Names listed in ``env_passthrough`` are copied from
+           ``os.environ`` (silently skipped if unset).
+        3. ``env`` template entries are applied last, with
+           ``${payload.field}`` references resolved against the
+           current task payload.
+
+        Returns ``None`` only when both ``env`` and
+        ``env_passthrough`` are empty, in which case
+        ``subprocess.run`` uses the *parent's* environment — the
+        original "inherit everything" behaviour, preserved for the
+        backwards-compatible case where the operator hasn't opted
+        into either knob.  Apps that set ``env_passthrough=[]``
+        explicitly (or ``env={...}`` only) get the safer
+        whitelist semantics.
+        """
+        if self._env_template is None and not self._env_passthrough:
             return None
 
-        resolved = dict(os.environ)
-        for key, value in self._env_template.items():
-            if "${payload." in value:
-                # Extract field name from ${payload.field_name}
-                start = value.index("${payload.") + len("${payload.")
-                end = value.index("}", start)
-                field = value[start:end]
-                resolved[key] = str(payload.get(field, ""))
-            else:
-                resolved[key] = value
+        resolved: dict[str, str] = {}
+        for name in self._env_passthrough:
+            value = os.environ.get(name)
+            if value is not None:
+                resolved[name] = value
+
+        if self._env_template is not None:
+            for key, value in self._env_template.items():
+                if "${payload." in value:
+                    # Extract field name from ${payload.field_name}
+                    start = value.index("${payload.") + len("${payload.")
+                    end = value.index("}", start)
+                    field = value[start:end]
+                    resolved[key] = str(payload.get(field, ""))
+                else:
+                    resolved[key] = value
         return resolved
 
     def process_sync(
