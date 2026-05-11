@@ -66,3 +66,7 @@ CVE-2026-25645
 
 # transformers 4.57.6 → 5.0.0rc3 (transitive via docling — major bump pending)
 CVE-2026-1839
+
+# urllib3 2.6.3 → 2.7.0 (transitive via requests / httpx; landed 2026-05-11)
+CVE-2026-44431
+CVE-2026-44432
