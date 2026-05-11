@@ -147,3 +147,57 @@ class TestSentenceChunker:
                 f"chunk {curr.chunk_index} starts at {curr.char_start} "
                 f"but previous ended at {prev.char_end}"
             )
+
+    def test_overlap_chars_produces_overlapping_chunks(self):
+        """Pin C1: ``overlap_chars=N`` backfills N chars from each prior chunk.
+
+        Before C1, ``overlap_chars`` was stamped onto every chunk
+        but never affected segment construction — the config field
+        was inert.  Now each chunk after the first starts
+        ``overlap_chars`` characters earlier than it would have, so
+        boundary-spanning retrieval queries see context on both
+        sides of every cut.
+        """
+        from heddle.contrib.rag.chunker.sentence_chunker import ChunkConfig, chunk_post
+
+        text = (
+            "First sentence has enough chars. "
+            "Second sentence has enough chars. "
+            "Third sentence has enough chars."
+        )
+        post = _make_post(text)
+        cfg = ChunkConfig(target_chars=20, max_chars=40, min_chars=5, overlap_chars=10)
+        chunks = chunk_post(post, config=cfg)
+        assert len(chunks) >= 2, "expected multiple chunks for an overlap test"
+
+        from itertools import pairwise
+
+        for prev, curr in pairwise(chunks):
+            # Curr starts inside (or just at the start of) the prior
+            # chunk — i.e. they share characters.
+            assert curr.char_start < prev.char_end, (
+                f"chunk {curr.chunk_index} starts at {curr.char_start} but "
+                f"previous ended at {prev.char_end} — overlap not applied"
+            )
+            shared = prev.char_end - curr.char_start
+            # The overlap is at most ``overlap_chars`` and at most
+            # the prior chunk's full length (clamp).
+            assert shared <= cfg.overlap_chars
+            assert shared <= (prev.char_end - prev.char_start)
+            # And the chunk text matches the source slice it claims.
+            assert text[curr.char_start : curr.char_end] == curr.text
+
+    def test_overlap_disabled_when_zero(self):
+        """``overlap_chars=0`` short-circuits the overlap step entirely."""
+        from heddle.contrib.rag.chunker.sentence_chunker import ChunkConfig, chunk_post
+
+        text = "First. " * 50  # many short sentences
+        post = _make_post(text)
+        cfg_no = ChunkConfig(target_chars=20, max_chars=40, min_chars=5, overlap_chars=0)
+        cfg_yes = ChunkConfig(target_chars=20, max_chars=40, min_chars=5, overlap_chars=10)
+        ch_no = chunk_post(post, config=cfg_no)
+        ch_yes = chunk_post(post, config=cfg_yes)
+        # With overlap enabled, total spans cover more characters.
+        spans_no = sum(c.char_end - c.char_start for c in ch_no)
+        spans_yes = sum(c.char_end - c.char_start for c in ch_yes)
+        assert spans_yes > spans_no

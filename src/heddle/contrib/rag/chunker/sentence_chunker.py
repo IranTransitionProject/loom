@@ -101,9 +101,18 @@ def chunk_post(
     # nothing).  Offsets are already correct on the survivors.
     kept = [seg for seg in merged if len(seg.text) >= cfg.min_chars] or merged
 
-    total = len(kept)
+    # Apply sliding-window overlap (C1).  Each chunk after the first
+    # extends ``char_start`` backwards by ``overlap_chars`` (clamped
+    # so it cannot escape the previous chunk's start, i.e. the
+    # overlap is bounded by the prior chunk's length).  The chunk's
+    # ``text`` is the source slice of the new span, so the invariant
+    # ``source[char_start:char_end] == chunk.text`` still holds.
+    overlapped = _apply_overlap(kept, cfg.overlap_chars, text)
+
+    total = len(overlapped)
     return [
-        _make_chunk(post, seg.text, seg.start, seg.end, i, total, cfg) for i, seg in enumerate(kept)
+        _make_chunk(post, seg.text, seg.start, seg.end, i, total, cfg)
+        for i, seg in enumerate(overlapped)
     ]
 
 
@@ -205,6 +214,42 @@ def _fixed_char_split(text: str, max_chars: int) -> list[_Segment]:
             # Don't strip \u2014 fixed-char split is meant to preserve every
             # character, so offsets are exactly ``[i, i+len)``.
             out.append(_Segment(text=chunk, start=i, end=i + len(chunk)))
+    return out
+
+
+def _apply_overlap(
+    segments: list[_Segment],
+    overlap: int,
+    source: str,
+) -> list[_Segment]:
+    """Backfill each chunk with ``overlap`` characters from its predecessor.
+
+    For each segment after the first, extend ``char_start`` backwards
+    by ``overlap`` (clamped so it cannot precede the prior chunk's
+    ``start`` — i.e. the overlap consumes at most the prior chunk's
+    entire span).  Rebuild ``text`` from the source slice of the new
+    span so the offset/text invariant still holds.
+
+    ``overlap=0`` short-circuits to the input list (the default
+    chunker behaviour stays non-overlapping for callers that don't
+    configure the field).
+    """
+    if overlap <= 0 or len(segments) < 2:
+        return segments
+    from itertools import pairwise
+
+    out: list[_Segment] = [segments[0]]
+    for prev, curr in pairwise(segments):
+        # Lower bound on the new start: don't escape the prior
+        # chunk's start.  Upper bound is the current chunk's own
+        # start.  ``overlap`` is the desired backward extension.
+        new_start = max(prev.start, curr.start - overlap)
+        if new_start >= curr.start:
+            # No room to overlap (prior chunk is shorter than the
+            # gap between them).  Keep the chunk as-is.
+            out.append(curr)
+            continue
+        out.append(_Segment(text=source[new_start : curr.end], start=new_start, end=curr.end))
     return out
 
 
