@@ -97,6 +97,4 @@ class TestLMStudioChatBridge:
             with pytest.raises(RuntimeError, match="lm studio down"):
                 await bridge.send_turn("dropped-user", {}, "sess_x")
         assert len(bridge._sessions["sess_x"].messages) == 2
-        assert all(
-            m.get("content") != "dropped-user" for m in bridge._sessions["sess_x"].messages
-        )
+        assert all(m.get("content") != "dropped-user" for m in bridge._sessions["sess_x"].messages)

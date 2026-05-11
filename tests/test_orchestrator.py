@@ -451,9 +451,7 @@ class TestConcurrentGoals:
         Heaviest test in the J session (per session-starter); the
         timeout values are loose so a slow CI runner doesn't flake.
         """
-        plan = json.dumps(
-            [{"worker_type": "summarizer", "payload": {"text": "chunk"}}]
-        )
+        plan = json.dumps([{"worker_type": "summarizer", "payload": {"text": "chunk"}}])
         synthesis = json.dumps({"summary": "done"})
 
         config_path = _write_config(
