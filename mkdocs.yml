@@ -90,6 +90,8 @@ nav:
     - Multi-Agent Councils: council-howto.md
     - Adversarial Review: BLIND_AUDIT.md
     - Workshop Architecture: workshop.md
+    - Foreign-Language Actors: foreign-actors.md
+    - Gateway Actors: gateway-actors.md
     - Troubleshooting: TROUBLESHOOTING.md
   - Tutorials:
     - Research Review Pipeline: tutorials/research-review.md
