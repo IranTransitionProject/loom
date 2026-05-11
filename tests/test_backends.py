@@ -297,6 +297,36 @@ class TestAnthropicBackendComplete:
         assert result["stop_reason"] == "tool_use"
 
     @pytest.mark.asyncio
+    async def test_pins_stable_api_version(self, backend):
+        """D1: anthropic-version header is the documented stable 2023-06-01."""
+        assert backend.client.headers["anthropic-version"] == "2023-06-01"
+
+    @pytest.mark.asyncio
+    async def test_extended_thinking_blocks_surfaced(self, backend):
+        """D1: ``thinking`` blocks land on the response dict's ``thinking`` key.
+
+        Earlier the parser filtered on ``type == "text"`` only and
+        silently discarded any ``thinking`` block.  When a caller
+        enables extended thinking (which the current Heddle API
+        doesn't expose yet, but third-party callers can build via
+        the SDK), the reasoning trace is now available.
+        """
+        api_data = {
+            "model": "claude-test",
+            "content": [
+                {"type": "thinking", "thinking": "step 1: analyse..."},
+                {"type": "thinking", "thinking": " step 2: conclude."},
+                {"type": "text", "text": "Final answer."},
+            ],
+            "usage": {"input_tokens": 8, "output_tokens": 12},
+            "stop_reason": "end_turn",
+        }
+        with patch.object(backend.client, "post", return_value=_mock_response(api_data)):
+            result = await backend.complete("sys", "msg")
+        assert result["content"] == "Final answer."
+        assert result["thinking"] == "step 1: analyse... step 2: conclude."
+
+    @pytest.mark.asyncio
     async def test_mixed_text_and_tool_use(self, backend):
         api_data = {
             "model": "claude-test",

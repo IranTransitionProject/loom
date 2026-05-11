@@ -89,6 +89,14 @@ class AnthropicBackend(LLMBackend):
     version coupling.
     """
 
+    # Anthropic API version pinned to the documented stable release.
+    # See: https://docs.anthropic.com/en/api/versioning
+    # The earlier ``2024-10-22`` beta header risked silent deprecation
+    # (Anthropic can retire beta versions without warning), and the
+    # caching / extended-thinking features it unlocked are GA on the
+    # stable version.
+    ANTHROPIC_API_VERSION: str = "2023-06-01"
+
     def __init__(self, api_key: str, model: str = "claude-sonnet-4-20250514") -> None:
         self.api_key = api_key
         self.model = model
@@ -96,9 +104,7 @@ class AnthropicBackend(LLMBackend):
             base_url="https://api.anthropic.com",
             headers={
                 "x-api-key": api_key,
-                # Anthropic API version — pinned for reproducibility.
-                # See: https://docs.anthropic.com/en/api/versioning
-                "anthropic-version": "2024-10-22",
+                "anthropic-version": self.ANTHROPIC_API_VERSION,
                 "content-type": "application/json",
             },
             timeout=120.0,
@@ -146,26 +152,22 @@ class AnthropicBackend(LLMBackend):
 
         # Parse response — may contain text blocks, tool_use blocks,
         # and (when extended thinking is enabled by the caller)
-        # ``thinking`` blocks.  We currently only surface text and
-        # tool_use; thinking blocks are silently dropped.  This is
-        # safe because Anthropic's extended thinking is opt-in (the
-        # request body must include ``thinking={"type": "enabled",
-        # "budget_tokens": N}``), and Heddle does not enable it
-        # today — see TODO below.
+        # ``thinking`` blocks.  Anthropic responses can interleave
+        # text and tool_use blocks (e.g. text → tool_use → text);
+        # accumulate text and tool_use into lists so nothing is
+        # silently overwritten.
         #
-        # TODO(anthropic-thinking): when callers can opt in to
-        # Anthropic extended thinking via a backend parameter (e.g.
-        # ``thinking_budget_tokens=4096``), surface the
-        # ``thinking`` blocks separately on the response dict
-        # (mirror the OpenAI-compat ``reasoning_content`` field).
-        # See https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking
-        # Anthropic responses can contain multiple text blocks
-        # interleaved with tool_use blocks (e.g. text → tool_use →
-        # text, common when tool_use is enabled).  Earlier shape
-        # assigned ``content = block["text"]``, overwriting on each
-        # iteration, so any text after the first tool_use block was
-        # silently lost.  Accumulate into a list and join at the end.
+        # ``thinking`` blocks land on the response dict's
+        # ``thinking`` key (mirrors the OpenAI-compat
+        # ``reasoning_content`` rescue pattern).  Heddle does not
+        # enable extended thinking by default — the caller must
+        # include ``thinking={"type": "enabled", "budget_tokens": N}``
+        # in the request body, which the current API does not yet
+        # expose — but surfacing the field forward-prepares the
+        # field for the day a caller flips that switch.  See
+        # https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking
         text_parts: list[str] = []
+        thinking_parts: list[str] = []
         tool_calls = None
 
         for block in data.get("content", []):
@@ -181,15 +183,19 @@ class AnthropicBackend(LLMBackend):
                         "arguments": block["input"],
                     }
                 )
+            elif block["type"] == "thinking":
+                thinking_parts.append(block.get("thinking", ""))
 
         # ``None`` when no text blocks were present preserves the
         # original contract (callers distinguish "no text" from "empty
         # text" — the OpenAI-compat backend returns None for tool-only
         # responses).
         content = "".join(text_parts) if text_parts else None
+        thinking = "".join(thinking_parts) if thinking_parts else None
 
         return {
             "content": content,
+            "thinking": thinking,
             "model": data["model"],
             "prompt_tokens": data["usage"]["input_tokens"],
             "completion_tokens": data["usage"]["output_tokens"],

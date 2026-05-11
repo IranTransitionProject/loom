@@ -56,9 +56,15 @@ class ManualChatBridge(ChatBridge):
         context: dict[str, Any],
         session_id: str,
     ) -> ChatResponse:
-        """Request a human response for this turn."""
+        """Request a human response for this turn.
+
+        Session history is only updated after the human responds.
+        Earlier the prompt was appended eagerly, so a timeout or
+        queue failure left it in history; on retry the human would
+        see two consecutive prompts.
+        """
         session = self._get_or_create_session(session_id)
-        session.messages.append({"role": "system", "content": message})
+        prompt_entry = {"role": "system", "content": message}
 
         if self._on_prompt is not None:
             content = await asyncio.wait_for(
@@ -81,6 +87,10 @@ class ManualChatBridge(ChatBridge):
             msg = "ManualChatBridge needs either on_prompt or both prompt_queue and response_queue"
             raise ValueError(msg)
 
+        # Both entries persist together once the human responded —
+        # a timeout or queue failure before this point leaves
+        # session.messages untouched.
+        session.messages.append(prompt_entry)
         session.messages.append({"role": "human", "content": content})
 
         return ChatResponse(

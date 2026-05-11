@@ -39,6 +39,17 @@ class OpenAIChatBridge(ChatBridge):
     ) -> None:
         super().__init__(system_prompt=system_prompt)
         self._api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
+        # Reject empty keys at construction so a misconfiguration
+        # surfaces here rather than as a generic 401 on the first
+        # send_turn call.  Earlier the bridge silently sent
+        # ``Authorization: Bearer `` (empty) to OpenAI.
+        if not self._api_key:
+            from heddle.contrib.chatbridge.exceptions import ChatBridgeMisconfiguredError
+
+            raise ChatBridgeMisconfiguredError(
+                "OpenAIChatBridge: api_key is empty. Pass api_key=... "
+                "or set the OPENAI_API_KEY env var."
+            )
         self._model = model
         self._max_tokens = max_tokens
         self._client = httpx.AsyncClient(
@@ -56,16 +67,24 @@ class OpenAIChatBridge(ChatBridge):
         context: dict[str, Any],
         session_id: str,
     ) -> ChatResponse:
-        """Send a turn via OpenAI Chat Completions, accumulating history."""
-        session = self._get_or_create_session(session_id)
-        session.messages.append({"role": "user", "content": message})
+        """Send a turn via OpenAI Chat Completions, accumulating history.
 
-        # Build messages array with system prompt prepended.
+        Session history is only updated after the API call returns
+        successfully.  Earlier the user message was appended eagerly,
+        so an HTTP failure left it in the session and the next turn
+        sent two consecutive ``user`` messages — OpenAI accepts that
+        shape but produces confused output.
+        """
+        session = self._get_or_create_session(session_id)
+        # Build messages array with system prompt prepended; do not
+        # mutate ``session.messages`` yet — only on success.
+        user_msg = {"role": "user", "content": message}
         api_messages: list[dict[str, str]] = []
         sys_prompt = session.system_prompt or self._system_prompt
         if sys_prompt:
             api_messages.append({"role": "system", "content": sys_prompt})
         api_messages.extend(session.messages)
+        api_messages.append(user_msg)
 
         body: dict[str, Any] = {
             "model": self._model,
@@ -78,8 +97,29 @@ class OpenAIChatBridge(ChatBridge):
         data = resp.json()
 
         choice = data.get("choices", [{}])[0]
-        message = choice.get("message", {})
-        content = message.get("content") or ""
+        # ``message`` is the local turn input; rebinding it from the
+        # API response would shadow our own argument.  Use a distinct
+        # name for the API-returned message dict so the local
+        # ``message`` (and ``user_msg`` built from it) stay readable.
+        api_message = choice.get("message", {})
+        # D3: detect tool_calls and raise rather than returning an
+        # empty assistant turn.  Some OpenAI-compatible providers
+        # emit tool_calls with empty content; the bridge does not
+        # currently implement tool execution, so silently returning
+        # "" would make the agent appear to say nothing.  Raise a
+        # typed error so the council loop (or other consumer) can
+        # attribute the failure to the right cause.  Detect BEFORE
+        # mutating ``session.messages`` so the bad turn doesn't
+        # poison history on retry.
+        if api_message.get("tool_calls"):
+            from heddle.contrib.chatbridge.exceptions import UnsupportedToolUseError
+
+            raise UnsupportedToolUseError(
+                bridge="openai",
+                model=self._model,
+                tool_calls=api_message["tool_calls"],
+            )
+        content = api_message.get("content") or ""
         # Thinking-model quirk (mirrors OpenAICompatibleBackend in
         # heddle.worker.backends): some OpenAI-compatible providers
         # (LM Studio for qwen3.*/deepseek-r1, vLLM with a reasoning
@@ -99,7 +139,7 @@ class OpenAIChatBridge(ChatBridge):
         # — qwen ``extra_body={"enable_thinking": False}`` via
         # LM Studio / vLLM, OpenAI ``reasoning_effort="low"``, etc.
         # See the equivalent TODO in OpenAICompatibleBackend.
-        reasoning_content = message.get("reasoning_content") or None
+        reasoning_content = api_message.get("reasoning_content") or None
         if not content and reasoning_content:
             content = reasoning_content
             logger.info(
@@ -112,7 +152,10 @@ class OpenAIChatBridge(ChatBridge):
                 reasoning_chars=len(reasoning_content),
             )
 
-        # Append assistant response to session history.
+        # Both messages persist together — only after the API call
+        # succeeded and the tool_calls check passed — so a mid-call
+        # failure leaves session.messages untouched.
+        session.messages.append(user_msg)
         session.messages.append({"role": "assistant", "content": content})
 
         usage = data.get("usage", {})

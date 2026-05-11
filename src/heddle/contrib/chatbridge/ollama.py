@@ -46,16 +46,24 @@ class OllamaChatBridge(ChatBridge):
         context: dict[str, Any],
         session_id: str,
     ) -> ChatResponse:
-        """Send a turn via Ollama /api/chat, accumulating history."""
-        session = self._get_or_create_session(session_id)
-        session.messages.append({"role": "user", "content": message})
+        """Send a turn via Ollama /api/chat, accumulating history.
 
-        # Build messages array with system prompt prepended.
+        Session history is only updated after the API call returns.
+        Earlier eagerness left a dangling user message on HTTP
+        failure; on retry the next turn sent two consecutive user
+        messages, which different Ollama backends handled
+        inconsistently.
+        """
+        session = self._get_or_create_session(session_id)
+        # Build messages array with system prompt prepended; do not
+        # mutate ``session.messages`` yet — only on success.
+        user_msg = {"role": "user", "content": message}
         api_messages: list[dict[str, str]] = []
         sys_prompt = session.system_prompt or self._system_prompt
         if sys_prompt:
             api_messages.append({"role": "system", "content": sys_prompt})
         api_messages.extend(session.messages)
+        api_messages.append(user_msg)
 
         body: dict[str, Any] = {
             "model": self._model,
@@ -70,7 +78,10 @@ class OllamaChatBridge(ChatBridge):
 
         content = data.get("message", {}).get("content", "")
 
-        # Append assistant response to session history.
+        # Both messages persist together — only after the API call
+        # succeeded — so a mid-call failure leaves session.messages
+        # untouched.
+        session.messages.append(user_msg)
         session.messages.append({"role": "assistant", "content": content})
 
         # Ollama provides token counts differently.

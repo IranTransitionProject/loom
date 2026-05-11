@@ -52,11 +52,15 @@ class TestChatbridgeSpec:
 
 
 class TestMakeChatbridge:
-    def test_builds_anthropic_instance(self):
+    def test_builds_anthropic_instance(self, monkeypatch):
+        # AnthropicChatBridge.__init__ now rejects empty api_key
+        # (D4); set the env so the discover path can construct one.
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
         bridge = make_chatbridge("claude-sonnet-4-20250514")
         assert isinstance(bridge, AnthropicChatBridge)
 
-    def test_builds_openai_instance(self):
+    def test_builds_openai_instance(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
         bridge = make_chatbridge("gpt-4o")
         assert isinstance(bridge, OpenAIChatBridge)
 
@@ -68,7 +72,8 @@ class TestMakeChatbridge:
         bridge = make_chatbridge("llama3.2:3b")
         assert isinstance(bridge, OllamaChatBridge)
 
-    def test_extra_kwargs_override_defaults(self):
+    def test_extra_kwargs_override_defaults(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
         bridge = make_chatbridge("gpt-4o", system_prompt="be helpful", max_tokens=42)
         assert isinstance(bridge, OpenAIChatBridge)
         # _system_prompt is the bridge-level default; per-session it's
