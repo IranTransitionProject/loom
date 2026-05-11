@@ -86,7 +86,9 @@ class TranscriptEntry(BaseModel):
     role: str = ""
     content: str
     entry_type: str = "turn"  # "turn" | "interjection"
-    token_count: int = 0
+    token_count: int = 0  # prompt + completion (kept for back-compat)
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
     model_used: str | None = None
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

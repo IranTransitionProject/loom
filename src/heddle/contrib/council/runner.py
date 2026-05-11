@@ -158,11 +158,15 @@ class CouncilRunner:
 
                 transcript.add_entry(entry)
 
-                # Accumulate tokens.
-                total_tokens["prompt_tokens"] += entry.token_count
-                # token_count tracks prompt tokens; we don't have a
-                # separate completion count from backend.complete()
-                # in this simplified path.
+                # Accumulate tokens — keep prompt vs completion split
+                # so the final ``total_token_usage`` honours the
+                # backend's accounting.  Earlier code put the whole
+                # ``token_count`` (prompt + completion) into
+                # ``prompt_tokens`` and never populated
+                # ``completion_tokens``, so any billing /
+                # rate-limiting layer downstream got a wrong picture.
+                total_tokens["prompt_tokens"] += entry.prompt_tokens
+                total_tokens["completion_tokens"] += entry.completion_tokens
 
                 if on_turn is not None:
                     result = on_turn(entry)
@@ -330,6 +334,8 @@ class CouncilRunner:
             role=agent.role,
             content=content,
             token_count=prompt_tokens + completion_tokens,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
             model_used=response.get("model"),
             timestamp=datetime.now(UTC),
         )
@@ -403,12 +409,16 @@ class CouncilRunner:
             )
 
         usage = response.token_usage or {}
+        prompt_tokens = usage.get("prompt_tokens", 0)
+        completion_tokens = usage.get("completion_tokens", 0)
         return TranscriptEntry(
             round_num=round_num,
             agent_name=agent.name,
             role=agent.role,
             content=response.content or "",
-            token_count=usage.get("prompt_tokens", 0) + usage.get("completion_tokens", 0),
+            token_count=prompt_tokens + completion_tokens,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
             model_used=response.model,
             timestamp=datetime.now(UTC),
         )

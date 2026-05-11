@@ -7,6 +7,7 @@ keeps injected context within model limits.
 
 from __future__ import annotations
 
+import threading
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -29,6 +30,13 @@ class TranscriptStore:
     def __init__(self, max_chars_per_agent: int = _DEFAULT_MAX_CHARS) -> None:
         self._rounds: list[RoundEntry] = []
         self._max_chars = max_chars_per_agent
+        # ``inject_interjection`` is documented as thread-safe so the
+        # spectator UI can poke entries into a running discussion
+        # from a non-event-loop thread.  ``list.append`` is GIL-atomic
+        # but the start_round-if-empty + append sequence is two
+        # operations, so a real lock is needed to honour the
+        # documented contract.
+        self._inject_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Mutation
@@ -57,18 +65,21 @@ class TranscriptStore:
         """Inject a spectator interjection into the current round.
 
         Thread-safe for use from external callers while the council is
-        running.  If no round has started yet, starts round 0.
+        running — the start_round-if-empty + append pair is wrapped
+        in ``self._inject_lock``.  If no round has started yet,
+        starts round 0.
         """
-        if not self._rounds:
-            self.start_round(0)
-        entry = TranscriptEntry(
-            round_num=self._rounds[-1].round_num,
-            agent_name=agent_name,
-            role=role,
-            content=content,
-            entry_type="interjection",
-        )
-        self._rounds[-1].entries.append(entry)
+        with self._inject_lock:
+            if not self._rounds:
+                self.start_round(0)
+            entry = TranscriptEntry(
+                round_num=self._rounds[-1].round_num,
+                agent_name=agent_name,
+                role=role,
+                content=content,
+                entry_type="interjection",
+            )
+            self._rounds[-1].entries.append(entry)
 
     def set_convergence_score(self, round_num: int, score: float) -> None:
         """Attach a convergence score to a completed round."""

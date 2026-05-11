@@ -126,7 +126,16 @@ class TestCouncilRunner:
         runner = CouncilRunner(backends={"standard": backend})
 
         result = await runner.run("Topic", config=config)
+        # Both buckets populated (B5: earlier code put the
+        # combined sum into ``prompt_tokens`` only and left
+        # ``completion_tokens`` at 0).
         assert result.total_token_usage["prompt_tokens"] > 0
+        assert result.total_token_usage["completion_tokens"] > 0
+        # _mock_backend returns prompt=50, completion=30 per call.
+        # 2 agents x 1 round = 2 turns => prompt 100, completion 60.
+        # Synthesis adds prompt=50, completion=30 => totals (150, 90).
+        assert result.total_token_usage["prompt_tokens"] == 150
+        assert result.total_token_usage["completion_tokens"] == 90
 
     async def test_agent_summaries(self):
         backend = _mock_backend()

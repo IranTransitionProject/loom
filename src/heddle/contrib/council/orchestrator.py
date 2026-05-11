@@ -168,7 +168,8 @@ class CouncilOrchestrator(BaseActor):
                             )
 
                         transcript.add_entry(entry)
-                        total_tokens["prompt_tokens"] += entry.token_count
+                        total_tokens["prompt_tokens"] += entry.prompt_tokens
+                        total_tokens["completion_tokens"] += entry.completion_tokens
 
                         round_log.info(
                             "council.agent_turn.done",
@@ -337,6 +338,8 @@ class CouncilOrchestrator(BaseActor):
             role=agent_role,
             content=content,
             token_count=prompt_tokens + completion_tokens,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
             model_used=result.model_used,
             timestamp=datetime.now(UTC),
         )
