@@ -32,6 +32,12 @@ name: "architecture_review"
 protocol: "round_robin"
 max_rounds: 3
 timeout_seconds: 300
+# Budget reserved for the facilitator's synthesis call.  Subtracted
+# from timeout_seconds to compute the per-turn budget:
+#   per_turn = (timeout_seconds - synthesis_timeout_seconds) / (max_rounds * len(agents))
+# The implied per-turn budget must be >= 5s or the config is rejected
+# at load time.  Default: 60s.
+synthesis_timeout_seconds: 60
 
 convergence:
   method: "llm_judge"
