@@ -221,7 +221,9 @@ class NATSBus(MessageBus):
             nats_sub = await nc.subscribe(subject)
         return NATSSubscription(nats_sub)
 
-    async def request(self, subject: str, data: dict[str, Any], timeout: float = 30.0) -> dict:
+    async def request(
+        self, subject: str, data: dict[str, Any], timeout: float = 30.0
+    ) -> dict[str, Any]:
         """Request-reply pattern for synchronous-style calls.
 
         NOTE: Not currently used by any Heddle actor. Available for future

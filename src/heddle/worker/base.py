@@ -46,7 +46,7 @@ class TaskWorker(BaseActor):
         self._config_path = config_path
         self.config = self._load_config(config_path)
 
-    def _load_config(self, path: str) -> dict:
+    def _load_config(self, path: str) -> dict[str, Any]:
         with open(path) as f:
             config = yaml.safe_load(f)
         return resolve_schema_refs(config)
@@ -157,11 +157,11 @@ class TaskWorker(BaseActor):
         self,
         task: TaskMessage,
         status: TaskStatus,
-        output: dict | None = None,
+        output: dict[str, Any] | None = None,
         error: str | None = None,
         model_used: str | None = None,
-        tokens: dict | None = None,
-        metadata: dict | None = None,
+        tokens: dict[str, int] | None = None,
+        metadata: dict[str, Any] | None = None,
         elapsed: int = 0,
     ) -> None:
         result = TaskResult(

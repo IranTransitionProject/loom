@@ -86,7 +86,7 @@ def _find_first_balanced_object(text: str) -> str | None:
     return None
 
 
-def _extract_json(raw: str) -> dict:
+def _extract_json(raw: str) -> dict[str, Any]:
     """Extract a structured dict from an LLM response (JSON or YAML).
 
     LLMs frequently wrap output in markdown code fences or add explanatory

@@ -141,7 +141,7 @@ class PipelineOrchestrator(BaseActor):
         max_goals = self.config.get("max_concurrent_goals", 1)
         super().__init__(actor_id, nats_url, max_concurrent=max_goals, bus=bus)
 
-    def _load_config(self, path: str) -> dict:
+    def _load_config(self, path: str) -> dict[str, Any]:
         from heddle.core.config import resolve_schema_refs
 
         with open(path) as f:
