@@ -159,6 +159,19 @@ user account. Specifically:
 - `subprocess_timeout` caps individual invocations.
 - `command` is taken verbatim from the config; it is not validated
   against an allowlist.
+- `env_passthrough` (added in the 2026-05 hardening pass) is an
+  opt-in list of operator environment variables the subprocess
+  inherits. Default is empty — the subprocess starts with the
+  explicit ``env`` template and nothing else. Earlier the
+  subprocess inherited the operator's entire ``os.environ``, so
+  every API key (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+  `HEDDLE_WORKSHOP_TOKEN`, `TELEGRAM_API_HASH`) reached every
+  subprocess regardless of which capability the deployed app
+  actually used. Existing apps with neither `env` nor
+  `env_passthrough` keep the legacy "inherit everything" behaviour
+  for backwards compatibility; apps that set either explicitly get
+  the strict whitelist. The capability preview surfaces the
+  passthrough list alongside the `command`.
 
 A malicious or misconfigured app config that names a subprocess
 backend with a destructive command will run that command if the
@@ -235,6 +248,73 @@ test runs, which may contain sensitive data depending on what the
 operator fed in. The Workshop UI exposes them at
 `/workers/{name}/eval/...`; consider whether the workshop's bind
 address is appropriate before trusting that data.
+
+---
+
+## 8. Telethon session files
+
+`heddle.contrib.rag.ingestion.telegram_live.TelegramLiveIngestor`
+uses Telethon, which stores its SQLite session file at
+`~/.heddle/telegram.session` by default (override via
+`TELEGRAM_SESSION`). That file contains a full-account auth token —
+anyone with read access can re-use the account without entering
+the phone code again.
+
+- Heddle's `~/.heddle/config.yaml` writer chmods to `0o600`.
+- Telethon creates the session file with the process umask
+  (typically `0o644`). As of the 2026-05 hardening pass the live
+  ingestor explicitly chmods the file to `0o600` after Telethon
+  creates it (best-effort; failures log at WARNING).
+
+The chmod runs once per connect, so a session file rotated
+out-of-band by the operator stays at whatever permissions they
+left it at. Treat the path like an SSH private key.
+
+---
+
+## 9. mDNS service discovery
+
+When the operator runs `heddle workshop --host 0.0.0.0` (or any
+non-loopback bind) the workshop announces itself on Bonjour /
+mDNS so LAN clients can discover the port. As of the 2026-05
+hardening pass:
+
+- Loopback binds (`127.0.0.1`, `localhost`, `::1`) skip mDNS
+  registration entirely. Earlier the announcer always ran and
+  leaked the host's outward-facing IP plus a `{"version": ...}`
+  banner to the LAN even though the operator chose loopback as
+  the security boundary.
+- The advertised port matches the actual `--port` value (earlier
+  it hard-coded 8080, so an operator on `--port 9090` saw clients
+  fail to connect).
+- Name collisions on the LAN trigger a `mdns.service_name_rewritten`
+  INFO log so the operator can grep for an unexpected announced
+  name.
+
+mDNS still leaks the host's existence and Heddle version to anyone
+on the LAN once a non-loopback bind goes up; treat it as a
+deliberate "this host is running Heddle" announcement, not a
+covert channel.
+
+---
+
+## 10. NATS transport security
+
+Heddle's NATS adapter (`heddle.bus.nats_adapter.NATSBus`) connects
+in plaintext without authentication. This is **a deliberate
+non-feature today** — the documented deploy story assumes a
+trusted local network or a TLS-terminating proxy in front of NATS.
+
+Operators on untrusted networks should:
+
+- Run NATS with TLS enabled (per the NATS docs) and front-end via
+  the proxy.
+- Set credential files / nkeys via the proxy or an SSH tunnel.
+- Never expose port 4222 directly to the internet.
+
+A future session may plumb `tls_config` / `credentials_file` into
+`NATSBus.__init__`; see `session-starters/K-deferred-decisions-and-future-work.md`
+for the open work item.
 
 ---
 
