@@ -39,7 +39,7 @@ jobs:
       - name: Generate dark variants
         run: python docs/diagrams/make_dark_variants.py
       - name: Commit exported SVGs
-        uses: stefanzweifel/git-auto-commit-action@v5
+        uses: stefanzweifel/git-auto-commit-action@v7
         with:
           file_pattern: 'docs/images/*.svg'
           commit_message: 'chore(diagrams): auto-export drawio + dark variants'
