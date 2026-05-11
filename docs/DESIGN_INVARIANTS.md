@@ -1,13 +1,20 @@
-# Heddle Design Invariants — Technical Reference
+# Heddle Design Invariants — Framework Safety Contracts
 
-**Purpose:** This document describes the non-obvious design decisions, deliberate
-constraints, and architectural invariants in the Heddle framework. It exists
-because well-intentioned contributors — human or LLM — routinely propose
-"improvements" that would break these invariants.
+**Purpose:** This document describes the non-obvious design decisions,
+deliberate constraints, and architectural invariants enforced by Heddle's
+framework code. It exists because well-intentioned contributors — human or
+LLM — routinely propose "improvements" that would break these invariants.
 
-Read this before proposing structural changes to Heddle or any application built
-on it. Every section explains *what* the invariant is, *why* it exists, and
-*how it fails* if violated.
+Read this before proposing structural changes to Heddle. Every section
+explains *what* the invariant is, *why* it exists, and *how it fails* if
+violated.
+
+**Scope.** This file covers invariants that are mechanically checked by the
+framework — test suites, type checks, validators, or code-path structure
+enforce them. Patterns that apply to *applications* built on Heddle (blind
+audit pipelines, knowledge-silo discipline, behavioural-monitor isolation)
+moved to [Application Patterns](APPLICATION_PATTERNS.md) on 2026-05-11; that
+file is the new home for what used to be Part II.
 
 ---
 
@@ -27,6 +34,8 @@ diverge when horizontally scaled.
 results in single-replica testing and corrupt results in multi-replica production.
 The failure is silent and data-dependent — the hardest kind to diagnose.
 
+**Paired ADR:** [ADR-001](adr/001-stateless-workers.md).
+
 ### 2. The router is deterministic — no LLM in the routing path
 
 The `TaskRouter` dispatches by `worker_type` and `model_tier` using rules from
@@ -41,6 +50,8 @@ router just delivers it.
 creates a recursive dependency: the router needs an LLM call, which needs
 routing, which needs an LLM call. It also makes dispatch latency unpredictable
 and adds cost proportional to total task volume.
+
+**Paired ADR:** [ADR-002](adr/002-deterministic-router.md).
 
 ### 3. Rate limiting is dispatch-side only
 
@@ -96,6 +107,8 @@ shallowly by `contracts.py`. `schema_ref` is about *where schemas are defined*
 `bool` is a subclass of `int`. Without this ordering, `True` validates as an
 integer, and workers receive wrong types.
 
+**Paired ADR:** [ADR-003](adr/003-shallow-json-schema.md).
+
 ### 6. Dependency inference from input_mapping is the parallelism mechanism
 
 `PipelineOrchestrator` parses `input_mapping` paths to determine which stages
@@ -130,6 +143,8 @@ A single shared list or dict without a lock will corrupt under concurrent access
 With a lock, you've created a serialization bottleneck that defeats the purpose
 of concurrent goals.
 
+**Paired ADR:** [ADR-009](adr/009-per-goal-state-isolation.md).
+
 ### 8. Malformed NATS messages are skipped, not crashed
 
 `NATSBus` catches `json.JSONDecodeError` and `UnicodeDecodeError` on incoming
@@ -144,6 +159,8 @@ the subscription loop, and all subsequent valid messages go unprocessed until
 the worker is restarted. The bad message remains in NATS, so the worker crashes
 again on restart.
 
+**Paired ADR:** [ADR-004](adr/004-skip-not-crash-on-malformed.md).
+
 ### 9. OpenTelemetry is optional via runtime feature detection
 
 The `tracing/otel.py` module uses `contextlib.suppress(ImportError)` to
@@ -157,31 +174,41 @@ code clean while allowing bare-metal deployments without OTel.
 **How it fails:** If you remove the `suppress(ImportError)`, any deployment
 without `uv sync --extra otel` crashes at import time.
 
-### 10. Condition evaluation: malformed → TRUE, missing path → FALSE
+### 10. Condition evaluation: malformed → FALSE (skip), missing path → FALSE (skip)
 
-Pipeline stage condition evaluation has two distinct failure modes with
-different defaults:
+Pipeline stage condition evaluation has three failure modes with a unified
+fail-closed default:
 
 - **Malformed condition** (wrong format, not three tokens): defaults to
-  **TRUE** (run the stage) and logs a warning. This prevents a typo in the
-  condition syntax from silently dropping a stage.
+  **FALSE** (skip the stage) and logs `pipeline.invalid_condition`. A typo in
+  the condition syntax skips the stage rather than running it silently
+  broadened.
 - **Missing path** (path references a context key that doesn't exist):
-  defaults to **FALSE** (skip the stage) and logs a warning. This is the
-  expected behavior for conditional stages like `extract.output.needs_ocr == true`
-  — if the upstream stage didn't produce the field, the condition is not met.
+  defaults to **FALSE** (skip the stage) and logs
+  `pipeline.condition_missing_path`. The expected behavior for conditional
+  stages whose upstream didn't produce the optional field.
+- **Unknown operator** (anything other than `==` / `!=`): defaults to
+  **FALSE** (skip the stage) and logs `pipeline.unsupported_operator`.
 
-> **Summary: malformed condition → TRUE (run), missing path → FALSE (skip).**
+> **Summary: any uncertainty in condition evaluation skips the stage and
+> logs a warning.**
 
-**Why the split:** A *structural* error in the condition expression is almost
-certainly a mistake that should not silently skip work. A *missing path*,
-however, is the normal outcome when an upstream stage doesn't produce an
-optional field — skipping is the expected semantics. Both cases log a warning
-so typos are discoverable.
+Legacy fail-open behaviour (malformed → TRUE, unknown operator → TRUE) is
+opt-in via `HEDDLE_STRICT_CONDITIONS=0` for one-release migration of
+pipelines that depend on the prior shape.
 
-**How it fails:** If you change missing-path to `True`, every conditional
-stage runs unconditionally when the upstream field is absent, which defeats
-the purpose of conditions. If you change malformed to `False`, a syntax typo
-silently removes a stage from execution.
+**Why:** The pre-G7 shape defaulted malformed → TRUE so a typo couldn't drop
+a stage. Production experience surfaced the opposite failure mode: a missing
+space in `extract.output.x==true` silently broadened the pipeline. Fail-closed
+makes both error modes equally visible — the operator sees "stage didn't
+run" plus `pipeline.invalid_condition` in the logs.
+
+**How it fails:** If you change missing-path or malformed-condition to TRUE
+by default, every conditional stage runs unconditionally when the upstream
+field is absent (defeats the purpose of conditions) or when the YAML has a
+typo (broadens the pipeline silently).
+
+**Paired ADR:** [ADR-010](adr/010-condition-eval-defaults.md).
 
 ### 11. ProcessorWorker serialize_writes is per-instance only
 
@@ -265,6 +292,8 @@ the Workshop and MCP bridge see each stage complete in real time.
 opaque — all three stages appear to complete simultaneously at the moment the
 slowest one finishes. The latency is the same; only the observability differs.
 
+**Paired ADR:** [ADR-011](adr/011-first-completed-vs-gather.md).
+
 ### 17. Subscribe before publish for orchestrator → worker request-reply
 
 When an orchestrator dispatches a task and waits for the matching result
@@ -284,242 +313,16 @@ worker. The symptom is a caller timeout while the worker logs a successful
 completion — intermittent, load-dependent, and one of the hardest classes
 of bug to reproduce.
 
----
-
-## Part II — Application Design Patterns
-
-These are architectural patterns that Heddle applications should follow when
-building pipelines with epistemic constraints, blind audits, or information
-barriers. They are not Heddle framework code — they are design principles that
-emerge from how the framework is meant to be used.
-
-### 18. Knowledge silo isolation is an epistemic quarantine, not a convenience grouping
-
-When an application uses knowledge silos to implement information barriers
-(e.g., between analytical workers and audit workers), silos marked as
-isolated enforce epistemic quarantine. This is what makes blind audits
-actually blind.
-
-**Why:** If audit nodes can access the analytical framework they are supposed
-to evaluate, they will pattern-match to existing conclusions and produce
-pseudo-confirmatory "independent" judgments. The audit becomes epistemically
-worthless — it tells you what you already believe, not whether what you
-believe is correct.
-
-**How it fails:** Adding domain knowledge to any audit node's `knowledge_sources`
-breaks audit independence. The failure is invisible: audits still produce
-professional-looking output, but their conclusions are contaminated by the
-framework they were supposed to evaluate. There is no runtime error, no
-warning, no indication that the audit is compromised.
-
-**The trap:** It is tempting to "help" audit nodes by giving them more context
-so they can be more informed. This is precisely the wrong thing to do. Blind
-auditors must be knowledge-deprived by design.
-
-### 19. Neutralization stages are audit firewalls, not text processors
-
-When a pipeline implements blind auditing, a neutralization stage strips
-domain-specific vocabulary before blind auditors see the text. The neutralizer
-must have minimal knowledge — only the vocabulary mapping and procedural rules.
-
-**Why:** If the neutralizer receives domain knowledge, it leaks domain-specific
-framing into the "neutral" text. Audit nodes then receive text that, while
-superficially generic, carries the structural fingerprint of domain conclusions.
-
-**How it fails:**
-
-- Adding entity registries to the neutralizer shifts it from lexical to
-  semantic processing — a different epistemic role.
-- Opaque identifiers (entity codes, reference IDs) must pass through unchanged.
-  The neutralizer transforms vocabulary, not references.
-- Removing the neutralizer entirely and sending raw text to auditors exposes
-  every domain-specific term as a vector for framework contamination.
-
-### 20. Blind auditors should have tiered knowledge deprivation
-
-Not all audit nodes in a blind audit pipeline should be equally blind. Different
-audit functions require different levels of knowledge deprivation:
-
-- **Adversarial challengers** should be maximally blind — only procedural rules.
-  Giving them evaluation rubrics shifts them from adversarial challenge to
-  structured critique, which is a different cognitive function.
-- **Structured auditors** (logic, perspective, methodology) need rubrics to know
-  *what* to evaluate without knowing *what the domain framework says*.
-- **Synthesis nodes** need audit outputs and decision logs to detect blind spots,
-  but must not see the domain framework to avoid contamination.
-
-**How it fails:** Adding any knowledge source to an adversarial challenger makes
-it less adversarial. Adding domain content to structured auditors makes them
-confirmatory. Adding domain content to synthesis nodes makes blind-spot
-detection useless (it validates decisions against the framework that produced them).
-
-### 21. Neutralization maps must be computed per-run, not pre-cached
-
-When a neutralizer produces a reverse map (neutral term -> original domain term),
-that map must be computed per document, not pre-cached globally.
-
-**Why:** Terminology usage varies by document. A document about one topic uses
-different domain terms than a document about another. A global reverse map
-produces incorrect de-neutralization.
-
-**How it fails:** Pre-computing a global reverse map produces wrong results for
-documents that don't use all terms. Worse, it maps neutral terms back to wrong
-domain terms when there are many-to-one mappings.
-
-### 22. Quality gates should be content-driven, not intent-driven
-
-When a pipeline uses flags to trigger escalation (e.g., routing to a more
-expensive audit tier), the flag should be set based on the analytical worker's
-assessment of content quality, not based on whether the user requested
-escalation.
-
-**Why:** Users may not recognize when their work has crossed a quality threshold
-that warrants peer review. The flag is a content-quality signal, not a workflow
-button.
-
-**How it fails:** If the flag is set based on user intent ("publish this"), users
-can bypass the audit pipeline by not requesting escalation. Conversely,
-important analytical shifts skip audit because the user didn't ask for review.
-
-### 23. Escalation thresholds gate expensive operations
-
-When an adversarial challenge node produces a high-strength challenge that
-triggers escalation (e.g., to manual review with an alternate LLM provider),
-the threshold must be calibrated carefully.
-
-**Why:** Escalation targets are expensive (different provider, human review,
-longer cycles). The threshold must ensure genuine threats escalate while
-routine challenges don't.
-
-**How it fails:** Too low: false-positive escalations waste resources and erode
-trust ("the system always escalates"). Too high: genuine analytical failures
-pass through to publication.
-
-### 24. Context flows through messages, not worker state
-
-Session identifiers, request context, and inter-stage metadata must flow
-through `input_mapping` template references, not through worker instance state.
-
-**Why:** Workers are stateless (invariant #1). They cannot track sessions
-internally. The pipeline's `input_mapping` is the mechanism for passing context
-through a stateless execution chain.
-
-**How it fails:**
-
-- If an intermediate worker filters context fields from its output, downstream
-  workers lose access and cross-cutting concerns (governance audits, session
-  tracking) break silently.
-- If context is added to worker instance state instead of flowing through
-  messages, multi-replica deployments lose context tracking.
-
-### 25. Behavioral monitors must be isolated from analytical content
-
-When a pipeline includes a behavioral monitoring worker (e.g., monitoring
-analyst fatigue, tunnel vision, or cognitive bias), that worker must NOT
-have access to the analytical framework or domain database.
-
-**Why:** If a behavioral monitor sees domain content, it evaluates whether the
-user's *analysis* is correct rather than whether their *behavior* is healthy.
-It becomes a second analytical worker with worse prompting instead of a
-cognitive monitor.
-
-**How it fails:** Adding domain content to a behavioral monitor means it flags
-analytical disagreements as behavioral anomalies. "User spent 40 minutes on
-entity X" gets flagged as tunnel vision even if entity X genuinely requires
-deep analysis.
-
-### 26. Universal silos must never contain domain-specific analytical content
-
-If a silo is shared across all workers — including blind auditors — it must
-contain only procedural and epistemic discipline rules (source evaluation
-standards, neutrality requirements, anti-bias framing). Never analytical
-conclusions, domain assessments, or entity evaluations.
-
-**Why:** If a universal silo contains analytical content, blind auditors receive
-domain context through the one channel that bypasses all isolation checks.
-
-**How it fails:** Someone adds "current high-priority findings" to a universal
-silo as "standing guidance." Now every blind auditor knows what the framework
-considers important. Audit independence is destroyed through the one silo
-everyone trusts.
-
-### 27. There is no "improve the audit by giving auditors more information"
-
-This is the most frequently proposed and most damaging class of "improvement"
-to blind audit pipelines. The information asymmetry between sighted and blind
-nodes is the mechanism, not the bug.
-
-**The principle:** Audit quality comes from independence, not from information.
-A well-informed auditor who has read the conclusions will confirm them. A blind
-auditor who has not read the conclusions will challenge them on logical and
-perspectival grounds. Both are necessary. Merging them destroys the one you
-can't get any other way.
-
-### 28. YAML configs are the right medium for what they describe
-
-Heddle application configs are typically 80% natural-language system prompts and
-20% structural configuration (schemas, mappings, silo assignments). A Python
-DSL would help with the structural 20% but would make the prompt 80% harder
-to read and edit.
-
-**The right approach:** Generate the structural parts (I/O schemas, silo
-references, pipeline topology) from typed Python models. Keep the natural
-language in YAML where it's readable without a Python interpreter.
-
-**How it fails:** Replacing all YAML with Python forces system prompts into
-Python strings (escaping hell, no syntax highlighting, harder to diff). It
-also removes the ability for non-developer domain experts to review and
-suggest changes to worker behavior.
-
-### 29. Single-writer processors must be truly single-instance
-
-When a processor worker uses `serialize_writes=True` for a single-writer store
-(DuckDB, file-based databases), the application must ensure exactly one instance
-runs. The asyncio lock only serializes within one process (invariant #11).
-
-Additionally, no other worker should bypass the designated writer to access the
-store directly. The writer typically enforces validation, cross-referencing,
-and governance triggers that direct access would skip.
-
-**How it fails:** Running two instances causes write races. Bypassing the writer
-skips validation and governance triggers (e.g., operation count thresholds that
-fire audit escalations).
+**Paired ADR:** [ADR-005](adr/005-subscribe-before-publish.md).
 
 ---
 
-## Summary — Red Lines
+## Part II — Council & Multi-Agent Invariants
 
-These are things that must never happen, regardless of how reasonable they sound:
+These invariants govern Heddle's council framework (`contrib/council`). They
+are framework-enforced like Part I — testable, mechanically validated.
 
-1. **Never add domain content to blind auditor knowledge sources.** Not even
-   "just the entity names" or "just the high-level findings." Any domain
-   leakage contaminates the audit.
-
-2. **Never put LLM calls in the router.** Routing is deterministic and fast.
-   Smart routing belongs in the decomposer.
-
-3. **Never carry state between worker tasks.** If you need context, pass it
-   through messages. Workers are stateless replicas.
-
-4. **Never skip contract validation.** It's the only type-safe boundary between
-   actors. Removing it for "performance" removes the only safety net.
-
-5. **Never put analytical content in universal silos.** They are the one
-   channel that reaches every node, including blind auditors.
-
-6. **Never pre-compute neutralization reverse maps.** They must be per-document.
-
-7. **Never change condition-evaluation defaults from TRUE.** Silent stage
-   skips are worse than unnecessary stage runs.
-
-8. **Never run multiple instances of a single-writer processor.** The
-   per-instance lock does not protect across processes.
-
----
-
-## Part III — Council & Multi-Agent Invariants
-
-### 30. Council transcript is managed by the orchestrator, not by workers
+### 18. Council transcript is managed by the orchestrator, not by workers
 
 Workers participating in a council discussion remain fully stateless.
 The multi-round loop, transcript accumulation, and context injection
@@ -536,7 +339,7 @@ processes round 2, and replica B would have no memory of round 1.
 instance variable produces correct results in single-replica testing
 and incoherent debates in production.
 
-### 31. Transcript visibility is a security boundary, not a convenience
+### 19. Transcript visibility is a security boundary, not a convenience
 
 The `sees_transcript_from` field on each agent config is a hard filter —
 not a hint. When agent C's visibility is set to `["A"]`, agent C never
@@ -550,7 +353,7 @@ must not know who wrote which position.
 **How it fails:** Leaking full transcripts to all agents defeats the
 purpose of structured debate and introduces anchoring bias.
 
-### 32. ChatBridge session state lives in the bridge, not in Heddle
+### 20. ChatBridge session state lives in the bridge, not in Heddle
 
 ChatBridge adapters maintain per-session conversation history
 internally (or in the external provider's API). The `ChatBridgeBackend`
@@ -567,7 +370,7 @@ Claude, GPT-4, Ollama, or a human.
 orchestrator would couple Heddle's lifecycle management to external
 provider session semantics.
 
-### 33. Convergence checks must be side-effect-free
+### 21. Convergence checks must be side-effect-free
 
 Convergence detectors (`position_stability`, `llm_judge`) read the
 transcript and produce a score. They never modify the transcript,
@@ -578,3 +381,37 @@ synthesis is a separate step that runs after the deliberation loop ends.
 If the convergence check could modify the transcript, it would be
 possible for a runaway LLM judge to terminate discussions prematurely
 by injecting "we all agree" into the record.
+
+---
+
+## Summary — Framework Red Lines
+
+These are framework-level constraints — every one of them is mechanically
+checked by tests, validators, or code-path structure. Violating any of them
+breaks the framework's correctness contract, regardless of how reasonable
+the change sounds:
+
+1. **Never put LLM calls in the router.** Routing is deterministic and fast.
+   Smart routing belongs in the decomposer. (Invariant 2)
+2. **Never carry state between worker tasks.** If you need context, pass it
+   through messages. Workers are stateless replicas. (Invariant 1)
+3. **Never skip contract validation.** It's the only type-safe boundary
+   between actors. Removing it for "performance" removes the only safety
+   net. (Invariant 5)
+4. **Never change condition-evaluation defaults from FALSE.** Silent
+   over-execution from typos is worse than visible skips with a warning.
+   (Invariant 10)
+5. **Never run multiple instances of a single-writer processor.** The
+   per-instance lock does not protect across processes. (Invariant 11)
+6. **Never publish before subscribing in request-reply.** NATS is at-most-once;
+   the race is silent and load-dependent. (Invariant 17)
+7. **Never leak full transcripts to all council agents.** `sees_transcript_from`
+   is a security boundary, not a hint. (Invariant 19)
+8. **Never let a convergence detector mutate the transcript.** Detection is
+   observation, not intervention. (Invariant 21)
+
+**Application-level red lines** (knowledge-silo isolation, blind-audit
+discipline, behavioural-monitor isolation) live in
+[Application Patterns](APPLICATION_PATTERNS.md). They are not mechanically
+enforced — applications that violate them produce contaminated outputs
+without any framework error.

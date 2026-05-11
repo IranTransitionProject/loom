@@ -97,6 +97,7 @@ nav:
   - Architecture:
     - Overview: ARCHITECTURE.md
     - Design Invariants: DESIGN_INVARIANTS.md
+    - Application Patterns: APPLICATION_PATTERNS.md
     - Decision Records:
       - Overview: adr/index.md
       - ADR-001 — Stateless workers: adr/001-stateless-workers.md

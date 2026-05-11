@@ -670,12 +670,12 @@ because half the history is missing.
 instance's in-memory `bridge._sessions` dict. Each worker replica
 constructs its own bridge instance, so a follow-up turn that the
 router sends to a different replica sees an empty session.
-``Invariant 32`` exempts ChatBridge from worker statelessness for
+``Invariant 20`` exempts ChatBridge from worker statelessness for
 exactly this reason — sessions are *intended* state — but routing
 must keep the same session on the same replica.
 
 **Fix:** Deploy ChatBridge workers with `replicas=1`, or front the
 worker queue with a session-affinity load balancer that hashes on
 `session_id`. See [`BLIND_AUDIT.md`](BLIND_AUDIT.md) for the
-broader invariant and `Invariant 32` in
+broader invariant and `Invariant 20` in
 [`DESIGN_INVARIANTS.md`](DESIGN_INVARIANTS.md).

@@ -397,7 +397,9 @@ final report that incorporates the reviewer's concerns.
   pipelines, and knowledge silos
 - **[Why Heddle?](WHY_HEDDLE.md)** — how the blind audit pattern fits into
   Heddle's input-layer approach
-- **[Design Invariants](DESIGN_INVARIANTS.md)** — architectural rules
-  for knowledge isolation (Part II, invariants 18-27)
+- **[Application Patterns](APPLICATION_PATTERNS.md)** — knowledge-isolation
+  discipline for blind-audit pipelines (patterns 1-10 cover this material)
+- **[Design Invariants](DESIGN_INVARIANTS.md)** — framework-level
+  invariants the blind-audit machinery rests on
 - **[Workers Reference](workers-reference.md)** — the shipped `reviewer`
   worker is a generalized version of this pattern
