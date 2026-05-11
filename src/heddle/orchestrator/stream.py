@@ -303,7 +303,7 @@ class ResultStream:
         self._consumed = True
         return self._stream()
 
-    async def _stream(self) -> AsyncIterator[TaskResult]:
+    async def _stream(self) -> AsyncIterator[TaskResult]:  # noqa: PLR0912, PLR0915
         """Internal async generator that drives the collection loop.
 
         Reads messages from the subscription owned by ``start()`` /
@@ -337,17 +337,35 @@ class ResultStream:
                     break
 
                 # Wait for the next message from the bus.
+                # ``TimeoutError`` means the deadline elapsed — pages
+                # an operator alerting on stuck results.
+                # ``StopAsyncIteration`` means the subscription was
+                # closed cleanly (bus shutdown, actor disconnect) —
+                # not actionable, log at info under a distinct event
+                # name so alerting can distinguish.  Earlier both
+                # paths logged ``result_stream.timeout`` and an
+                # operator with paging on that event got woken up on
+                # every clean shutdown.
                 try:
                     data = await asyncio.wait_for(
                         sub.__anext__(),
                         timeout=remaining,
                     )
-                except (TimeoutError, StopAsyncIteration):
+                except TimeoutError:
                     self._timed_out = True
                     log.warning(
                         "result_stream.timeout",
                         collected=self.collected_count,
                         expected=self.expected_count,
+                    )
+                    break
+                except StopAsyncIteration:
+                    self._timed_out = True
+                    log.info(
+                        "result_stream.closed",
+                        collected=self.collected_count,
+                        expected=self.expected_count,
+                        reason="subscription_closed",
                     )
                     break
 
