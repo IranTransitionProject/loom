@@ -104,6 +104,12 @@ nav:
       - ADR-003 — Shallow JSON Schema: adr/003-shallow-json-schema.md
       - ADR-004 — Skip-not-crash on malformed: adr/004-skip-not-crash-on-malformed.md
       - ADR-005 — Subscribe before publish: adr/005-subscribe-before-publish.md
+      - ADR-006 — Tri-state synthesizer partition: adr/006-tri-state-synthesizer-partition.md
+      - ADR-007 — Council budget and per-turn floor: adr/007-council-budget-and-per-turn-floor.md
+      - ADR-008 — Council execution path unification: adr/008-council-execution-path-unification.md
+      - ADR-009 — Per-goal state isolation: adr/009-per-goal-state-isolation.md
+      - ADR-010 — Condition-eval defaults: adr/010-condition-eval-defaults.md
+      - ADR-011 — FIRST_COMPLETED vs gather: adr/011-first-completed-vs-gather.md
   - Vision:
     - Ad-Hoc Clusters: vision/AD_HOC_CLUSTERS.md
   - Deployment:

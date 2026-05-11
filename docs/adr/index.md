@@ -34,6 +34,12 @@ Each ADR follows this skeleton:
 | [ADR-003](003-shallow-json-schema.md) | Shallow JSON Schema for I/O contracts | [Invariant 5](../DESIGN_INVARIANTS.md#5-json-schema-validation-is-intentionally-shallow) |
 | [ADR-004](004-skip-not-crash-on-malformed.md) | Skip-and-log on malformed messages, not crash | [Invariant 8](../DESIGN_INVARIANTS.md#8-malformed-nats-messages-are-skipped-not-crashed) |
 | [ADR-005](005-subscribe-before-publish.md) | Subscribe before publish for request-reply | [Invariant 17](../DESIGN_INVARIANTS.md#17-subscribe-before-publish-for-orchestrator--worker-request-reply) |
+| [ADR-006](006-tri-state-synthesizer-partition.md) | Tri-state synthesizer partition (succeeded / failed / in_flight) | commit `15a9af4` |
+| [ADR-007](007-council-budget-and-per-turn-floor.md) | Council synthesis budget and 5s per-turn floor | [council-howto](../council-howto.md) |
+| [ADR-008](008-council-execution-path-unification.md) | Council execution paths share one budget helper | [ADR-007](007-council-budget-and-per-turn-floor.md) |
+| [ADR-009](009-per-goal-state-isolation.md) | Per-goal state isolation, lockless concurrency | [Invariant 7](../DESIGN_INVARIANTS.md#7-per-goal-state-isolation-enables-concurrency-without-locks) |
+| [ADR-010](010-condition-eval-defaults.md) | Condition-evaluation defaults — fail-closed by default, env-gated legacy | [Invariant 10](../DESIGN_INVARIANTS.md#10-condition-evaluation-malformed--false-skip-missing-path--false-skip) |
+| [ADR-011](011-first-completed-vs-gather.md) | Pipeline parallel levels use FIRST_COMPLETED, not gather | [Invariant 16](../DESIGN_INVARIANTS.md#16-pipeline-parallel-levels-use-first_completed-not-gather) |
 
 ## When to write a new ADR
 
