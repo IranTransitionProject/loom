@@ -838,6 +838,71 @@ class TestAppDeploy:
         assert parsed.fragment == ""  # ``#`` did not escape into a fragment
         assert parse_qs(parsed.query)["error"] == [bad_msg]
 
+    def test_deploy_error_redirect_urlencodes_adversarial_string(self, client):
+        """J2 / prior-review #8: adversarial-input round-trip on the redirect path.
+
+        The benign-string test above pins the basic ``&``/``#``
+        cases.  This test covers the harder shapes the prior review
+        flagged as untested: query-string syntax (``?``), non-ASCII
+        characters, a literal embedded URL with its own ``?`` and
+        ``=`` and ``&``, and a query-shaped substring that could be
+        mis-parsed as a parameter (``token=secret``).  Every
+        character must round-trip exactly, no token-shaped substring
+        may leak across query-string delimiters, and Long messages
+        must not be silently expanded by encoding overhead.
+        """
+        from urllib.parse import parse_qs, urlparse
+
+        from heddle.workshop import app_manager
+
+        # ``? = & # %`` plus a literal embedded URL plus non-ASCII
+        # plus a token-shaped substring.  If any character escapes
+        # the encoder, the parse_qs split below will mis-attribute
+        # ``token=secret`` as its own query key.
+        bad_msg = (
+            "fail: ? & # % "
+            "url=https://evil.example/?token=secret&next=/admin "
+            "non-ascii: ترانزیشن éçü "
+            "delimiters: a=b&c=d"
+        )
+        with mock.patch.object(
+            app_manager.AppManager,
+            "peek_manifest",
+            side_effect=app_manager.AppDeployError(bad_msg),
+        ):
+            resp = client.post(
+                "/apps/deploy?auto_approve=1",
+                files={"zip_file": ("any.zip", b"PK\x03\x04anything", "application/zip")},
+                follow_redirects=False,
+            )
+
+        assert resp.status_code == 303
+        parsed = urlparse(resp.headers["location"])
+        assert parsed.path == "/apps"
+        assert parsed.fragment == ""
+
+        # The query parses to exactly one ``error`` parameter whose
+        # value round-trips the entire adversarial string.  If any
+        # delimiter inside ``bad_msg`` escaped the encoder, the dict
+        # would gain extra keys (``token``, ``next``, ``c``, ``url``).
+        qs = parse_qs(parsed.query, keep_blank_values=True)
+        assert list(qs.keys()) == ["error"], (
+            f"unexpected extra query keys leaked: {list(qs.keys())}"
+        )
+        assert qs["error"] == [bad_msg]
+
+        # The encoded length must be bounded by the (proportional)
+        # cost of percent-encoding: each byte expands to at most 3
+        # characters (``%XX``).  This catches a regression that
+        # double-encoded the message (``%25XX``) or wrapped it in
+        # surrounding markup.
+        encoded_len = len(parsed.query) - len("error=")
+        # UTF-8 of the message in bytes, times 3, is the upper bound.
+        max_expected = len(bad_msg.encode("utf-8")) * 3
+        assert encoded_len <= max_expected, (
+            f"encoded length {encoded_len} exceeds 3x UTF-8 byte length {max_expected}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # App detail (lines 440-444)

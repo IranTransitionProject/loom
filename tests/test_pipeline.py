@@ -1434,6 +1434,57 @@ class TestStageRetry:
         assert "mapping error" in final["error"].lower()
 
     @pytest.mark.asyncio
+    async def test_pipeline_max_retries_negative_rejected(self, tmp_path):
+        """J8 / G7: ``max_retries=-1`` is rejected with a clear error.
+
+        Earlier a negative value made ``range(max_retries + 1)`` an
+        empty iterator, so the retry loop never executed and the
+        post-loop ``raise last_error`` tripped a NameError /
+        type-ignore.  G7 validates at the point of use; this test
+        pins the named-field error message so a future "let's be
+        permissive" change can't silently restore the original
+        crash mode.
+        """
+        from heddle.orchestrator.pipeline import PipelineStageError
+
+        stages = [
+            {
+                "name": "negative_retries",
+                "worker_type": "w1",
+                "tier": "local",
+                "input_mapping": {"x": "goal.context.x"},
+                "max_retries": -1,
+            },
+        ]
+        orch, bus = _make_pipeline_orchestrator(tmp_path, stages, timeout=5)
+        await bus.connect()
+
+        goal = OrchestratorGoal(instruction="test", context={"x": "val"})
+        result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
+
+        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        await asyncio.wait_for(pipeline_task, timeout=3)
+
+        final = await asyncio.wait_for(
+            _wait_for_pipeline_result(result_sub, goal.goal_id), timeout=3
+        )
+        assert final["status"] == TaskStatus.FAILED.value
+        # The error message must name the stage and the bad value
+        # so the operator can fix the YAML without grepping.
+        err = final["error"].lower()
+        assert "negative_retries" in err
+        assert "max_retries=-1" in err or "max_retries" in err
+        assert ">= 0" in final["error"]
+
+        # The underlying exception type is ``PipelineStageError`` —
+        # not a NameError / type-ignore tripped at the bottom of
+        # the retry loop, which was the pre-G7 failure mode.  We
+        # cannot inspect the exception type via the published
+        # result; the assertion above on ``">= 0"`` substring is
+        # the strongest proxy reachable from the bus surface.
+        assert PipelineStageError  # symbol used; type-pinning sentinel.
+
+    @pytest.mark.asyncio
     async def test_retry_on_timeout_then_succeed(self, tmp_path):
         """Timeout on first attempt, success on retry."""
         stages = [

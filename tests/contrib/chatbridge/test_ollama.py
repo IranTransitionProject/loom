@@ -51,3 +51,30 @@ class TestOllamaChatBridge:
 
         info = await bridge.get_session_info("sess_1")
         assert info.message_count == 4
+
+    async def test_user_message_rolled_back_on_api_error(self):
+        """J6 / D2: a failed POST leaves session.messages untouched.
+
+        Same shape as the anthropic + openai bridges'
+        rollback-on-failure pin.  The bridge appends to history
+        only after the HTTP call succeeds; a mid-call exception
+        must not leave the failed user message in the session
+        history (which would corrupt the next turn).
+        """
+        import pytest
+
+        bridge = OllamaChatBridge()
+        # Seed a successful first turn so subsequent failures are visible.
+        with patch.object(bridge._client, "post", new_callable=AsyncMock) as ok_post:
+            ok_post.return_value = _mock_response("seed-resp")
+            await bridge.send_turn("seed-user", {}, "sess_x")
+        assert len(bridge._sessions["sess_x"].messages) == 2
+
+        with patch.object(bridge._client, "post", new_callable=AsyncMock) as bad_post:
+            bad_post.side_effect = RuntimeError("ollama down")
+            with pytest.raises(RuntimeError, match="ollama down"):
+                await bridge.send_turn("dropped-user", {}, "sess_x")
+        assert len(bridge._sessions["sess_x"].messages) == 2
+        assert all(
+            m.get("content") != "dropped-user" for m in bridge._sessions["sess_x"].messages
+        )

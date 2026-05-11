@@ -84,3 +84,55 @@ class TestManualValidation:
         bridge = ManualChatBridge()
         with pytest.raises(ValueError, match="on_prompt"):
             await bridge.send_turn("Hello", {}, "sess_1")
+
+
+class TestManualRollback:
+    async def test_user_message_rolled_back_on_callback_error(self):
+        """J6 / D2: a failing callback leaves session.messages untouched.
+
+        For the manual bridge the analog of "API call failed" is
+        "human callback raised before responding."  The bridge
+        promises that ``session.messages`` only grows after the
+        callback returns a response, so the next prompt isn't a
+        ghost of the failed one.
+        """
+
+        async def good_responder(message, context, session_id):
+            return f"ok: {message}"
+
+        async def bad_responder(message, context, session_id):
+            raise RuntimeError("operator walked off")
+
+        # Seed one successful turn so the rollback delta is visible.
+        bridge = ManualChatBridge(on_prompt=good_responder)
+        await bridge.send_turn("seed", {}, "sess_x")
+        assert len(bridge._sessions["sess_x"].messages) == 2
+
+        # Swap in the failing responder.  A bridge that appended
+        # eagerly would leave the failed prompt in history.
+        bridge._on_prompt = bad_responder
+        with pytest.raises(RuntimeError, match="walked off"):
+            await bridge.send_turn("dropped", {}, "sess_x")
+        assert len(bridge._sessions["sess_x"].messages) == 2
+        assert all(m.get("content") != "dropped" for m in bridge._sessions["sess_x"].messages)
+
+    async def test_user_message_rolled_back_on_callback_timeout(self):
+        """Timeout is the other manual-bridge failure mode; same invariant."""
+
+        async def slow_responder(message, context, session_id):
+            await asyncio.sleep(10)
+            return "too late"
+
+        async def good_responder(message, context, session_id):
+            return f"ok: {message}"
+
+        bridge = ManualChatBridge(on_prompt=good_responder)
+        await bridge.send_turn("seed", {}, "sess_x")
+        assert len(bridge._sessions["sess_x"].messages) == 2
+
+        bridge._on_prompt = slow_responder
+        bridge._timeout = 0.05
+        with pytest.raises(asyncio.TimeoutError):
+            await bridge.send_turn("dropped", {}, "sess_x")
+        assert len(bridge._sessions["sess_x"].messages) == 2
+        assert all(m.get("content") != "dropped" for m in bridge._sessions["sess_x"].messages)
