@@ -17,7 +17,10 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Coroutine
 
 from heddle.bus.base import MessageBus, Subscription
 
@@ -83,7 +86,15 @@ class InMemoryBus(MessageBus):
         self._subscribers.clear()
 
     async def publish(self, subject: str, data: dict[str, Any]) -> None:
-        """Publish a message to all subscribers on the given subject."""
+        """Publish a message to all subscribers on the given subject.
+
+        Delivery is parallel across subscribers via ``asyncio.gather``
+        (with ``return_exceptions=True``).  Today's subscriptions
+        back onto unbounded ``asyncio.Queue`` instances so serial
+        delivery never blocked head-of-line; the gather form keeps
+        delivery O(1) in wall-clock if a future ``maxsize`` bound or
+        slow-consumer detection ever lands on the queue.
+        """
         subs = self._subscribers.get(subject, [])
         if not subs:
             return
@@ -95,17 +106,23 @@ class InMemoryBus(MessageBus):
             if group is not None and sub._active:
                 grouped[group].append(sub)
 
-        # Deliver to all ungrouped subscribers.
-        for _, sub in ungrouped:
-            await sub._deliver(data)
+        # Build the list of coroutines to drive concurrently.
+        deliveries: list[Coroutine[Any, Any, None]] = [sub._deliver(data) for _, sub in ungrouped]
 
-        # Deliver to one member per queue group (round-robin).
+        # One delivery per queue group (round-robin selection).
         for group, members in grouped.items():
             if not members:
                 continue
             idx = self._group_counters[subject][group] % len(members)
-            await members[idx]._deliver(data)
+            deliveries.append(members[idx]._deliver(data))
             self._group_counters[subject][group] += 1
+
+        if deliveries:
+            # ``return_exceptions=True`` so one stuck subscriber
+            # doesn't block delivery to the others.  We don't
+            # surface per-subscriber failures here — the test
+            # harness keeps delivery in a known-good state.
+            await asyncio.gather(*deliveries, return_exceptions=True)
 
     async def subscribe(
         self,

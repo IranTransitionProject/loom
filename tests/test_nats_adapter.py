@@ -346,7 +346,7 @@ async def test_subscription_recovers_from_transient_error():
     # Patch the retry sleep down to 0 so the test does not actually
     # block for 100ms.  Production code uses a small backoff to avoid
     # busy-looping if the error persists.
-    with patch("heddle.bus.nats_adapter._TRANSIENT_RETRY_SLEEP", 0.0):
+    with patch("heddle.bus.nats_adapter._TRANSIENT_RETRY_INITIAL", 0.0):
         result = await sub.__anext__()
 
     assert result == payload
@@ -373,7 +373,7 @@ async def test_subscription_recovers_from_multiple_transient_errors():
     )
 
     sub = NATSSubscription(mock_nats_sub)
-    with patch("heddle.bus.nats_adapter._TRANSIENT_RETRY_SLEEP", 0.0):
+    with patch("heddle.bus.nats_adapter._TRANSIENT_RETRY_INITIAL", 0.0):
         result = await sub.__anext__()
 
     assert result == payload
@@ -415,7 +415,40 @@ async def test_subscription_terminal_after_transient_still_stops():
 
     sub = NATSSubscription(mock_nats_sub)
     with (
-        patch("heddle.bus.nats_adapter._TRANSIENT_RETRY_SLEEP", 0.0),
+        patch("heddle.bus.nats_adapter._TRANSIENT_RETRY_INITIAL", 0.0),
         pytest.raises(StopAsyncIteration),
     ):
         await sub.__anext__()
+
+
+@pytest.mark.asyncio
+async def test_subscription_backoff_resets_on_success():
+    """G2: a successful read resets the consecutive-error counter.
+
+    Earlier the loop slept a flat 100ms on every transient error,
+    so a stuck subscriber-side parser logged at 10 events/sec
+    forever.  Now the sleep doubles per consecutive error and
+    resets on a successful read; verify the reset.
+    """
+    import nats.errors
+
+    good_msg = MagicMock()
+    good_msg.data = json.dumps({"ok": True}).encode()
+
+    mock_nats_sub = AsyncMock()
+    mock_nats_sub.next_msg = AsyncMock(
+        side_effect=[
+            nats.errors.StaleConnectionError(),
+            nats.errors.StaleConnectionError(),
+            good_msg,  # ← consecutive_errors should reset here
+            nats.errors.StaleConnectionError(),  # ← back to 1, not 3
+            good_msg,
+        ],
+    )
+
+    sub = NATSSubscription(mock_nats_sub)
+    with patch("heddle.bus.nats_adapter._TRANSIENT_RETRY_INITIAL", 0.0):
+        await sub.__anext__()  # consumes 3 calls; counter resets to 0
+        assert sub._consecutive_errors == 0
+        await sub.__anext__()  # consumes 2 more
+        assert sub._consecutive_errors == 0

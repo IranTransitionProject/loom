@@ -61,10 +61,18 @@ _TERMINAL_SUB_ERRORS: tuple[type[BaseException], ...] = (
     nats.errors.ConnectionDrainingError,
 )
 
-# Sleep between retries after a transient ``next_msg`` error.  Short
-# enough to recover quickly; long enough to avoid busy-looping if the
-# error persists.
-_TRANSIENT_RETRY_SLEEP = 0.1  # seconds
+# Exponential-backoff bounds for the transient-error retry loop in
+# ``NATSSubscription.__anext__``.  Earlier the loop slept a flat
+# 100ms on every transient error, so a stuck subscriber-side parser
+# logged at 10 events/sec forever.  Now the sleep doubles per
+# consecutive error (resets to the initial value on a successful
+# message) and caps at the max value.
+_TRANSIENT_RETRY_INITIAL = 0.1  # seconds
+_TRANSIENT_RETRY_MAX = 5.0  # seconds
+# After this many consecutive transient errors the subscription
+# escalates the log level to ERROR.  Operator-visible signal that
+# the subscription is wedged rather than just hiccupping.
+_TRANSIENT_RETRY_ESCALATE_AFTER = 50
 
 
 class NATSSubscription(Subscription):
@@ -72,6 +80,7 @@ class NATSSubscription(Subscription):
 
     def __init__(self, nats_sub: Any) -> None:
         self._sub = nats_sub
+        self._consecutive_errors = 0
 
     async def unsubscribe(self) -> None:
         """Unsubscribe from the underlying NATS subscription."""
@@ -117,13 +126,31 @@ class NATSSubscription(Subscription):
                 )
                 raise StopAsyncIteration from e
             except Exception as e:
-                logger.warning(
+                self._consecutive_errors += 1
+                # Exponential backoff: 0.1s, 0.2s, 0.4s, …, capped
+                # at 5s.  After 50 consecutive failures escalate to
+                # ERROR so the operator notices a wedged subscription.
+                sleep_seconds = min(
+                    _TRANSIENT_RETRY_INITIAL * (2 ** (self._consecutive_errors - 1)),
+                    _TRANSIENT_RETRY_MAX,
+                )
+                log_method = (
+                    logger.error
+                    if self._consecutive_errors >= _TRANSIENT_RETRY_ESCALATE_AFTER
+                    else logger.warning
+                )
+                log_method(
                     "nats.subscription_transient_error",
                     error=str(e),
                     error_type=type(e).__name__,
+                    consecutive_errors=self._consecutive_errors,
+                    next_retry_seconds=sleep_seconds,
                 )
-                await asyncio.sleep(_TRANSIENT_RETRY_SLEEP)
+                await asyncio.sleep(sleep_seconds)
                 continue
+
+            # Successful read — reset the backoff counter.
+            self._consecutive_errors = 0
 
             try:
                 return json.loads(msg.data.decode())

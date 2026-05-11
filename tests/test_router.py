@@ -81,6 +81,29 @@ class TestTokenBucketRateLimiter:
         limiter = TokenBucketRateLimiter({})
         assert limiter.try_acquire("local") is True
 
+    def test_try_acquire_thread_safe(self):
+        """G4: concurrent thread-pool calls don't over-issue tokens.
+
+        Earlier ``try_acquire`` did a read-modify-write on the bucket
+        dict without a lock.  Cooperative asyncio made it effectively
+        atomic, but thread-pool callers (Workshop test_runner) could
+        race.  The new ``threading.Lock`` serialises the check-then-
+        decrement so the invariant ``count(True) <= capacity`` holds.
+        """
+        import concurrent.futures
+
+        capacity = 100
+        limiter = TokenBucketRateLimiter({"local": {"max_concurrent": capacity}})
+
+        # Fire many more attempts than the capacity from many
+        # threads; the count of ``True`` returns must be exactly
+        # ``capacity`` (not more — that's the race the lock closes).
+        attempts = capacity * 4
+        with concurrent.futures.ThreadPoolExecutor(max_workers=32) as ex:
+            results = list(ex.map(lambda _i: limiter.try_acquire("local"), range(attempts)))
+        granted = sum(1 for r in results if r)
+        assert granted == capacity
+
 
 # ---------------------------------------------------------------------------
 # TaskRouter.resolve_tier tests

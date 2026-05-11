@@ -40,6 +40,7 @@ Rate limiting:
 
 from __future__ import annotations
 
+import threading
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -79,6 +80,13 @@ class TokenBucketRateLimiter:
     def __init__(self, rate_limits: dict[str, dict[str, Any]]) -> None:
         # _buckets maps tier name -> {tokens, capacity, refill_interval, last_refill}
         self._buckets: dict[str, dict[str, Any]] = {}
+        # ``try_acquire`` does a read-modify-write on the bucket
+        # dict.  Under ``max_concurrent=1`` and cooperative asyncio
+        # this is effectively atomic, but the router is also reachable
+        # from thread-pool callers (Workshop test_runner) and future
+        # multi-loop deployments.  Guard with a threading.Lock so the
+        # read-then-decrement sequence is properly serialised.
+        self._lock = threading.Lock()
 
         for tier_name, limits in rate_limits.items():
             max_concurrent = limits.get("max_concurrent", 10)
@@ -111,12 +119,13 @@ class TokenBucketRateLimiter:
             # No rate limit configured for this tier -- allow unconditionally.
             return True
 
-        self._refill(bucket)
+        with self._lock:
+            self._refill(bucket)
 
-        if bucket["tokens"] >= 1.0:
-            bucket["tokens"] -= 1.0
-            return True
-        return False
+            if bucket["tokens"] >= 1.0:
+                bucket["tokens"] -= 1.0
+                return True
+            return False
 
     def _refill(self, bucket: dict[str, Any]) -> None:
         """Add tokens back based on elapsed time since last refill."""
