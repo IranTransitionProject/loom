@@ -72,7 +72,7 @@ workshop = [
     "fastapi>=0.110.0",        # Web framework for Workshop UI
     "uvicorn>=0.27.0",         # ASGI server
     "jinja2>=3.1.6",           # Template engine
-    "python-multipart>=0.0.9", # Form handling
+    "python-multipart>=0.0.28", # Form handling
     "duckdb>=1.0.0",           # Eval/version storage
 ]
 mdns = [
