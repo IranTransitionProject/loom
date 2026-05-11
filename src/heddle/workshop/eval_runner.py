@@ -295,15 +295,13 @@ class EvalRunner:
                         score = 1.0 if result.success else 0.0
                         score_details = {"method": scoring, "note": "no expected output"}
 
-                if case_passed:
-                    passed += 1
-                else:
-                    failed += 1
-
-                total_latency += result.latency_ms
-                total_prompt += result.token_usage.get("prompt_tokens", 0)
-                total_completion += result.token_usage.get("completion_tokens", 0)
-
+                # F4: increment counters AFTER ``save_eval_result``
+                # returns.  Earlier the increment ran first; if the
+                # DB save then raised, ``run_one`` propagated and the
+                # post-gather loop incremented ``failed`` again,
+                # breaking the ``passed + failed == n`` invariant.
+                # Now a save failure counts the case exactly once
+                # (in the post-gather loop).
                 self.db.save_eval_result(
                     run_id=run_id,
                     case_name=case_name,
@@ -321,6 +319,15 @@ class EvalRunner:
                     model_used=result.model_used,
                     error=result.error,
                 )
+
+                if case_passed:
+                    passed += 1
+                else:
+                    failed += 1
+
+                total_latency += result.latency_ms
+                total_prompt += result.token_usage.get("prompt_tokens", 0)
+                total_completion += result.token_usage.get("completion_tokens", 0)
 
         # ``return_exceptions=True`` keeps one bad case from cancelling its
         # siblings.  Per-case exceptions are persisted as failed

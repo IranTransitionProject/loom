@@ -273,6 +273,44 @@ class TestEvalRunner:
         assert "synthetic db failure" in runs[0]["error"]
 
     @pytest.mark.asyncio
+    async def test_save_eval_result_failure_does_not_double_count(self, runner_and_db):
+        """F4: a DB save failure mid-run still gives ``passed + failed == n``.
+
+        Earlier ``run_one`` incremented ``passed``/``failed`` before
+        calling ``save_eval_result``.  If the save raised, the post-
+        gather error handler also incremented ``failed`` for that
+        case — counting it twice and breaking the invariant.  The
+        increment now happens after the save returns, so a save
+        failure counts the case exactly once.
+        """
+        eval_runner, db = runner_and_db
+
+        # Patch ``save_eval_result`` so the second call raises.  The
+        # first case persists normally; the second case's save
+        # blows up, run_one propagates, and the post-gather loop
+        # logs + counts it as failed.
+        real_save = db.save_eval_result
+        call_count = {"n": 0}
+
+        def flaky_save(*args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 2:
+                raise RuntimeError("disk full")
+            return real_save(*args, **kwargs)
+
+        db.save_eval_result = flaky_save
+
+        suite = [
+            {"name": "ok1", "input": {"text": "hello"}, "expected_output": {"summary": "hello"}},
+            {"name": "ok2", "input": {"text": "world"}, "expected_output": {"summary": "world"}},
+        ]
+        run_id = await eval_runner.run_suite(EVAL_CONFIG, suite)
+
+        runs = db.get_eval_runs("eval_worker")
+        run = next(r for r in runs if r["id"] == run_id)
+        # Invariant: every case counted exactly once.
+        assert run["passed_cases"] + run["failed_cases"] == len(suite)
+
     async def test_run_suite_isolates_per_case_exception(self, runner_and_db):
         """``return_exceptions=True`` keeps one bad case from cancelling its
         siblings.  An exception that escapes ``test_runner.run`` (mocked here
