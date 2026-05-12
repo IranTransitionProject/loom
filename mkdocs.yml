@@ -91,6 +91,7 @@ nav:
     - Adversarial Review: BLIND_AUDIT.md
     - Workshop Architecture: workshop.md
     - Foreign-Language Actors: foreign-actors.md
+    - Language SDKs (.NET / Swift): https://getheddle.github.io/heddle-sdk/
     - Gateway Actors: gateway-actors.md
     - Troubleshooting: TROUBLESHOOTING.md
   - Tutorials:

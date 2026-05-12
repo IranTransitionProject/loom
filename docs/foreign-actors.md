@@ -8,6 +8,12 @@ is language-agnostic: NATS subjects + JSON messages. This document
 specifies the contract a non-Python actor must implement to participate
 in a Heddle bus.
 
+!!! tip "Reference SDKs"
+
+    The companion [getheddle/heddle-sdk](https://github.com/getheddle/heddle-sdk)
+    repository packages this protocol for .NET and Swift. The rendered SDK
+    docs live at <https://getheddle.github.io/heddle-sdk/>.
+
 ## The envelope
 
 Every message on the bus is a JSON object that carries two distinct
@@ -25,6 +31,10 @@ envelope. Both are Pydantic models in `heddle.core.messages` (see
 Schemas are exported to `schemas/v1/` on every commit and gated by a
 CI drift check — they are the authoritative wire contract.
 
+The optional `_trace_context` field is a top-level envelope extension used by
+Heddle tracing helpers to carry W3C propagation headers. Treat it as framework
+metadata and pass it through separately from worker `metadata` and `payload`.
+
 ### TaskMessage (request)
 
 ```text
@@ -34,7 +44,7 @@ heddle.tasks.incoming
        │
 heddle.tasks.{worker_type}.{tier}
        ▲
-       │ (workers subscribe; queue-group named after worker_type)
+       │ (processor workers subscribe with queue group processors-{worker_type})
        │
        └── TaskMessage  ─── JSON object ─────────────────────┐
                                                               │
@@ -46,6 +56,7 @@ heddle.tasks.{worker_type}.{tier}
    created_at           str  (ISO 8601 UTC)                   │
    request_id           str | null                            │
    metadata             object                                │
+   _trace_context       object | null  (W3C headers)          │
    ─────────────────────────────────────────────────────────  ┘
    payload              object  ← validated against           ╮
                                   worker.input_schema         │ PAYLOAD
@@ -72,6 +83,7 @@ heddle.results.{parent_task_id or "default"}
    metadata             object                                │
    processing_time_ms   int                                   │
    completed_at         str  (ISO 8601 UTC)                   │
+   _trace_context       object | null  (W3C headers)          │
    ─────────────────────────────────────────────────────────  ┘
    output               object | null  ← validated against    ╮
                                          worker.output_schema │ PAYLOAD
@@ -79,6 +91,12 @@ heddle.results.{parent_task_id or "default"}
 ```
 
 ## Generating typed wrappers in your language
+
+If you are targeting .NET or Swift, start with the reference SDKs:
+[.NET](https://getheddle.github.io/heddle-sdk/DOTNET/) and
+[Swift](https://getheddle.github.io/heddle-sdk/SWIFT/). The schema-generation
+flow below is for SDK maintainers and for languages that do not yet have a
+packaged SDK.
 
 The Pydantic-exported JSON Schemas in `schemas/v1/` plug straight into
 off-the-shelf code generators. No custom IDL or designer tool — the
@@ -123,7 +141,7 @@ every commit (CI fails on drift).
 | Subject | Direction | Notes |
 | --- | --- | --- |
 | `heddle.tasks.incoming` | client → router | Where orchestrators / clients publish `TaskMessage`s for routing. Foreign actors rarely subscribe here directly. |
-| `heddle.tasks.{worker_type}.{tier}` | router → worker | Workers subscribe with **queue group name = `worker_type`** so multiple replicas of the same worker load-balance via NATS queue-group semantics. |
+| `heddle.tasks.{worker_type}.{tier}` | router → worker | Processor workers subscribe with **queue group name = `processors-{worker_type}`** so multiple replicas of the same worker load-balance via NATS queue-group semantics. |
 | `heddle.tasks.dead_letter` | router → operator | Unroutable or rate-limited messages land here. Foreign actors don't publish here; the router does. |
 | `heddle.results.{parent_task_id}` | worker → orchestrator | Each goal opens a unique result subject; the worker echoes back to it. The orchestrator subscribes BEFORE publishing the task (Invariant 17). |
 | `heddle.results.default` | worker → standalone caller | Used when a `TaskMessage` has no `parent_task_id`. |
@@ -135,8 +153,9 @@ A foreign actor MUST observe these to interoperate cleanly with the
 Python framework:
 
 1. **Queue-group subscription.** Subscribe to
-   `heddle.tasks.{worker_type}.{tier}` with `queue_group=worker_type`.
-   Without the queue group, every replica receives every task.
+   `heddle.tasks.{worker_type}.{tier}` with
+   `queue_group=processors-{worker_type}`. Without the queue group,
+   every replica receives every task.
 2. **Reset between tasks** (Invariant 1). No state may carry from one
    task to the next inside one actor process. The Python framework
    enforces this via a `reset()` call in a `finally` block; foreign
@@ -157,10 +176,11 @@ Python framework:
    Implementing full JSON Schema validation is allowed but produces
    stricter behaviour than the Python actors; document the divergence
    if you do.
-6. **OTel trace propagation.** If `TaskMessage.metadata.traceparent`
-   is present, propagate it through any downstream calls and into
-   `TaskResult.metadata.traceparent` on response. The format is W3C
-   Trace Context. If your language ecosystem lacks OTel maturity,
+6. **OTel trace propagation.** If the incoming message has top-level
+   `_trace_context`, extract or preserve it as W3C Trace Context headers
+   and include top-level `_trace_context` on the `TaskResult`. Do not put
+   trace headers under `metadata`; that field is reserved for task and
+   worker context. If your language ecosystem lacks OTel maturity,
    passing the value through verbatim is acceptable.
 
 ## Scope — what foreign actors are (and aren't)
@@ -223,13 +243,25 @@ NATS the same way Python workers do.
 
 ## Reference SDKs
 
-When SDKs land for specific languages, they will be linked here.
-Until then, the wire spec above plus `schemas/v1/` is sufficient to
-build one — the protocol surface is intentionally small.
+The companion [getheddle/heddle-sdk](https://github.com/getheddle/heddle-sdk)
+repository is the reference implementation of this protocol outside Python.
+It currently includes:
+
+- [.NET SDK](https://getheddle.github.io/heddle-sdk/DOTNET/) — `Heddle.Sdk`
+  client and actor runtime for processor workers.
+- [Swift SDK](https://getheddle.github.io/heddle-sdk/SWIFT/) — `HeddleActor`
+  client and actor runtime for Swift services.
+- [SDK examples](https://getheddle.github.io/heddle-sdk/EXAMPLES/) — minimal
+  processor actors and callers that match this wire contract.
+
+For other languages, the wire spec above plus `schemas/v1/` is sufficient to
+build a small SDK. The protocol surface is intentionally narrow.
 
 ## See also
 
 - `schemas/v1/` (in the repository) — authoritative JSON Schemas, CI-checked.
+- [Heddle SDK docs](https://getheddle.github.io/heddle-sdk/) — .NET and Swift reference SDK documentation.
+- [getheddle/heddle-sdk](https://github.com/getheddle/heddle-sdk) — SDK source repository.
 - [Gateway Actors](gateway-actors.md) — for non-NATS protocols (MQTT, HTTP, IoT).
 - [Design Invariants](DESIGN_INVARIANTS.md) — framework-safety contracts (1, 5, 8, 17 in particular apply to foreign actors).
 - [ADR-001](adr/001-stateless-workers.md) — why the reset-between-tasks invariant exists.

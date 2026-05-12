@@ -89,6 +89,7 @@ management, dead-letter handling, and OpenTelemetry tracing.
 | **Config-Driven** | Define workers in YAML — no Python code needed for LLM steps |
 | **Knowledge Silos** | Per-worker access control; blind audit workers can't see what they're reviewing |
 | **Pipeline Orchestration** | Chain steps with automatic dependency detection and parallelism |
+| **Foreign-Language SDKs** | Build .NET and Swift processor workers with the companion [Heddle SDK](https://github.com/getheddle/heddle-sdk) |
 | **Three Model Tiers** | Local (LM Studio or Ollama), Standard (Claude Sonnet), Frontier (Claude Opus) |
 | **Document Processing** | PDF/DOCX extraction via MarkItDown (fast) or Docling (deep OCR) |
 | **RAG Pipeline** | Telegram ingestion, chunking, vector search (DuckDB or LanceDB) |
@@ -121,6 +122,9 @@ Go deeper:
 | [Multi-Agent Councils](council-howto.md) | Structured deliberation with multiple LLM agents |
 | [Adversarial Review](BLIND_AUDIT.md) | Set up genuine blind review using knowledge silos |
 | [Building Workflows](building-workflows.md) | Custom steps, pipelines, tools, knowledge |
+| [Foreign-Language Actors](foreign-actors.md) | Build .NET, Swift, or other processor workers against Heddle's wire protocol |
+| [Language SDKs](https://getheddle.github.io/heddle-sdk/) | Companion .NET and Swift SDK documentation |
+| [Gateway Actors](gateway-actors.md) | Bridge HTTP, MQTT, IoT, or other non-NATS systems into Heddle |
 | [Workshop Architecture](workshop.md) | Web UI architecture and enhancement guide |
 | [Architecture](ARCHITECTURE.md) | System design, message flow, NATS subjects |
 | [Design Invariants](DESIGN_INVARIANTS.md) | Non-obvious design decisions (read before structural changes) |
