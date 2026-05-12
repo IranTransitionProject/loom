@@ -9,7 +9,6 @@ specifies the contract a non-Python actor must implement to participate
 in a Heddle bus.
 
 !!! tip "Reference SDKs"
-
     The companion [getheddle/heddle-sdk](https://github.com/getheddle/heddle-sdk)
     repository packages this protocol for .NET and Swift. The rendered SDK
     docs live at <https://getheddle.github.io/heddle-sdk/>.
