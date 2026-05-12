@@ -53,7 +53,7 @@ duckdb = [
 ]
 rag = [
     "duckdb>=1.0.0",           # Vector store backend
-    "requests>=2.31.0",        # Ollama HTTP calls from LLM analyzers
+    "requests>=2.34.0",        # Ollama HTTP calls from LLM analyzers
 ]
 lancedb = [
     "lancedb>=0.15.0",         # LanceDB embedded vector database
