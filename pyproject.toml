@@ -88,7 +88,7 @@ tui = [
     "nats-py>=2.7.0",                     # Direct NATS subscription for live view
 ]
 docs = [
-    "mkdocs-material>=9.5",           # MkDocs with Material theme
+    "mkdocs-material>=9.7.6",           # MkDocs with Material theme
     "mkdocstrings[python]>=0.24",     # Auto-generate API docs from docstrings
 ]
 eval = [
@@ -111,7 +111,7 @@ dev = [
     "fastmcp>=3.1",            # Needed for MCP gateway tests
     "lancedb>=0.15.0",         # Needed for contrib/lancedb tests
     "pyarrow>=15.0.0",         # Needed for LanceDB
-    "mkdocs-material>=9.5",           # Needed for docs build
+    "mkdocs-material>=9.7.6",           # Needed for docs build
     "mkdocstrings[python]>=0.24",
     "deepeval>=3.8.0",         # LLM output quality evaluation
 ]
