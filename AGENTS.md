@@ -126,3 +126,9 @@ Before committing a structural change:
   the design plan first?
 - For structural diffs: did you spawn `heddle-invariant-guard` to verify
   the eight red lines?
+- **Does this commit add, change, deprecate, remove, or fix
+  user-facing behaviour?** If yes, add an entry under `[Unreleased]` in
+  [`CHANGELOG.md`](CHANGELOG.md) (Added / Changed / Deprecated /
+  Removed / Fixed / Security). Documentation-only changes, internal
+  refactors with no behavioural delta, and CI/build adjustments are
+  exempt.

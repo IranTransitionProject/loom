@@ -118,7 +118,14 @@ Guidelines:
 4. Ensure all tests pass: `uv run pytest tests/ -v -m "not integration"`
 5. Lint and format your code: `uv run ruff check src/ tests/ && uv run ruff format --check src/ tests/`
 6. Read the [Coding Guide](CODING_GUIDE.md) if this is your first contribution
-7. Submit a pull request with a clear description of what changed and why
+7. **If your change adds, changes, deprecates, removes, or fixes
+   user-facing behaviour, add an entry under `[Unreleased]` in
+   [`CHANGELOG.md`](https://github.com/getheddle/heddle/blob/main/CHANGELOG.md)**
+   under the appropriate section (`Added` / `Changed` / `Deprecated` /
+   `Removed` / `Fixed` / `Security`). Documentation-only changes,
+   internal refactors with no behavioural delta, and CI/build
+   adjustments are exempt.
+8. Submit a pull request with a clear description of what changed and why
 
 Expect review feedback focused on architectural compliance and test coverage.
 
