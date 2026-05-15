@@ -49,7 +49,7 @@ of the same idea, applied to LLM evaluation.
 
 ```bash
 # 1. Install
-pip install heddle[council,chatbridge]
+pip install heddle-ai[council,chatbridge]
 
 # 2. Set up backends — at minimum, one for the participants and one
 #    for the judges (both can be the same provider; out-of-family is

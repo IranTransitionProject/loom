@@ -25,7 +25,7 @@ Usage::
         --topic "Open source beats proprietary software" \\
         --interactive --output debate_result.json
 
-Requires: pip install heddle[council]
+Requires: pip install heddle-ai[council]
 """
 
 from __future__ import annotations

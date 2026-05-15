@@ -126,9 +126,20 @@ Expect review feedback focused on architectural compliance and test coverage.
 
 ## AI-Assisted Development
 
-This project uses Claude (Anthropic) as a development tool. The `CLAUDE.md` file
-documents the project's architecture, design rules, and current state for AI-assisted
-sessions.
+This project uses Claude (Anthropic) as a development tool. The repo's
+agent layer is split across two files plus a sibling repo:
+
+- [`AGENTS.md`](https://github.com/getheddle/heddle/blob/main/AGENTS.md)
+  is the source of truth for repo-specific agent guidance (project
+  layout, runtime quirks, build/test, review checklist).
+- [`CLAUDE.md`](https://github.com/getheddle/heddle/blob/main/CLAUDE.md)
+  is a thin Claude-specific pointer.
+- Cross-repo guidance — philosophy, the framework invariants, the
+  wire-protocol contract map, and the shared skills + subagents —
+  lives in the sibling
+  [`heddle-agent-toolkit`](https://github.com/getheddle/heddle-agent-toolkit)
+  repo. Clone it as a sibling and run its `install.sh` to populate
+  this repo's `.claude/`.
 
 AI-generated code is subject to the same standards as human contributions: typed
 messages, stateless workers, validated I/O contracts, and test coverage.

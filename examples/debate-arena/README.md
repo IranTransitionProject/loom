@@ -28,7 +28,7 @@ Heddle Council + ChatBridge primitives, in a few hundred lines of code.
 
 ```bash
 # 1. Install
-pip install heddle[council,chatbridge]
+pip install heddle-ai[council,chatbridge]
 
 # 2. Set up backends — at minimum, one for the debaters and judges
 export ANTHROPIC_API_KEY=sk-...

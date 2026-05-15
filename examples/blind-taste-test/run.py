@@ -34,7 +34,7 @@ The model strings flow through :func:`heddle.contrib.chatbridge.chatbridge_spec`
 which routes ``claude*`` → Anthropic, ``gpt*`` → OpenAI,
 ``lmstudio/<id>`` → LM Studio, anything else → Ollama.
 
-Requires: pip install heddle[council,chatbridge]
+Requires: pip install heddle-ai[council,chatbridge]
 """
 
 from __future__ import annotations

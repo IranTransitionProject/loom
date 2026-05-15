@@ -22,7 +22,7 @@ declares which side made the more compelling case.
 
 ```bash
 # Install heddle with council support
-pip install heddle[council]
+pip install heddle-ai[council]
 
 # Set up your API key
 export ANTHROPIC_API_KEY=sk-...

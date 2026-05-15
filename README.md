@@ -238,9 +238,13 @@ welcome. See [Contributing](docs/CONTRIBUTING.md).
 ## AI-Assisted Development
 
 This project uses Claude (Anthropic) as a development tool.
-[`CLAUDE.md`](CLAUDE.md) documents the architecture and design rules for
-AI-assisted sessions. AI-generated code meets the same standards as human
-contributions: typed messages, stateless workers, validated contracts, tests.
+[`AGENTS.md`](AGENTS.md) is the source of truth for agent guidance in
+this repo; [`CLAUDE.md`](CLAUDE.md) is a thin Claude-specific pointer.
+Cross-repo guidance — philosophy, invariants, wire-protocol contract,
+skills, and subagents — lives in the sibling
+[`heddle-agent-toolkit`](https://github.com/getheddle/heddle-agent-toolkit)
+repo. AI-generated code meets the same standards as human contributions:
+typed messages, stateless workers, validated contracts, tests.
 
 ---
 

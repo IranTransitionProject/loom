@@ -36,7 +36,7 @@ Notes:
   (Mazur's anti-bias rule).  The scorer is unaware of who the
   debaters are — it just sees the transcript.
 
-Requires: pip install heddle[council,chatbridge]
+Requires: pip install heddle-ai[council,chatbridge]
 """
 
 from __future__ import annotations
