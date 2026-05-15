@@ -100,7 +100,8 @@ Come back to this when you need to deploy to a team or run continuously.
 The fastest path. No servers, no message bus, no containers.
 
 ```bash
-# 1. Set up (interactive wizard — detects Ollama, sets paths)
+# 1. Set up (interactive wizard — detects LM Studio and Ollama,
+#    LM Studio wins by default if both; sets paths and API keys)
 uv run heddle setup
 
 # 2. Ingest data

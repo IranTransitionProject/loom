@@ -169,6 +169,10 @@ Scale any component by running more copies — NATS load-balances automatically.
 
 ## Documentation
 
+<!-- The "Documentation", "Tutorials", and "Go deeper" tables below are kept
+     in sync with the corresponding sections in docs/index.md (the MkDocs
+     home). When editing one, mirror the change to the other. -->
+
 Start here:
 
 | Guide | Description |
@@ -194,6 +198,7 @@ Go deeper:
 |-------|-------------|
 | [RAG Pipeline](docs/rag-howto.md) | Social media stream analysis end-to-end |
 | [Multi-Agent Councils](docs/council-howto.md) | Structured deliberation with multiple LLM agents |
+| [Adversarial Review](docs/BLIND_AUDIT.md) | Set up genuine blind review using knowledge silos |
 | [Council showcases](examples/) | Three runnable demos: [Town Hall](examples/town-hall/) (audience interjections), [Debate Arena](examples/debate-arena/) (round-robin tournament with judges), [Blind Taste Test](examples/blind-taste-test/) (anonymous LLM evaluation) |
 | [Batch Processing](docs/batch-processing.md) | Process many items: worker loops, manual chains, NATS submit loops |
 | [Building Workflows](docs/building-workflows.md) | Custom steps, pipelines, tools, knowledge |

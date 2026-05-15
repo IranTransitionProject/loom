@@ -11,7 +11,8 @@ capabilities. Each module requires its own optional dependency extra.
 | `contrib.duckdb` | `duckdb` | Embedded analytics and vector search |
 | `contrib.lancedb` | `lancedb` | ANN vector search via LanceDB |
 | `contrib.redis` | `redis` | Production checkpoint persistence |
-| `contrib.rag` | `rag` | Social media stream RAG pipeline |
+| `contrib.rag` | `rag` | RAG pipeline — Telegram exports, CSV, plain text |
+| `contrib.subprocess` | *(stdlib only)* | Wrap any CLI tool as a Heddle processor worker |
 
 See [Council How-To](../council-howto.md) for the council and chatbridge guide.
 See [RAG How-To](../rag-howto.md) for the RAG pipeline guide.

@@ -102,6 +102,10 @@ management, dead-letter handling, and OpenTelemetry tracing.
 
 ## Documentation
 
+<!-- The "Documentation" tables below are kept in sync with the
+     corresponding sections in the repo-root README.md. When editing one,
+     mirror the change to the other. -->
+
 Start here:
 
 | Guide | Description |

@@ -232,8 +232,13 @@ This runs all unit tests without needing NATS or Valkey.
 > The steps below are for the full distributed actor mesh.
 
 ```bash
-# Install via Homebrew (Mac) or use Docker
+# Install via Homebrew (macOS)
 brew install nats-server valkey
+
+# On Linux: download the nats-server binary from
+# https://github.com/nats-io/nats-server/releases and install valkey via
+# your distro's package manager (apt/dnf) or build from source.
+# On Windows: use the Docker route below or run under WSL.
 
 # Start them
 nats-server &

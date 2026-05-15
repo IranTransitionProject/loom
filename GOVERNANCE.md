@@ -24,7 +24,7 @@ leadership review.
 
 | Role | Holder | Scope |
 |------|--------|-------|
-| Founder / Copyright Holder | Hooman (hooman@mac.com) | Full authority while active |
+| Founder / Copyright Holder | Hooman (admin@getheddle.dev) | Full authority while active |
 | GitHub Org Owner | IranTransitionProject org | Administrative control |
 | Co-owner (succession backup) | To be designated <!-- TODO(governance): designate before the next signed release per the "not optional" rule below --> | Prevents single-point-of-failure |
 
