@@ -14,6 +14,7 @@ from heddle.tracing.otel import (
     get_tracer,
     init_tracing,
     inject_trace_context,
+    trace_correlation_processor,
 )
 
 
@@ -565,3 +566,78 @@ class TestGenAISemanticConventions:
             )
 
         assert result["content"] == '{"result": "ok"}'
+
+
+class TestTraceCorrelationProcessor:
+    """structlog ↔ OTel correlation processor (OTel-audit S5)."""
+
+    def test_noop_when_no_otel(self):
+        """Without OTel installed, the processor returns event_dict unchanged."""
+        event_dict = {"event": "hello", "key": "value"}
+        with patch("heddle.tracing.otel._HAS_OTEL", False):
+            out = trace_correlation_processor(None, "info", event_dict)
+        assert out == {"event": "hello", "key": "value"}
+        assert "trace_id" not in out
+        assert "span_id" not in out
+
+    def test_noop_when_no_active_span(self):
+        """With OTel installed but no span active, event_dict is unchanged."""
+        mock_trace = MagicMock()
+        mock_span = MagicMock()
+        mock_span.get_span_context.return_value.is_valid = False
+        mock_trace.get_current_span.return_value = mock_span
+
+        event_dict = {"event": "hello"}
+        with (
+            patch("heddle.tracing.otel._HAS_OTEL", True),
+            patch("heddle.tracing.otel._trace_mod", mock_trace),
+        ):
+            out = trace_correlation_processor(None, "info", event_dict)
+        assert "trace_id" not in out
+        assert "span_id" not in out
+
+    def test_injects_hex_ids_when_span_active(self):
+        """With an active span, trace_id (32 hex) and span_id (16 hex) are added."""
+        mock_trace = MagicMock()
+        mock_span = MagicMock()
+        span_ctx = mock_span.get_span_context.return_value
+        span_ctx.is_valid = True
+        # OTel uses 128-bit trace_id and 64-bit span_id as ints.
+        span_ctx.trace_id = 0x0123456789ABCDEF0123456789ABCDEF
+        span_ctx.span_id = 0xFEDCBA9876543210
+        mock_trace.get_current_span.return_value = mock_span
+
+        event_dict: dict = {"event": "hello"}
+        with (
+            patch("heddle.tracing.otel._HAS_OTEL", True),
+            patch("heddle.tracing.otel._trace_mod", mock_trace),
+        ):
+            out = trace_correlation_processor(None, "info", event_dict)
+
+        assert out["trace_id"] == "0123456789abcdef0123456789abcdef"
+        assert out["span_id"] == "fedcba9876543210"
+        assert len(out["trace_id"]) == 32
+        assert len(out["span_id"]) == 16
+
+    def test_preserves_existing_event_dict_keys(self):
+        """The processor adds keys; it doesn't overwrite or drop existing ones."""
+        mock_trace = MagicMock()
+        mock_span = MagicMock()
+        span_ctx = mock_span.get_span_context.return_value
+        span_ctx.is_valid = True
+        span_ctx.trace_id = 1
+        span_ctx.span_id = 2
+        mock_trace.get_current_span.return_value = mock_span
+
+        event_dict: dict = {"event": "msg", "actor_id": "abc", "ms": 42}
+        with (
+            patch("heddle.tracing.otel._HAS_OTEL", True),
+            patch("heddle.tracing.otel._trace_mod", mock_trace),
+        ):
+            out = trace_correlation_processor(None, "info", event_dict)
+
+        assert out["event"] == "msg"
+        assert out["actor_id"] == "abc"
+        assert out["ms"] == 42
+        assert "trace_id" in out
+        assert "span_id" in out

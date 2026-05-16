@@ -237,3 +237,38 @@ def extract_trace_context(carrier: dict[str, Any]) -> Any:
     if not headers or not isinstance(headers, dict):
         return None
     return _propagate_mod.extract(headers)
+
+
+def trace_correlation_processor(
+    logger: Any,  # noqa: ARG001 — structlog processor signature requires (logger, method, event)
+    method_name: str,  # noqa: ARG001 — structlog processor signature requires (logger, method, event)
+    event_dict: dict[str, Any],
+) -> dict[str, Any]:
+    """Structlog processor that tags log records with the active trace context.
+
+    When called inside a span, adds ``trace_id`` (32-char hex) and
+    ``span_id`` (16-char hex) to the event_dict so downstream renderers
+    and shippers can correlate logs with their span in any OTel backend.
+    No-op when OTel is unavailable or when no span is active.
+
+    Wire into a ``structlog.configure(...)`` call before the renderer,
+    e.g.::
+
+        structlog.configure(processors=[
+            structlog.processors.TimeStamper(fmt="iso"),
+            trace_correlation_processor,
+            structlog.dev.ConsoleRenderer(),
+        ])
+
+    The hex encoding matches the W3C traceparent convention used by
+    most OTel backends and the heddle ``_trace_context`` wire field.
+    """
+    if not _HAS_OTEL:
+        return event_dict
+    span = _trace_mod.get_current_span()
+    span_context = span.get_span_context()
+    if not span_context.is_valid:
+        return event_dict
+    event_dict["trace_id"] = format(span_context.trace_id, "032x")
+    event_dict["span_id"] = format(span_context.span_id, "016x")
+    return event_dict

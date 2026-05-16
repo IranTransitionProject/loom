@@ -14,6 +14,16 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
 
 ### Added
 
+- `heddle.tracing.otel.trace_correlation_processor` — structlog
+  processor that tags log records with the active OTel span's
+  `trace_id` (32-char hex) and `span_id` (16-char hex). Wired into
+  the CLI's `structlog.configure(...)` call in `cli/main.py` so every
+  log produced by a CLI-launched actor is automatically correlated
+  to its trace. No-op when OTel isn't installed or when no span is
+  active — safe to install unconditionally. Hex encoding matches the
+  W3C traceparent convention used by most OTel backends. Library
+  consumers configuring structlog elsewhere can opt in by importing
+  the processor. See `OTEL_AUDIT_2026-05-15.md` S5 for the rationale.
 - `tests/test_tracing_e2e.py` — end-to-end OTel propagation tests
   using real OTel SDK components (`TracerProvider` +
   `InMemorySpanExporter`) instead of the mock-only carriers in

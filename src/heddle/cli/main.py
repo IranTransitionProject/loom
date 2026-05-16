@@ -42,12 +42,17 @@ import click
 import structlog
 
 from heddle.cli.preflight import check_config_readable, check_env_vars, check_nats_connectivity
+from heddle.tracing.otel import trace_correlation_processor
 
 # Configure structlog for human-readable console output with ISO timestamps.
 # This runs at import time so all CLI commands share the same log format.
+# ``trace_correlation_processor`` is a no-op when OTel isn't installed or
+# when no span is active; when both are true it tags each log record with
+# the active trace_id/span_id so operators can correlate logs to traces.
 structlog.configure(
     processors=[
         structlog.processors.TimeStamper(fmt="iso"),
+        trace_correlation_processor,
         structlog.dev.ConsoleRenderer(),
     ]
 )
