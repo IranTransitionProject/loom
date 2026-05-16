@@ -1,7 +1,7 @@
 # Heddle
 
 [![CI](https://github.com/getheddle/heddle/actions/workflows/ci.yml/badge.svg)](https://github.com/getheddle/heddle/actions/workflows/ci.yml)
-[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://getheddle.github.io/heddle/)
+[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://getheddle.dev/heddle/)
 [![codecov](https://codecov.io/github/getheddle/heddle/graph/badge.svg?token=4N0F5XBZW9)](https://codecov.io/github/getheddle/heddle)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![pyright: strict](https://img.shields.io/badge/pyright-strict-1f78b4.svg)](https://github.com/microsoft/pyright)
@@ -203,7 +203,7 @@ Go deeper:
 | [Batch Processing](docs/batch-processing.md) | Process many items: worker loops, manual chains, NATS submit loops |
 | [Building Workflows](docs/building-workflows.md) | Custom steps, pipelines, tools, knowledge |
 | [Foreign-Language Actors](docs/foreign-actors.md) | Build .NET, Swift, or other processor workers against Heddle's wire protocol |
-| [Language SDKs](https://getheddle.github.io/heddle-sdk/) | Companion .NET and Swift SDK documentation |
+| [Language SDKs](https://getheddle.dev/heddle-sdk/) | Companion .NET and Swift SDK documentation |
 | [Gateway Actors](docs/gateway-actors.md) | Bridge HTTP, MQTT, IoT, or other non-NATS systems into Heddle |
 | [Workshop](docs/workshop.md) | Web UI architecture and enhancement guide |
 | [Architecture](docs/ARCHITECTURE.md) | System design, message flow, NATS subjects |

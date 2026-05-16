@@ -11,7 +11,7 @@ in a Heddle bus.
 !!! tip "Reference SDKs"
     The companion [getheddle/heddle-sdk](https://github.com/getheddle/heddle-sdk)
     repository packages this protocol for .NET and Swift. The rendered SDK
-    docs live at <https://getheddle.github.io/heddle-sdk/>.
+    docs live at <https://getheddle.dev/heddle-sdk/>.
 
 ## The envelope
 
@@ -92,8 +92,8 @@ heddle.results.{parent_task_id or "default"}
 ## Generating typed wrappers in your language
 
 If you are targeting .NET or Swift, start with the reference SDKs:
-[.NET](https://getheddle.github.io/heddle-sdk/DOTNET/) and
-[Swift](https://getheddle.github.io/heddle-sdk/SWIFT/). The schema-generation
+[.NET](https://getheddle.dev/heddle-sdk/DOTNET/) and
+[Swift](https://getheddle.dev/heddle-sdk/SWIFT/). The schema-generation
 flow below is for SDK maintainers and for languages that do not yet have a
 packaged SDK.
 
@@ -246,11 +246,11 @@ The companion [getheddle/heddle-sdk](https://github.com/getheddle/heddle-sdk)
 repository is the reference implementation of this protocol outside Python.
 It currently includes:
 
-- [.NET SDK](https://getheddle.github.io/heddle-sdk/DOTNET/) — `Heddle.Sdk`
+- [.NET SDK](https://getheddle.dev/heddle-sdk/DOTNET/) — `Heddle.Sdk`
   client and actor runtime for processor workers.
-- [Swift SDK](https://getheddle.github.io/heddle-sdk/SWIFT/) — `HeddleActor`
+- [Swift SDK](https://getheddle.dev/heddle-sdk/SWIFT/) — `HeddleActor`
   client and actor runtime for Swift services.
-- [SDK examples](https://getheddle.github.io/heddle-sdk/EXAMPLES/) — minimal
+- [SDK examples](https://getheddle.dev/heddle-sdk/EXAMPLES/) — minimal
   processor actors and callers that match this wire contract.
 
 For other languages, the wire spec above plus `schemas/v1/` is sufficient to
@@ -259,7 +259,7 @@ build a small SDK. The protocol surface is intentionally narrow.
 ## See also
 
 - `schemas/v1/` (in the repository) — authoritative JSON Schemas, CI-checked.
-- [Heddle SDK docs](https://getheddle.github.io/heddle-sdk/) — .NET and Swift reference SDK documentation.
+- [Heddle SDK docs](https://getheddle.dev/heddle-sdk/) — .NET and Swift reference SDK documentation.
 - [getheddle/heddle-sdk](https://github.com/getheddle/heddle-sdk) — SDK source repository.
 - [Gateway Actors](gateway-actors.md) — for non-NATS protocols (MQTT, HTTP, IoT).
 - [Design Invariants](DESIGN_INVARIANTS.md) — framework-safety contracts (1, 5, 8, 17 in particular apply to foreign actors).

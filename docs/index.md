@@ -127,7 +127,7 @@ Go deeper:
 | [Adversarial Review](BLIND_AUDIT.md) | Set up genuine blind review using knowledge silos |
 | [Building Workflows](building-workflows.md) | Custom steps, pipelines, tools, knowledge |
 | [Foreign-Language Actors](foreign-actors.md) | Build .NET, Swift, or other processor workers against Heddle's wire protocol |
-| [Language SDKs](https://getheddle.github.io/heddle-sdk/) | Companion .NET and Swift SDK documentation |
+| [Language SDKs](https://getheddle.dev/heddle-sdk/) | Companion .NET and Swift SDK documentation |
 | [Gateway Actors](gateway-actors.md) | Bridge HTTP, MQTT, IoT, or other non-NATS systems into Heddle |
 | [Workshop Architecture](workshop.md) | Web UI architecture and enhancement guide |
 | [Architecture](ARCHITECTURE.md) | System design, message flow, NATS subjects |
