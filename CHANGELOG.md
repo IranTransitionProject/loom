@@ -14,6 +14,35 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
 
 ### Added
 
+- `tools/check_envelope_convention.py` + CI integration —
+  machine-checkable enforcement of the underscore-prefix
+  middleware-lane convention documented in
+  `heddle-agent-toolkit/anchors/CONTRACT_MAP.md` "Reserved middleware
+  lane." Four rules: (1) no Pydantic field in
+  `heddle.core.messages` may start with `_`; (2) tagged middleware
+  modules (allowlist starts with `heddle.tracing.otel`) may only
+  read/write `_`-prefixed keys on their carrier; (3) JSON schemas
+  must not declare `_`-prefixed properties; (4) any schema setting
+  `additionalProperties: false` must include
+  `patternProperties: {"^_": {}}` to preserve the middleware lane.
+  Added as a step in `.github/workflows/ci.yml` lint job; runnable
+  locally via `uv run python tools/check_envelope_convention.py`.
+  Resolves audit-question Q1 (M2 in `INVARIANT_AUDIT_2026-05-15.md`)
+  via approach (A) — document and enforce the convention rather than
+  hoist `_trace_context` into the schema. Rationale: keeps schemas
+  focused on the application contract, matches the "shallow JSON
+  Schema validation" invariant, and avoids the precedent of hoisting
+  every future middleware field (correlation ID, tenant ID, etc.).
+- `tests/test_envelope_convention.py` — four runtime tests pinning
+  the convention's behaviour: `model_dump()` emits no `_`-prefixed
+  keys; wire dicts carrying `_trace_context` round-trip through
+  `model_validate` without raising or contaminating the typed
+  envelope; Pydantic `extra` policy tolerates unknown `_*` keys
+  (fails loudly if anyone flips `model_config` to `extra="forbid"`);
+  `inject_trace_context` / `extract_trace_context` only touch
+  `_trace_context` on the carrier. The lint script catches structural
+  drift; these tests catch runtime regressions a structural check
+  can't see.
 - `heddle.tracing.otel.trace_correlation_processor` — structlog
   processor that tags log records with the active OTel span's
   `trace_id` (32-char hex) and `span_id` (16-char hex). Wired into

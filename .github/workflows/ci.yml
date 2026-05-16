@@ -44,6 +44,20 @@ jobs:
         # for the rationale.
         run: uv run python tools/export_schemas.py --check
 
+      - name: Envelope convention (underscore-prefix middleware lane)
+        # Enforces the wire-protocol convention documented in
+        # heddle-agent-toolkit/anchors/CONTRACT_MAP.md "Reserved
+        # middleware lane": Pydantic envelope fields may not start with
+        # `_` (the prefix is reserved for middleware); tagged middleware
+        # modules (e.g. heddle.tracing.otel) may only read/write
+        # `_`-prefixed keys on the wire carrier; JSON schemas must not
+        # declare `_`-prefixed properties; any schema that sets
+        # `additionalProperties: false` must also carve `^_` out via
+        # `patternProperties`. Fail here means the structural rules of
+        # the convention have been broken — see the script for which
+        # rule fired.
+        run: uv run python tools/check_envelope_convention.py
+
   test:
     runs-on: ubuntu-latest
     strategy:
