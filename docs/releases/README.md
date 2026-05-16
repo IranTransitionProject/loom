@@ -29,10 +29,23 @@ docs touch-up, dependency bumps. The CHANGELOG bullets are enough.
   the release, not living docs.
 - **Cross-link from CHANGELOG.md** when this file exists, using a
   relative path: `Full historical release notes: [docs/releases/vX.Y.Z.md](docs/releases/vX.Y.Z.md).`
-- **Attach to the GitHub Release** (`gh release create` or the web
-  UI) by pointing the release description at the rendered file. The
-  GitHub Release is the discoverable artifact; this file is the
-  source of truth.
+- **Attach to the GitHub Release** at creation time:
+  `gh release create vX.Y.Z --notes-file docs/releases/vX.Y.Z.md`.
+- **After post-release edits, refresh the GitHub Release** so the
+  rendered notes don't drift from the file:
+  `gh release edit vX.Y.Z --notes-file docs/releases/vX.Y.Z.md`.
+  The in-repo file is the source of truth; the GitHub Release is the
+  discoverable surface.
+- **Do not edit the GitHub Release body through the web UI** —
+  changes are easy to lose and impossible to PR-review. Always edit
+  the file in the repo and refresh via `gh release edit`.
+
+## Full release workflow
+
+The end-to-end workflow for cutting a new release (version bump,
+CHANGELOG close-out, tag, GitHub Release, PyPI publish) lives in
+[`../RELEASING.md`](../RELEASING.md). That doc is agent-runnable —
+follow it step-by-step.
 
 ## Format
 

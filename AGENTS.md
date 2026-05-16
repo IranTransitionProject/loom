@@ -113,6 +113,9 @@ subset and reports pass/fail.
 - Workshop UI: `docs/workshop.md`
 - Kubernetes: `docs/KUBERNETES.md`
 - App deployment: `docs/APP_DEPLOYMENT.md`
+- **Cutting a release / publishing to PyPI:** [`docs/RELEASING.md`](docs/RELEASING.md)
+  is agent-runnable end-to-end (version bump, CHANGELOG close-out,
+  tag, GitHub Release, automated PyPI publish via trusted publishing).
 
 ## Review checklist (this repo)
 

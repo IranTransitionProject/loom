@@ -47,8 +47,27 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
   (`heddle.contrib.events`) and `ProcessorWorker` cross-process locks
   in upcoming work.
 
+### Added
+
+- `docs/RELEASING.md` — agent-runnable, end-to-end release workflow
+  covering version bump, CHANGELOG close-out, optional per-release
+  notes file, tag, GitHub Release creation, and automated PyPI
+  publish via trusted publishing
+  (`.github/workflows/publish.yml`). Includes the post-release
+  `gh release edit --notes-file` refresh step so the GitHub Release
+  body doesn't drift from the in-repo source after typo fixes, and
+  an explicit "what an agent should NOT do unilaterally" section
+  (version bumps, tag pushes, direct `uv publish`, force-pushes).
+  Cross-referenced from `AGENTS.md` "Repo pointers" and from
+  `docs/releases/README.md`; added to the MkDocs Development nav.
+
 ### Changed
 
+- `docs/releases/README.md` gains a "Workflow" section pointing at
+  the new `RELEASING.md`, plus explicit `gh release create` and
+  `gh release edit` commands for attaching and refreshing release
+  notes. Prior version implied the workflow without naming the
+  commands.
 - Per-release notes moved from repo-root `RELEASE_NOTES_v0.9.2.md` to
   `docs/releases/v0.9.2.md`. The root-level location didn't scale
   past one release and sat outside the MkDocs tree. New convention
