@@ -12,6 +12,22 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
 
 ## [Unreleased]
 
+### Added
+
+- `tests/test_tracing_e2e.py` — end-to-end OTel propagation tests
+  using real OTel SDK components (`TracerProvider` +
+  `InMemorySpanExporter`) instead of the mock-only carriers in
+  `tests/test_tracing.py`. Four tests guard against:
+  - regressions to `extract_trace_context` at the worker entry
+    (`actor.py:222`) that would silently fragment traces, and
+  - regressions to `TaskWorker._publish_result`'s
+    `inject_trace_context` call (the return-path symmetry added
+    in the OTel-audit S1 fix above) — verified by reverting the
+    inject and watching the test fail with the expected
+    assertion message, then restoring.
+  Test gracefully `importorskip`s when the `otel` extra isn't
+  installed. See `OTEL_AUDIT_2026-05-15.md` S2 for the rationale.
+
 ### Changed
 
 - `TaskWorker._publish_result` now injects `_trace_context` into the
