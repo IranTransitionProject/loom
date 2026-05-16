@@ -1,12 +1,25 @@
 # Kustomize overlay for the Heddle framework.
-# Deploy: kubectl apply -k k8s/
+#
+# These manifests target **Minikube / local Kubernetes for
+# development.** Image references use `heddle-*:latest` with
+# `imagePullPolicy: Never` on every Deployment — the cluster will
+# only use images already loaded into Minikube's local Docker daemon
+# (via `minikube image load` or `eval $(minikube docker-env)` before
+# `docker build`). This is correct for the intended use; it is *not*
+# a production configuration.
+#
+# For production, fork or overlay these manifests and:
+#   - Pin every `heddle-*:latest` to a released tag (e.g. `:v0.10.0`).
+#   - Remove `imagePullPolicy: Never` (or set it to `IfNotPresent`).
+#   - Push images to a registry the cluster can pull from.
+#
+# Deploy (Minikube): kubectl apply -k k8s/
 #
 # Prerequisites:
 #   1. Create the heddle-secrets secret with your Anthropic API key:
 #      kubectl -n heddle create secret generic heddle-secrets \
 #        --from-literal=anthropic-api-key=sk-ant-...
 #   2. If using local models, deploy Ollama separately (see ollama-deployment.yaml)
-#   3. Images use imagePullPolicy: Never (for Minikube local builds)
 #
 # Build all images before deploying:
 #   docker build -f Dockerfile.router       -t heddle-router .

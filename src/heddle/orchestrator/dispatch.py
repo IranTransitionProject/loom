@@ -74,6 +74,19 @@ async def dispatch_and_wait_for_result(
             # :class:`heddle.orchestrator.stream.ResultStream`; both
             # log on the ``*.parse_error`` family so an operator can
             # grep both modules with one query.
+            #
+            # OTel note: ``data`` carries ``_trace_context`` from the
+            # worker (injected at :meth:`heddle.worker.base.TaskWorker
+            # ._publish_result`).  No span is started here today, so
+            # extraction is not needed — the worker span already
+            # parents under the dispatch span via the *outbound*
+            # ``_trace_context`` chain (see
+            # :func:`heddle.tracing.otel.extract_trace_context` at
+            # ``actor.py:222``).  If a future ``result.received`` span
+            # is added at this point, call ``extract_trace_context(data)``
+            # first and pass the result as ``context=`` to
+            # ``start_as_current_span`` so the new span chains under
+            # the worker span.
             parsed = parse_task_result(data, log_event="dispatch.parse_error", task_id=task.task_id)
             if parsed is None:
                 continue

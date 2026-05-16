@@ -12,6 +12,28 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
 
 ## [Unreleased]
 
+### Changed
+
+- `TaskWorker._publish_result` now injects `_trace_context` into the
+  outgoing `TaskResult` payload so the return path is symmetric with
+  the outbound `TaskMessage`. Today no orchestrator-side consumer
+  reads the field — the trace tree already forms correctly via the
+  outbound chain (`extract_trace_context` at the worker entry sets
+  the worker span's parent). The injection exists so any future
+  consumer-side span (in `orchestrator/dispatch.py` or elsewhere)
+  can parent under the worker span. No behavioural change for
+  existing OTel users; no behaviour for users without OTel
+  installed (the injector no-ops). See `OTEL_AUDIT_2026-05-15.md` S1
+  for the rationale.
+- `heddle/k8s/kustomization.yaml` header now explicitly marks the
+  bundled manifests as **Minikube / local-development only** and
+  documents the steps required to fork them for production
+  (pin `heddle-*:latest` to a released tag; remove
+  `imagePullPolicy: Never`; push to a real registry). The previous
+  header mentioned `imagePullPolicy: Never` only as a one-line note;
+  k8s-fluent readers were misreading the dev convention as a
+  configuration bug. No manifest behaviour changed.
+
 ### Added
 
 - `heddle.core.kvstore` — general-purpose TTL-aware key-value store

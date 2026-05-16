@@ -19,6 +19,7 @@ from heddle.core.actor import BaseActor
 from heddle.core.config import resolve_schema_refs
 from heddle.core.contracts import validate_input, validate_output
 from heddle.core.messages import TaskMessage, TaskResult, TaskStatus
+from heddle.tracing.otel import inject_trace_context
 
 logger = structlog.get_logger()
 
@@ -182,4 +183,10 @@ class TaskWorker(BaseActor):
         # Results route back to the orchestrator that dispatched this task.
         # If parent_task_id is None (no orchestrator), results go to "heddle.results.default".
         subject = f"heddle.results.{task.parent_task_id or 'default'}"
-        await self.publish(subject, result.model_dump(mode="json"))
+        result_dict = result.model_dump(mode="json")
+        # Inject _trace_context for return-path propagation symmetry with
+        # the outbound TaskMessage. No consumer reads this today; it
+        # exists so any future consumer-side span (in dispatch.py or
+        # elsewhere) can parent under the worker span correctly.
+        inject_trace_context(result_dict)
+        await self.publish(subject, result_dict)
