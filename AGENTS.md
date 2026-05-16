@@ -100,7 +100,7 @@ uv run ruff format --check src/ tests/                          # format check
 uv run pyright src/                                              # type check (strict)
 uv run heddle validate configs/workers/*.yaml                   # validate configs
 uv run heddle new worker                                        # scaffold a worker
-HEDDLE_TRACE=1 uv run heddle pipeline ...                       # full I/O debug logging
+HEDDLE_PIPELINE_VERBOSE=1 uv run heddle pipeline ...            # full pipeline payload logging (legacy alias: HEDDLE_TRACE)
 ```
 
 The toolkit's `/heddle-preflight` skill runs the standard pre-commit

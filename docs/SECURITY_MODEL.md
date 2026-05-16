@@ -216,7 +216,7 @@ verbose tracing.
 | `LM_STUDIO_URL`, `OLLAMA_URL` | Local-tier LLM backends | URL only |
 | `OPENAI_API_KEY`, `OPENAI_BASE_URL` | OpenAI-compatible backend | Sent to provider |
 | `HEDDLE_WORKSHOP_TOKEN` | Workshop auth | Must be high-entropy if set; never log it verbatim |
-| `HEDDLE_TRACE` | Diagnostic tracing | When `=1`, full I/O is logged at DEBUG — keep off in production |
+| `HEDDLE_PIPELINE_VERBOSE` (legacy alias: `HEDDLE_TRACE`) | Pipeline payload logging | When `=1`, full payload data is logged in pipeline summaries — keep off in production. **Orthogonal to OTel tracing.** |
 | `HEDDLE_LOCAL_BACKEND` | Local-tier selector | When both LM Studio and Ollama URLs are set, this picks one |
 
 Worker configs can reference env vars in their YAML via `${VAR}`

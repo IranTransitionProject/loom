@@ -19,6 +19,27 @@ Example usage::
         model="text-embedding-nomic-embed-text-v1.5",
         base_url="http://localhost:1234/v1",
     )
+
+Statelessness convention
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Providers are **stateless by convention** with respect to Heddle's
+``TaskWorker`` lifecycle. They are injected into workers and reused
+across tasks, so they sit outside the per-task ``reset()`` boundary.
+The only instance state allowed on a concrete provider is values
+that are stable for the lifetime of the provider (e.g. cached
+``_dimensions``, derived once from the configured model and never
+changing for that provider instance). Caches that affect
+correctness — anything that could yield a different result depending
+on prior tasks — are not allowed here; promote such state to the
+worker, where the framework's stateless-worker invariant guarantees
+``reset()`` between tasks.
+
+Concretely: if a provider grows a state field, the safe shape is
+"set once in ``__init__`` (or first-call, if derived from a remote
+probe) and never mutated by per-call code paths." A provider whose
+behaviour changes based on the sequence of calls it has seen is a
+silent bug waiting to surface in concurrent worker pools.
 """
 
 from __future__ import annotations

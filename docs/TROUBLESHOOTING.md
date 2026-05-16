@@ -251,7 +251,7 @@ docker compose up -d
 
 - Check the worker's system prompt — it must instruct the LLM to output valid JSON matching the schema
 - Use the Workshop test bench to test the worker in isolation: `heddle workshop --port 8080`
-- Enable trace logging to see full I/O: `HEDDLE_TRACE=1 heddle worker --config ...`
+- Enable full payload logging in the pipeline: `HEDDLE_PIPELINE_VERBOSE=1 heddle worker --config ...` (legacy alias: `HEDDLE_TRACE`, deprecated)
 - Verify the LLM backend is responding correctly (try a direct API call)
 
 ### ANTHROPIC_API_KEY not set

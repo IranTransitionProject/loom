@@ -82,10 +82,46 @@ from heddle.tracing import get_tracer, inject_trace_context
 logger = structlog.get_logger()
 _tracer = get_tracer("heddle.pipeline")
 
-HEDDLE_TRACE = bool(os.environ.get("HEDDLE_TRACE"))
+
+def _resolve_pipeline_verbose_flag() -> bool:
+    """Read the pipeline-payload-logging flag from env, honouring the deprecation alias.
+
+    ``HEDDLE_PIPELINE_VERBOSE`` is the canonical name (added 2026-05-15).
+    ``HEDDLE_TRACE`` is the legacy name retained for backward compatibility;
+    it controls the *same* flag (full pipeline payload logging) and is
+    orthogonal to OpenTelemetry tracing. The legacy name confused new
+    contributors who assumed it was the OTel switch (it isn't —
+    ``init_tracing`` and ``OTEL_EXPORTER_OTLP_ENDPOINT`` control OTel).
+
+    Semantics: ``HEDDLE_PIPELINE_VERBOSE`` wins if both are set. A
+    deprecation warning fires if only the legacy name is set, so
+    operators see migration guidance once per process startup.
+    """
+    new = os.environ.get("HEDDLE_PIPELINE_VERBOSE")
+    old = os.environ.get("HEDDLE_TRACE")
+    if old is not None and new is None:
+        logger.warning(
+            "pipeline.env_var_deprecated",
+            old="HEDDLE_TRACE",
+            new="HEDDLE_PIPELINE_VERBOSE",
+            note=(
+                "HEDDLE_TRACE controls pipeline payload logging; the new name "
+                "disambiguates it from OpenTelemetry tracing. Set "
+                "HEDDLE_PIPELINE_VERBOSE instead; HEDDLE_TRACE will be removed "
+                "in a future release."
+            ),
+        )
+    return bool(new if new is not None else old)
 
 
-def _summarize(data: Any, *, full: bool = HEDDLE_TRACE) -> str:
+HEDDLE_PIPELINE_VERBOSE = _resolve_pipeline_verbose_flag()
+# Deprecated alias for ``HEDDLE_PIPELINE_VERBOSE``. Kept so any
+# downstream code that imported ``HEDDLE_TRACE`` continues to work.
+# Remove when the env-var alias is removed.
+HEDDLE_TRACE = HEDDLE_PIPELINE_VERBOSE
+
+
+def _summarize(data: Any, *, full: bool = HEDDLE_PIPELINE_VERBOSE) -> str:
     """Return a repr of *data*, truncated to 200 chars unless *full* is set."""
     text = repr(data)
     if full:

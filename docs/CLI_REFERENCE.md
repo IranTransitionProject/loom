@@ -453,5 +453,5 @@ know the infrastructure is already running.
 | `FRONTIER_MODEL` | `worker` | Model name for the frontier tier |
 | `OPENAI_API_KEY` | `worker` | OpenAI-compatible API key |
 | `OPENAI_BASE_URL` | `worker` | OpenAI-compatible base URL |
-| `HEDDLE_TRACE` | All infrastructure | Enable trace logging (`1` / `true`) |
-| `HEDDLE_TRACE_CONTENT` | All infrastructure | Include message payloads in traces |
+| `HEDDLE_PIPELINE_VERBOSE` | `pipeline` orchestrator | Log full payload data in pipeline summaries (`1` / `true`). **Orthogonal to OTel tracing** — this controls the pipeline's payload logging, not span emission. Legacy alias: `HEDDLE_TRACE` (deprecated; emits a warning if used). |
+| `HEDDLE_TRACE_CONTENT` | All infrastructure | Include LLM prompt/completion text as events on `llm.call` spans when OTel is active. **Different from `HEDDLE_PIPELINE_VERBOSE`** — this is the OTel content-recording switch. |

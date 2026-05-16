@@ -12,6 +12,39 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
 
 ## [Unreleased]
 
+### Deprecated
+
+- `HEDDLE_TRACE` environment variable, renamed to
+  `HEDDLE_PIPELINE_VERBOSE`. The new name disambiguates it from
+  OpenTelemetry tracing — `HEDDLE_TRACE` had been confusing new
+  contributors who assumed it controlled span emission (it doesn't;
+  it controls full pipeline-payload logging in `_summarize`, which
+  is orthogonal to OTel). `HEDDLE_TRACE` continues to work as a
+  legacy alias and emits a one-time `pipeline.env_var_deprecated`
+  warning at process startup if set without the new name; remove
+  the alias when downstream deployments have migrated. The Python
+  module attribute `HEDDLE_TRACE` is preserved as an alias for
+  `HEDDLE_PIPELINE_VERBOSE` so any code importing the constant
+  continues to work. Resolves OTel-audit W2. Docs updated in
+  `AGENTS.md`, `docs/CLI_REFERENCE.md`, `docs/TROUBLESHOOTING.md`,
+  and `docs/SECURITY_MODEL.md` to use the new name and explicitly
+  call out that it's *not* the OTel switch.
+
+### Changed
+
+- `heddle/src/heddle/worker/embeddings.py` module docstring gains a
+  "Statelessness convention" section documenting the implicit rule
+  that `EmbeddingProvider` subclasses are stateless-by-convention
+  with respect to the worker lifecycle: providers sit outside the
+  per-task `reset()` boundary (they're injected and reused), so
+  only instance state that's stable for the provider's lifetime
+  (e.g. cached `_dimensions` derived from the configured model) is
+  allowed. Caches that affect correctness — anything that could
+  yield a different result depending on prior tasks — must be
+  promoted to the worker, where the framework's stateless-worker
+  invariant guarantees `reset()` between tasks. Resolves
+  Invariant-audit W1.
+
 ### Added
 
 - `tools/check_envelope_convention.py` + CI integration —
