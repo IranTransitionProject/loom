@@ -44,10 +44,11 @@ from typing import TYPE_CHECKING, Any
 import structlog
 import tiktoken
 
+from heddle.core.kvstore import domain_prefix
 from heddle.core.messages import CheckpointState
 
 if TYPE_CHECKING:
-    from heddle.orchestrator.store import CheckpointStore
+    from heddle.core.kvstore import KeyValueStore
 
 logger = structlog.get_logger()
 
@@ -65,7 +66,7 @@ class CheckpointManager:
 
     def __init__(
         self,
-        store: CheckpointStore,
+        store: KeyValueStore,
         token_threshold: int = 50_000,  # Trigger checkpoint at this count
         recent_window_size: int = 5,  # Keep last N interactions in detail
         encoding_name: str = "cl100k_base",
@@ -139,11 +140,12 @@ class CheckpointManager:
 
         # Persist to store with configurable TTL (default 24h).
         # Long-running goals can increase ttl_seconds at construction time.
-        key = f"heddle:checkpoint:{goal_id}:{checkpoint_number}"
+        prefix = domain_prefix("checkpoint")
+        key = f"{prefix}{goal_id}:{checkpoint_number}"
         await self.store.set(key, checkpoint.model_dump_json(), self.ttl_seconds)
 
         # Maintain a "latest" pointer so load_latest() doesn't need to scan.
-        await self.store.set(f"heddle:checkpoint:{goal_id}:latest", key, self.ttl_seconds)
+        await self.store.set(f"{prefix}{goal_id}:latest", key, self.ttl_seconds)
 
         logger.info(
             "checkpoint.created",
@@ -155,7 +157,8 @@ class CheckpointManager:
 
     async def load_latest(self, goal_id: str) -> CheckpointState | None:
         """Load the most recent checkpoint for a goal."""
-        latest_key = await self.store.get(f"heddle:checkpoint:{goal_id}:latest")
+        prefix = domain_prefix("checkpoint")
+        latest_key = await self.store.get(f"{prefix}{goal_id}:latest")
         if not latest_key:
             return None
         data = await self.store.get(latest_key)

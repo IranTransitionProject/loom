@@ -12,7 +12,30 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
 
 ## [Unreleased]
 
-_Nothing yet — the changelog starts active tracking with v0.9.3._
+### Added
+
+- `heddle.core.kvstore` — general-purpose TTL-aware key-value store
+  abstraction. Exports `KeyValueStore` (ABC), `InMemoryKeyValueStore`
+  and `ScopedKeyValueStore` implementations, plus a tiny domain
+  registry (`register_domain`, `domain_prefix`, `make_key`, `scoped`)
+  for managing canonical key prefixes. The `"checkpoint"` domain is
+  registered at module import with prefix `"heddle:checkpoint:"`.
+  Substrate for orchestrator checkpoints today; aggregate snapshots
+  (`heddle.contrib.events`) and `ProcessorWorker` cross-process locks
+  in upcoming work.
+
+### Changed
+
+- Store abstraction lifted from `heddle.orchestrator.store` to
+  `heddle.core.kvstore` and renamed for generality. Backward-compat
+  aliases preserve every public name through the v0.x series and will
+  be removed at v1.0:
+  - `heddle.orchestrator.store.CheckpointStore` → alias of `KeyValueStore`
+  - `heddle.orchestrator.store.InMemoryCheckpointStore` → alias of `InMemoryKeyValueStore`
+  - `heddle.contrib.redis.store.RedisCheckpointStore` → alias of `RedisKeyValueStore`
+- `CheckpointManager` now looks up its key prefix via
+  `domain_prefix("checkpoint")` instead of hardcoding it. On-disk keys
+  are **bit-exact unchanged**; existing data in Valkey is unaffected.
 
 ## [0.9.2] — 2026-05-11
 
