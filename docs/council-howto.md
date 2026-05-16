@@ -197,9 +197,10 @@ implement the `Scorer` ABC; both return a `ScoringResult`.
 `TournamentRunner` schedules round-robin matchups across many
 models / topics, dispatches each through the configured scorer, and
 aggregates a leaderboard plus a head-to-head matchup matrix. Both
-the [debate-arena](../examples/debate-arena/) and
-[blind-taste-test](../examples/blind-taste-test/) examples are full
-working demonstrations.
+the [debate-arena](https://github.com/getheddle/heddle/tree/main/examples/debate-arena)
+and
+[blind-taste-test](https://github.com/getheddle/heddle/tree/main/examples/blind-taste-test)
+examples are full working demonstrations.
 
 ---
 
@@ -241,9 +242,11 @@ agents:
 
 For programmatic construction, `chatbridge_spec(model_name)` from
 `heddle.contrib.chatbridge.discover` returns `(dotted_path, kwargs)`
-ready to drop into an `AgentConfig` — the [debate-arena](../examples/debate-arena/)
-and [blind-taste-test](../examples/blind-taste-test/) examples use it
-to wire one bridge per debater from a CLI `--models` list.
+ready to drop into an `AgentConfig` — the
+[debate-arena](https://github.com/getheddle/heddle/tree/main/examples/debate-arena)
+and
+[blind-taste-test](https://github.com/getheddle/heddle/tree/main/examples/blind-taste-test)
+examples use it to wire one bridge per debater from a CLI `--models` list.
 
 ### Human-in-the-loop
 

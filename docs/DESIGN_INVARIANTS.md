@@ -36,7 +36,7 @@ The failure is silent and data-dependent — the hardest kind to diagnose.
 
 **Paired ADR:** [ADR-001](adr/001-stateless-workers.md).
 
-### 2. The router is deterministic — no LLM in the routing path
+### 2. The router is deterministic — no LLM in the routing path {: #2-the-router-is-deterministic--no-llm-in-the-routing-path }
 
 The `TaskRouter` dispatches by `worker_type` and `model_tier` using rules from
 `router_rules.yaml`. It never calls an LLM.
@@ -174,7 +174,7 @@ code clean while allowing bare-metal deployments without OTel.
 **How it fails:** If you remove the `suppress(ImportError)`, any deployment
 without `uv sync --extra otel` crashes at import time.
 
-### 10. Condition evaluation: malformed → FALSE (skip), missing path → FALSE (skip)
+### 10. Condition evaluation: malformed → FALSE (skip), missing path → FALSE (skip) {: #10-condition-evaluation-malformed--false-skip-missing-path--false-skip }
 
 Pipeline stage condition evaluation has three failure modes with a unified
 fail-closed default:
@@ -294,7 +294,7 @@ slowest one finishes. The latency is the same; only the observability differs.
 
 **Paired ADR:** [ADR-011](adr/011-first-completed-vs-gather.md).
 
-### 17. Subscribe before publish for orchestrator → worker request-reply
+### 17. Subscribe before publish for orchestrator → worker request-reply {: #17-subscribe-before-publish-for-orchestrator--worker-request-reply }
 
 When an orchestrator dispatches a task and waits for the matching result
 over NATS, it subscribes to `heddle.results.{goal_id}` **before** publishing
@@ -384,7 +384,7 @@ by injecting "we all agree" into the record.
 
 ---
 
-## Summary — Framework Red Lines
+## Summary — Framework Red Lines {: #summary--framework-red-lines }
 
 These are framework-level constraints — every one of them is mechanically
 checked by tests, validators, or code-path structure. Violating any of them
