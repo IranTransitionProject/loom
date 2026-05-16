@@ -1,28 +1,30 @@
 """
-Valkey-backed checkpoint store.
+Valkey-backed key-value store.
 
-Production implementation of CheckpointStore using redis.asyncio (redis-py).
-The redis-py client library works unchanged with Valkey.
-Install with: pip install heddle-ai[redis]
+Production implementation of :class:`heddle.core.kvstore.KeyValueStore` using
+``redis.asyncio`` (redis-py). The redis-py client library works unchanged
+with Valkey.
+
+Install with: ``pip install heddle-ai[redis]``.
 
 Connection defaults:
-    redis://redis:6379 — matches the Docker Compose / k8s service name.
-    For local dev: redis://localhost:6379
+    ``redis://redis:6379`` — matches the Docker Compose / k8s service name.
+    For local dev: ``redis://localhost:6379``.
 """
 
 from __future__ import annotations
 
 import redis.asyncio as redis
 
-from heddle.orchestrator.store import CheckpointStore
+from heddle.core.kvstore import KeyValueStore
 
 
-class RedisCheckpointStore(CheckpointStore):
-    """Valkey-backed checkpoint store (via redis-py client).
+class RedisKeyValueStore(KeyValueStore):
+    """Valkey-backed key-value store (via redis-py client).
 
-    Thin wrapper around redis.asyncio that implements the CheckpointStore
-    interface. Handles connection lifecycle and TTL-based expiry natively.
-    The redis-py client works unchanged with Valkey.
+    Thin wrapper around ``redis.asyncio`` that implements the
+    ``KeyValueStore`` interface. Handles connection lifecycle and TTL-based
+    expiry natively. The redis-py client works unchanged with Valkey.
     """
 
     def __init__(self, redis_url: str = "redis://redis:6379") -> None:
@@ -36,11 +38,10 @@ class RedisCheckpointStore(CheckpointStore):
             await self._redis.set(key, value)
 
     async def get(self, key: str) -> str | None:
-        """Retrieve a value by key."""
+        """Retrieve a value, or ``None`` if missing/expired."""
         result = await self._redis.get(key)
         if result is None:
             return None
-        # redis.asyncio returns bytes by default
         if isinstance(result, bytes):
             return result.decode()
         return result
@@ -48,3 +49,11 @@ class RedisCheckpointStore(CheckpointStore):
     async def aclose(self) -> None:
         """Close the underlying Redis client connection pool."""
         await self._redis.aclose()
+
+
+# Backward-compat alias. Existing code that imports RedisCheckpointStore
+# continues to work. Removed at v1.0.
+RedisCheckpointStore = RedisKeyValueStore
+
+
+__all__ = ["RedisCheckpointStore", "RedisKeyValueStore"]
