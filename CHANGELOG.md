@@ -49,6 +49,16 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
 
 ### Changed
 
+- Per-release notes moved from repo-root `RELEASE_NOTES_v0.9.2.md` to
+  `docs/releases/v0.9.2.md`. The root-level location didn't scale
+  past one release and sat outside the MkDocs tree. New convention
+  documented in [`docs/releases/README.md`](docs/releases/README.md):
+  one file per release named `vX.Y.Z.md`, frozen at release time,
+  written only when a release needs more than a CHANGELOG entry can
+  carry (breaking-change migration guide, major version, multi-
+  subsystem narrative). Routine releases stay CHANGELOG-only.
+  Cross-references in this file updated; no other paths reference the
+  old location.
 - `TaskWorker._publish_result` now injects `_trace_context` into the
   outgoing `TaskResult` payload so the return path is symmetric with
   the outbound `TaskMessage`. Today no orchestrator-side consumer
@@ -81,7 +91,7 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
 
 ## [0.9.2] — 2026-05-11
 
-Full historical release notes: [`RELEASE_NOTES_v0.9.2.md`](RELEASE_NOTES_v0.9.2.md).
+Full historical release notes: [`docs/releases/v0.9.2.md`](docs/releases/v0.9.2.md).
 
 ### Added
 
@@ -123,7 +133,7 @@ Full historical release notes: [`RELEASE_NOTES_v0.9.2.md`](RELEASE_NOTES_v0.9.2.
     `PipelineOrchestrator` via the per-stage `max_retries: int` YAML
     field. Bus-level redelivery continues via NATS queue-group
     semantics. Full migration guide in
-    [`RELEASE_NOTES_v0.9.2.md`](RELEASE_NOTES_v0.9.2.md) §1.
+    [`docs/releases/v0.9.2.md`](docs/releases/v0.9.2.md) §1.
 
 ### Test coverage
 

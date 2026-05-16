@@ -143,3 +143,6 @@ nav:
   - Development:
     - Contributing: CONTRIBUTING.md
     - Coding Guide: CODING_GUIDE.md
+  - Release Notes:
+    - Overview: releases/README.md
+    - v0.9.2: releases/v0.9.2.md
