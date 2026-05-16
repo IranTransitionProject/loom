@@ -30,6 +30,11 @@ Usage::
         ...
 """
 
+from heddle.tracing.metrics import (
+    get_meter,
+    init_metrics,
+    record_task_completed,
+)
 from heddle.tracing.otel import (
     extract_trace_context,
     get_tracer,
@@ -39,7 +44,10 @@ from heddle.tracing.otel import (
 
 __all__ = [
     "extract_trace_context",
+    "get_meter",
     "get_tracer",
+    "init_metrics",
     "init_tracing",
     "inject_trace_context",
+    "record_task_completed",
 ]

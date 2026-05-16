@@ -19,6 +19,7 @@ from heddle.core.actor import BaseActor
 from heddle.core.config import resolve_schema_refs
 from heddle.core.contracts import validate_input, validate_output
 from heddle.core.messages import TaskMessage, TaskResult, TaskStatus
+from heddle.tracing.metrics import record_task_completed
 from heddle.tracing.otel import inject_trace_context
 
 logger = structlog.get_logger()
@@ -179,6 +180,16 @@ class TaskWorker(BaseActor):
             },
             metadata=metadata or {},
             processing_time_ms=elapsed,
+        )
+        # Record the terminal-status metric before publishing. The
+        # `status` here is the resolved TaskStatus enum; convert to its
+        # string value so the attribute is stable wire-side
+        # (a Prometheus/Grafana query against `status="completed"` /
+        # `status="failed"` must match across heddle versions).
+        record_task_completed(
+            worker_type=task.worker_type,
+            model_tier=task.model_tier.value,
+            status=status.value,
         )
         # Results route back to the orchestrator that dispatched this task.
         # If parent_task_id is None (no orchestrator), results go to "heddle.results.default".

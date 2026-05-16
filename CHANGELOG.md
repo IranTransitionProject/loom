@@ -47,6 +47,30 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
 
 ### Added
 
+- `heddle.tracing.metrics` — new module shipping the OTel **metrics**
+  surface for Heddle. Companion to `heddle.tracing.otel` (spans);
+  shares the same no-op-when-absent pattern (every instrument call
+  is safe with OTel uninstalled). Exposes:
+  - `init_metrics(service_name, *, endpoint)` — sets up the OTLP
+    metrics exporter. Idempotent. Called automatically from
+    `init_tracing` so consumers keep one entry point.
+  - `get_meter(name)` — returns a real Meter when OTel is installed,
+    a no-op stand-in otherwise.
+  - `record_task_completed(worker_type, model_tier, status, *, count)`
+    — records the first framework instrument:
+    `heddle.tasks.completed` (counter, unit=`1`, attributes
+    `worker_type` / `model_tier` / `status`). Wired into
+    `TaskWorker._publish_result` so every task contributes regardless
+    of success/failure. Operators querying their backend
+    (Prometheus, Grafana, etc.) can now split task counts by status
+    without log scraping. Resolves the first of OTel-audit S4's five
+    instruments; the remaining four (`heddle.tasks.received`,
+    `heddle.task.duration`, `heddle.bus.publish.latency`,
+    `heddle.orchestrator.goals.received`) land in a follow-up
+    commit. The instrument-name table in the module docstring
+    documents what's reserved as the surface grows. Attribute schema
+    follows OTel semantic conventions for `messaging.*` (bus) and
+    heddle-native names elsewhere.
 - `heddle.tracing.otel.status()` — Python API returning a snapshot
   of the current tracing configuration as a dict:
   `{enabled, service_name, endpoint, exporter_class}`. Returns a

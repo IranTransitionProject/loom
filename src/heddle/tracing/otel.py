@@ -210,6 +210,16 @@ def init_tracing(
     )
 
     logger.info("tracing.initialized", service_name=service_name, endpoint=endpoint)
+
+    # Initialize metrics alongside spans so consumers get one entry
+    # point. Both surfaces share the same service_name and endpoint;
+    # failures here are non-fatal — tracing succeeded even if metrics
+    # init returns False (e.g. metrics SDK missing while trace SDK is
+    # installed).
+    from heddle.tracing.metrics import init_metrics
+
+    init_metrics(service_name=service_name, endpoint=endpoint)
+
     return True
 
 
