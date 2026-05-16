@@ -23,15 +23,19 @@ Operators querying these instruments in their backend (Prometheus,
 Grafana, etc.) depend on stable names and attribute keys — changes
 here are wire-breaks for their dashboards.
 
-+---------------------------+---------+------+------------------------------------------------+
-| Name                      | Type    | Unit | Attributes                                     |
-+===========================+=========+======+================================================+
-| ``heddle.tasks.completed``| counter | 1    | ``worker_type``, ``model_tier``, ``status``    |
-+---------------------------+---------+------+------------------------------------------------+
+Name (instrument)                       Type       Unit  Attributes
+--------------------------------------  ---------  ----  ----------------------------------
+``heddle.tasks.received``               counter    1     worker_type, model_tier
+``heddle.tasks.completed``              counter    1     worker_type, model_tier, status
+``heddle.task.duration``                histogram  ms    worker_type, model_tier, status
+``heddle.bus.publish.latency``          histogram  ms    messaging.destination.name,
+                                                          messaging.system
+``heddle.orchestrator.goals.received``  counter    1     orchestrator_name
 
-(Other audit-OTel-S4 instruments — ``heddle.tasks.received``,
-``heddle.task.duration``, ``heddle.bus.publish.latency``,
-``heddle.orchestrator.goals.received`` — land in follow-up commits.)
+Operationally: ``received - completed`` ≈ in-flight task count per
+``(worker_type, model_tier)``. ``task.duration`` is recorded for both
+success and failure paths so operators see worst-case latency under
+load, not just the happy-path mean.
 
 Why module-level instruments are safe to define before init
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -208,6 +212,18 @@ def get_meter(name: str = "heddle") -> Any:
 
 _framework_meter = get_meter("heddle.framework")
 
+# Counter: tasks received by a worker (immediately after envelope parse,
+# before any processing). Wired into ``TaskWorker.handle_message``.
+TASKS_RECEIVED = _framework_meter.create_counter(
+    "heddle.tasks.received",
+    description=(
+        "Count of tasks a worker has received (parsed off the bus, "
+        "about to process). Combined with ``heddle.tasks.completed`` "
+        "yields per-worker in-flight depth: received - completed."
+    ),
+    unit="1",
+)
+
 # Counter: tasks reaching a terminal status (completed or failed).
 # Wired into ``heddle.worker.base.TaskWorker._publish_result``.
 TASKS_COMPLETED = _framework_meter.create_counter(
@@ -218,6 +234,55 @@ TASKS_COMPLETED = _framework_meter.create_counter(
     ),
     unit="1",
 )
+
+# Histogram: end-to-end task processing time, recorded at terminal status
+# (success and failure paths both contribute). Wired into ``_publish_result``.
+TASK_DURATION = _framework_meter.create_histogram(
+    "heddle.task.duration",
+    description=(
+        "End-to-end task processing time in milliseconds, recorded for "
+        "both successful and failed terminal statuses. Provides p50/p95/"
+        "p99 latency by worker type without requiring trace sampling."
+    ),
+    unit="ms",
+)
+
+# Histogram: bus publish latency, in milliseconds. Wired into
+# ``BaseActor.publish`` so every actor-originated publish contributes.
+BUS_PUBLISH_LATENCY = _framework_meter.create_histogram(
+    "heddle.bus.publish.latency",
+    description=(
+        "Time spent in the bus publish call, in milliseconds. Captures "
+        "transport-layer latency separately from worker processing time."
+    ),
+    unit="ms",
+)
+
+# Counter: orchestrator goals received. Wired into both
+# ``PipelineOrchestrator`` and ``OrchestratorActor`` message handlers.
+ORCHESTRATOR_GOALS_RECEIVED = _framework_meter.create_counter(
+    "heddle.orchestrator.goals.received",
+    description=(
+        "Count of OrchestratorGoals an orchestrator has accepted for "
+        "processing. Use the ``orchestrator_name`` attribute to split "
+        "per-orchestrator volume."
+    ),
+    unit="1",
+)
+
+
+def record_task_received(worker_type: str, model_tier: str, *, count: int = 1) -> None:
+    """Record one (or more) task receptions at the worker.
+
+    Called at the top of :meth:`heddle.worker.base.TaskWorker.handle_message`
+    after the envelope is parsed but before any processing. Combined
+    with :func:`record_task_completed`, yields per-worker in-flight
+    depth (received minus completed).
+    """
+    TASKS_RECEIVED.add(
+        count,
+        {"worker_type": worker_type, "model_tier": model_tier},
+    )
 
 
 def record_task_completed(
@@ -242,3 +307,50 @@ def record_task_completed(
             "status": status,
         },
     )
+
+
+def record_task_duration(
+    worker_type: str, model_tier: str, status: str, elapsed_ms: int | float
+) -> None:
+    """Record one task's elapsed processing time.
+
+    Recorded on both success and failure paths in
+    :meth:`heddle.worker.base.TaskWorker._publish_result` so the
+    histogram captures worst-case latency, not just happy-path latency.
+    """
+    TASK_DURATION.record(
+        elapsed_ms,
+        {
+            "worker_type": worker_type,
+            "model_tier": model_tier,
+            "status": status,
+        },
+    )
+
+
+def record_bus_publish_latency(subject: str, system: str, elapsed_ms: int | float) -> None:
+    """Record one bus publish's elapsed time.
+
+    Wired into :meth:`heddle.core.actor.BaseActor.publish`. The
+    ``system`` attribute identifies the underlying bus transport (e.g.
+    ``"nats"``, ``"in_memory"``); the ``subject`` follows OTel
+    ``messaging.destination.name`` semantic convention.
+    """
+    BUS_PUBLISH_LATENCY.record(
+        elapsed_ms,
+        {
+            "messaging.destination.name": subject,
+            "messaging.system": system,
+        },
+    )
+
+
+def record_orchestrator_goal_received(orchestrator_name: str, *, count: int = 1) -> None:
+    """Record one (or more) goals received by an orchestrator.
+
+    Wired into both :class:`heddle.orchestrator.pipeline.PipelineOrchestrator`
+    and :class:`heddle.orchestrator.runner.OrchestratorActor` message
+    handlers. ``orchestrator_name`` is typically the actor_id so
+    operators can filter per-orchestrator volume.
+    """
+    ORCHESTRATOR_GOALS_RECEIVED.add(count, {"orchestrator_name": orchestrator_name})

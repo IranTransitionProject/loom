@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from heddle.tracing import extract_trace_context, get_tracer
+from heddle.tracing import extract_trace_context, get_tracer, record_bus_publish_latency
 
 if TYPE_CHECKING:
     from heddle.bus.base import MessageBus, Subscription
@@ -111,8 +111,24 @@ class BaseActor(ABC):
         logger.info("actor.subscribed", actor_id=self.actor_id, subject=subject)
 
     async def publish(self, subject: str, message: dict[str, Any]) -> None:
-        """Publish a message to the given bus subject."""
-        await self._bus.publish(subject, message)
+        """Publish a message to the given bus subject.
+
+        Timed via ``heddle.bus.publish.latency`` histogram. The
+        ``messaging.system`` attribute carries the bus implementation's
+        class name (lowercased, ``Bus`` suffix stripped) so operators
+        can split metrics by transport.
+        """
+        bus_name = type(self._bus).__name__.removesuffix("Bus").lower()
+        start = time.monotonic()
+        try:
+            await self._bus.publish(subject, message)
+        finally:
+            elapsed_ms = (time.monotonic() - start) * 1000
+            record_bus_publish_latency(
+                subject=subject,
+                system=bus_name or "unknown",
+                elapsed_ms=elapsed_ms,
+            )
 
     def _install_signal_handlers(self) -> None:
         """Register SIGTERM/SIGINT handlers for graceful shutdown.

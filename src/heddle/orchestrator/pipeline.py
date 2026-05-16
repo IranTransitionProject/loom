@@ -77,7 +77,7 @@ from heddle.core.messages import (
     TaskStatus,
 )
 from heddle.orchestrator.dispatch import dispatch_and_wait_for_result
-from heddle.tracing import get_tracer, inject_trace_context
+from heddle.tracing import get_tracer, inject_trace_context, record_orchestrator_goal_received
 
 logger = structlog.get_logger()
 _tracer = get_tracer("heddle.pipeline")
@@ -562,6 +562,7 @@ class PipelineOrchestrator(BaseActor):
     async def handle_message(self, data: dict[str, Any]) -> None:
         """Execute the pipeline for an incoming orchestrator goal."""
         goal = OrchestratorGoal(**data)
+        record_orchestrator_goal_received(self.actor_id)
         stages = self.config["pipeline_stages"]
         timeout = self.config.get("timeout_seconds", 300)
 

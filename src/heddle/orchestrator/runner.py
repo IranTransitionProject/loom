@@ -74,7 +74,7 @@ from heddle.orchestrator.checkpoint import CheckpointManager
 from heddle.orchestrator.decomposer import GoalDecomposer
 from heddle.orchestrator.stream import ResultStream
 from heddle.orchestrator.synthesizer import ResultSynthesizer
-from heddle.tracing import get_tracer
+from heddle.tracing import get_tracer, record_orchestrator_goal_received
 
 if TYPE_CHECKING:
     from heddle.orchestrator.store import CheckpointStore
@@ -314,6 +314,7 @@ class OrchestratorActor(BaseActor):
 
         log = logger.bind(goal_id=goal.goal_id)
         log.info("orchestrator.goal_received", instruction=goal.instruction[:120])
+        record_orchestrator_goal_received(self.actor_id)
 
         goal_state = GoalState(goal=goal)
         self._active_goals[goal.goal_id] = goal_state

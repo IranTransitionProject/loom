@@ -33,7 +33,11 @@ Usage::
 from heddle.tracing.metrics import (
     get_meter,
     init_metrics,
+    record_bus_publish_latency,
+    record_orchestrator_goal_received,
     record_task_completed,
+    record_task_duration,
+    record_task_received,
 )
 from heddle.tracing.otel import (
     extract_trace_context,
@@ -49,5 +53,9 @@ __all__ = [
     "init_metrics",
     "init_tracing",
     "inject_trace_context",
+    "record_bus_publish_latency",
+    "record_orchestrator_goal_received",
     "record_task_completed",
+    "record_task_duration",
+    "record_task_received",
 ]

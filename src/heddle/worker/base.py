@@ -19,7 +19,11 @@ from heddle.core.actor import BaseActor
 from heddle.core.config import resolve_schema_refs
 from heddle.core.contracts import validate_input, validate_output
 from heddle.core.messages import TaskMessage, TaskResult, TaskStatus
-from heddle.tracing.metrics import record_task_completed
+from heddle.tracing.metrics import (
+    record_task_completed,
+    record_task_duration,
+    record_task_received,
+)
 from heddle.tracing.otel import inject_trace_context
 
 logger = structlog.get_logger()
@@ -63,18 +67,35 @@ class TaskWorker(BaseActor):
         task = TaskMessage(**data)
         start = time.monotonic()
 
+        # Record the task arrival metric immediately after parse. Pairs with
+        # ``record_task_completed`` in ``_publish_result``; subtracting one
+        # from the other yields in-flight task depth per (worker_type, tier).
+        record_task_received(
+            worker_type=task.worker_type,
+            model_tier=task.model_tier.value,
+        )
+
         log = logger.bind(
             task_id=task.task_id,
             worker_type=task.worker_type,
             model_tier=task.model_tier.value,
         )
 
+        # ``_elapsed_ms()`` is computed at every ``_publish_result`` call
+        # site so the duration histogram captures worst-case latency on
+        # failure paths too, not just the happy path.
+        def _elapsed_ms() -> int:
+            return int((time.monotonic() - start) * 1000)
+
         try:
             # 1. Validate input
             errors = validate_input(task.payload, self.config.get("input_schema", {}))
             if errors:
                 await self._publish_result(
-                    task, TaskStatus.FAILED, error=f"Input validation: {errors}"
+                    task,
+                    TaskStatus.FAILED,
+                    error=f"Input validation: {errors}",
+                    elapsed=_elapsed_ms(),
                 )
                 return
 
@@ -93,11 +114,12 @@ class TaskWorker(BaseActor):
                     error=f"Output validation: {output_errors}",
                     model_used=result.get("model_used"),
                     tokens=result.get("token_usage"),
+                    elapsed=_elapsed_ms(),
                 )
                 return
 
             # 4. Publish success
-            elapsed = int((time.monotonic() - start) * 1000)
+            elapsed = _elapsed_ms()
             await self._publish_result(
                 task,
                 TaskStatus.COMPLETED,
@@ -111,7 +133,7 @@ class TaskWorker(BaseActor):
 
         except Exception as e:
             log.error("worker.exception", error=str(e))
-            await self._publish_result(task, TaskStatus.FAILED, error=str(e))
+            await self._publish_result(task, TaskStatus.FAILED, error=str(e), elapsed=_elapsed_ms())
         finally:
             # Reset — worker holds NO state from this task.
             # This is a design invariant, not a suggestion. Any instance
@@ -181,15 +203,24 @@ class TaskWorker(BaseActor):
             metadata=metadata or {},
             processing_time_ms=elapsed,
         )
-        # Record the terminal-status metric before publishing. The
+        # Record the terminal-status metrics before publishing. The
         # `status` here is the resolved TaskStatus enum; convert to its
         # string value so the attribute is stable wire-side
         # (a Prometheus/Grafana query against `status="completed"` /
         # `status="failed"` must match across heddle versions).
+        status_str = status.value
         record_task_completed(
             worker_type=task.worker_type,
             model_tier=task.model_tier.value,
-            status=status.value,
+            status=status_str,
+        )
+        # Duration is captured for both success and failure paths
+        # (handle_message passes `elapsed` on every call site).
+        record_task_duration(
+            worker_type=task.worker_type,
+            model_tier=task.model_tier.value,
+            status=status_str,
+            elapsed_ms=elapsed,
         )
         # Results route back to the orchestrator that dispatched this task.
         # If parent_task_id is None (no orchestrator), results go to "heddle.results.default".

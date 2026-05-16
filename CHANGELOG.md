@@ -47,6 +47,33 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
 
 ### Added
 
+- Four more framework metrics (completing OTel-audit S4's five-
+  instrument plan; the first one, `heddle.tasks.completed`, landed
+  in the previous commit):
+  - `heddle.tasks.received` (counter, unit `1`, attrs `worker_type`,
+    `model_tier`) — wired at the top of `TaskWorker.handle_message`
+    after envelope parse. Paired with `heddle.tasks.completed`,
+    gives operators per-worker in-flight task depth via
+    `received - completed`.
+  - `heddle.task.duration` (histogram, unit `ms`, attrs
+    `worker_type`, `model_tier`, `status`) — recorded in
+    `_publish_result` on every terminal-status path. The previous
+    handler only computed elapsed-ms on the success path;
+    `handle_message` now passes `elapsed=` on all paths
+    (input-validation failure, output-validation failure,
+    exception), so the histogram captures worst-case latency under
+    load rather than happy-path-only.
+  - `heddle.bus.publish.latency` (histogram, unit `ms`, attrs
+    `messaging.destination.name`, `messaging.system`) — wired in
+    `BaseActor.publish`. Uses OTel's `messaging.*` semantic
+    conventions. `messaging.system` is the bus class name with
+    `Bus` suffix stripped, lowercased (e.g. `"nats"`,
+    `"in_memory"`), so dashboards can split per-transport.
+  - `heddle.orchestrator.goals.received` (counter, unit `1`, attr
+    `orchestrator_name`) — wired at the top of both
+    `PipelineOrchestrator.handle_message` and
+    `OrchestratorActor.handle_message`. `orchestrator_name` is the
+    `actor_id`, so dashboards split per-orchestrator volume.
 - `heddle.tracing.metrics` — new module shipping the OTel **metrics**
   surface for Heddle. Companion to `heddle.tracing.otel` (spans);
   shares the same no-op-when-absent pattern (every instrument call

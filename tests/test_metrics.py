@@ -38,7 +38,11 @@ from heddle.tracing.metrics import (
     _NoOpCounter,
     _NoOpHistogram,
     _NoOpMeter,
+    record_bus_publish_latency,
+    record_orchestrator_goal_received,
     record_task_completed,
+    record_task_duration,
+    record_task_received,
 )
 
 # ---------------------------------------------------------------------------
@@ -107,21 +111,30 @@ metrics.set_meter_provider(_PROVIDER)
 def _flatten_data_points(reader: InMemoryMetricReader, instrument_name: str) -> list[dict]:
     """Extract data points for a single instrument from the reader output.
 
-    Returns a flat list of dicts ``{value, attributes}``. Hides the
-    OTel SDK's three-level (ResourceMetrics → ScopeMetrics → Metric)
-    nesting so tests assert on shape, not structure.
+    Returns a flat list of dicts with whichever fields the data point
+    type carries: counters expose ``value``; histograms expose ``sum``
+    and ``count``. ``attributes`` is always present. Hides the SDK's
+    three-level (ResourceMetrics → ScopeMetrics → Metric) nesting so
+    tests assert on shape, not structure.
     """
     metrics_data = reader.get_metrics_data()
     if metrics_data is None:
         return []
-    return [
-        {"value": dp.value, "attributes": dict(dp.attributes)}
-        for rm in metrics_data.resource_metrics
-        for sm in rm.scope_metrics
-        for m in sm.metrics
-        if m.name == instrument_name
-        for dp in m.data.data_points
-    ]
+    out: list[dict] = []
+    for rm in metrics_data.resource_metrics:
+        for sm in rm.scope_metrics:
+            for m in sm.metrics:
+                if m.name != instrument_name:
+                    continue
+                for dp in m.data.data_points:
+                    flat: dict = {"attributes": dict(dp.attributes)}
+                    # Counters have ``value``; histograms have ``sum`` + ``count``.
+                    # ``getattr`` with default lets the same helper serve both.
+                    flat["value"] = getattr(dp, "value", None)
+                    flat["sum"] = getattr(dp, "sum", None)
+                    flat["count"] = getattr(dp, "count", None)
+                    out.append(flat)
+    return out
 
 
 @pytest.fixture
@@ -212,3 +225,86 @@ class TestTasksCompletedCounter:
         assert matching >= baseline_value + 7, (
             f"counter should advance by 7; baseline={baseline_value}, after={matching}"
         )
+
+
+class TestTasksReceivedCounter:
+    """``heddle.tasks.received`` — pairs with completed for in-flight depth."""
+
+    def test_counter_records_with_worker_type_and_tier(self, reader) -> None:
+        record_task_received("inflight_test", "local")
+        after = _flatten_data_points(reader, "heddle.tasks.received")
+        matching = [
+            dp
+            for dp in after
+            if dp["attributes"] == {"worker_type": "inflight_test", "model_tier": "local"}
+        ]
+        assert matching, "no data point matched the documented attribute schema"
+        assert matching[0]["value"] >= 1
+
+
+class TestTaskDurationHistogram:
+    """``heddle.task.duration`` — recorded for both success and failure."""
+
+    def test_histogram_records_value_with_full_attributes(self, reader) -> None:
+        record_task_duration("dur_test", "local", "completed", elapsed_ms=42)
+        after = _flatten_data_points(reader, "heddle.task.duration")
+        matching = [
+            dp
+            for dp in after
+            if dp["attributes"]
+            == {"worker_type": "dur_test", "model_tier": "local", "status": "completed"}
+        ]
+        assert matching, "expected histogram data point not present"
+        # Histogram data point exposes ``sum`` (total of observations) and
+        # ``count`` (number of observations). A single record of 42 should
+        # be reflected in both.
+        assert matching[0]["sum"] >= 42
+        assert matching[0]["count"] >= 1
+
+    def test_histogram_records_failed_status_separately(self, reader) -> None:
+        """Success and failure durations live in separate data points."""
+        record_task_duration("dur_split", "local", "failed", elapsed_ms=100)
+        after = _flatten_data_points(reader, "heddle.task.duration")
+        failed_dps = [dp for dp in after if dp["attributes"].get("status") == "failed"]
+        assert failed_dps, "no `status=failed` data point present"
+
+
+class TestBusPublishLatencyHistogram:
+    """``heddle.bus.publish.latency`` — uses OTel messaging.* semconv."""
+
+    def test_histogram_uses_messaging_semconv_attributes(self, reader) -> None:
+        record_bus_publish_latency(subject="heddle.tasks.incoming", system="nats", elapsed_ms=3)
+        after = _flatten_data_points(reader, "heddle.bus.publish.latency")
+        matching = [
+            dp
+            for dp in after
+            if dp["attributes"]
+            == {
+                "messaging.destination.name": "heddle.tasks.incoming",
+                "messaging.system": "nats",
+            }
+        ]
+        assert matching, "expected data point with messaging.* attributes not present"
+
+    def test_histogram_distinguishes_bus_systems(self, reader) -> None:
+        """messaging.system attribute splits NATS vs in-memory transport."""
+        record_bus_publish_latency(subject="heddle.tasks.foo", system="nats", elapsed_ms=1)
+        record_bus_publish_latency(subject="heddle.tasks.foo", system="in_memory", elapsed_ms=1)
+        after = _flatten_data_points(reader, "heddle.bus.publish.latency")
+        systems = {
+            dp["attributes"].get("messaging.system")
+            for dp in after
+            if dp["attributes"].get("messaging.destination.name") == "heddle.tasks.foo"
+        }
+        assert {"nats", "in_memory"} <= systems
+
+
+class TestOrchestratorGoalsReceivedCounter:
+    """``heddle.orchestrator.goals.received`` — splits per orchestrator."""
+
+    def test_counter_records_by_orchestrator_name(self, reader) -> None:
+        record_orchestrator_goal_received("itp-quick")
+        record_orchestrator_goal_received("itp-standard")
+        after = _flatten_data_points(reader, "heddle.orchestrator.goals.received")
+        names = {dp["attributes"].get("orchestrator_name") for dp in after}
+        assert {"itp-quick", "itp-standard"} <= names
