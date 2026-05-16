@@ -37,6 +37,15 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
     assertion message, then restoring.
   Test gracefully `importorskip`s when the `otel` extra isn't
   installed. See `OTEL_AUDIT_2026-05-15.md` S2 for the rationale.
+- `heddle.core.kvstore` — general-purpose TTL-aware key-value store
+  abstraction. Exports `KeyValueStore` (ABC), `InMemoryKeyValueStore`
+  and `ScopedKeyValueStore` implementations, plus a tiny domain
+  registry (`register_domain`, `domain_prefix`, `make_key`, `scoped`)
+  for managing canonical key prefixes. The `"checkpoint"` domain is
+  registered at module import with prefix `"heddle:checkpoint:"`.
+  Substrate for orchestrator checkpoints today; aggregate snapshots
+  (`heddle.contrib.events`) and `ProcessorWorker` cross-process locks
+  in upcoming work.
 
 ### Changed
 
@@ -59,21 +68,6 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
   header mentioned `imagePullPolicy: Never` only as a one-line note;
   k8s-fluent readers were misreading the dev convention as a
   configuration bug. No manifest behaviour changed.
-
-### Added
-
-- `heddle.core.kvstore` — general-purpose TTL-aware key-value store
-  abstraction. Exports `KeyValueStore` (ABC), `InMemoryKeyValueStore`
-  and `ScopedKeyValueStore` implementations, plus a tiny domain
-  registry (`register_domain`, `domain_prefix`, `make_key`, `scoped`)
-  for managing canonical key prefixes. The `"checkpoint"` domain is
-  registered at module import with prefix `"heddle:checkpoint:"`.
-  Substrate for orchestrator checkpoints today; aggregate snapshots
-  (`heddle.contrib.events`) and `ProcessorWorker` cross-process locks
-  in upcoming work.
-
-### Changed
-
 - Store abstraction lifted from `heddle.orchestrator.store` to
   `heddle.core.kvstore` and renamed for generality. Backward-compat
   aliases preserve every public name through the v0.x series and will
