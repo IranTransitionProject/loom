@@ -36,6 +36,7 @@ Setup::
 from __future__ import annotations
 
 import contextlib
+import os
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
@@ -126,6 +127,16 @@ _NOOP_TRACER = _NoOpTracer()
 
 _TRACING_INITIALIZED = False
 
+# Snapshot of the most recent successful ``init_tracing`` call.
+# Read via ``status()``. Updated in-place by ``init_tracing`` on success;
+# fields stay at their defaults when OTel is unavailable or init failed.
+_STATUS: dict[str, Any] = {
+    "enabled": False,
+    "service_name": None,
+    "endpoint": None,
+    "exporter_class": None,
+}
+
 
 def init_tracing(
     service_name: str = "heddle",
@@ -184,8 +195,62 @@ def init_tracing(
     _trace_mod.set_tracer_provider(provider)
     _TRACING_INITIALIZED = True
 
+    # Resolve the *effective* endpoint: prefer explicit kwarg, else
+    # fall back to the env var the exporter itself reads. Tracking the
+    # resolved value (not the literal kwarg) makes ``status()`` honest
+    # about what's actually configured.
+    effective_endpoint = endpoint or os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+    _STATUS.update(
+        {
+            "enabled": True,
+            "service_name": service_name,
+            "endpoint": effective_endpoint,
+            "exporter_class": f"{type(exporter).__module__}.{type(exporter).__name__}",
+        }
+    )
+
     logger.info("tracing.initialized", service_name=service_name, endpoint=endpoint)
     return True
+
+
+def status() -> dict[str, Any]:
+    """Return a snapshot of the current tracing configuration.
+
+    Addresses the inspectability-of-defaults guardrail: callers and
+    operators can ask "is OTel active? what's the endpoint? what
+    exporter is it using?" without guessing or reading process state.
+
+    Returns:
+        A dict with these keys (always present, types as documented):
+
+        - ``enabled`` (bool): ``True`` if the OTel SDK is installed
+          *and* :func:`init_tracing` completed successfully.
+          ``False`` otherwise — including when OTel is installed but
+          ``init_tracing`` has not been called yet, and when an
+          ``init_tracing`` attempt failed (e.g. exporter SDK import
+          error).
+        - ``service_name`` (str | None): the ``service_name`` the
+          last successful ``init_tracing`` was called with; ``None``
+          if not yet initialized.
+        - ``endpoint`` (str | None): the effective OTLP endpoint,
+          resolved from (in priority order) the explicit ``endpoint``
+          kwarg to ``init_tracing`` or the
+          ``OTEL_EXPORTER_OTLP_ENDPOINT`` environment variable.
+          ``None`` if neither is set or if not yet initialized.
+        - ``exporter_class`` (str | None): the fully-qualified class
+          name of the configured span exporter (e.g.
+          ``"opentelemetry.exporter.otlp.proto.grpc.trace_exporter.OTLPSpanExporter"``).
+          ``None`` if not yet initialized.
+
+    The returned dict is a shallow copy of internal state — mutating
+    it does not affect future ``status()`` calls.
+
+    TODO(cli): when a ``heddle status`` CLI subcommand is added,
+    surface this dict in its output (a one-line "OTel: enabled,
+    endpoint=…" summary plus a verbose mode that prints the full
+    dict). See workspace ``AUDIT_TODO.md`` OTel W1.
+    """
+    return dict(_STATUS)
 
 
 def get_tracer(name: str = "heddle") -> Any:

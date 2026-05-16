@@ -14,6 +14,7 @@ from heddle.tracing.otel import (
     get_tracer,
     init_tracing,
     inject_trace_context,
+    status,
     trace_correlation_processor,
 )
 
@@ -641,3 +642,53 @@ class TestTraceCorrelationProcessor:
         assert out["ms"] == 42
         assert "trace_id" in out
         assert "span_id" in out
+
+
+class TestStatus:
+    """``status()`` exposes the current tracing configuration (OTel-audit W1)."""
+
+    def test_status_keys_are_stable(self):
+        """The returned dict always has the four documented keys."""
+        s = status()
+        assert set(s.keys()) == {"enabled", "service_name", "endpoint", "exporter_class"}
+
+    def test_status_reflects_uninitialized_state(self):
+        """Before init_tracing has succeeded, enabled is False and metadata is None."""
+        uninit = {
+            "enabled": False,
+            "service_name": None,
+            "endpoint": None,
+            "exporter_class": None,
+        }
+        with patch("heddle.tracing.otel._STATUS", uninit):
+            s = status()
+        assert s["enabled"] is False
+        assert s["service_name"] is None
+        assert s["endpoint"] is None
+        assert s["exporter_class"] is None
+
+    def test_status_reflects_initialized_state(self):
+        """After successful init, all four fields populate from the call."""
+        exporter_class = "opentelemetry.exporter.otlp.proto.grpc.trace_exporter.OTLPSpanExporter"
+        init = {
+            "enabled": True,
+            "service_name": "test-heddle",
+            "endpoint": "http://collector:4317",
+            "exporter_class": exporter_class,
+        }
+        with patch("heddle.tracing.otel._STATUS", init):
+            s = status()
+        assert s["enabled"] is True
+        assert s["service_name"] == "test-heddle"
+        assert s["endpoint"] == "http://collector:4317"
+        assert s["exporter_class"].endswith("OTLPSpanExporter")
+
+    def test_status_returns_a_copy(self):
+        """Mutating the returned dict must not leak into future status() calls."""
+        before = status()
+        original_enabled = before["enabled"]
+        before["enabled"] = not original_enabled
+        before["new_key"] = "should not appear"
+        after = status()
+        assert after["enabled"] == original_enabled
+        assert "new_key" not in after

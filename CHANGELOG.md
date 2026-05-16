@@ -47,6 +47,21 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
 
 ### Added
 
+- `heddle.tracing.otel.status()` — Python API returning a snapshot
+  of the current tracing configuration as a dict:
+  `{enabled, service_name, endpoint, exporter_class}`. Returns a
+  shallow copy of internal module state populated on successful
+  `init_tracing` calls; safe to mutate without side effects.
+  Addresses the inspectability-of-defaults philosophy guardrail
+  ("every default the system picks must be visible somewhere the
+  user can read"): operators and consumers can ask "is OTel active?
+  what endpoint? what exporter?" without process introspection.
+  Resolves OTel-audit W1's Python-API half. The audit also proposed
+  surfacing this on a `heddle status` CLI subcommand, but a general
+  `heddle status` command does not exist today and creating one
+  just for OTel would be premature scope. A `TODO(cli)` marker in
+  the `status()` docstring records that the future `heddle status`
+  command should call this function.
 - `tools/check_envelope_convention.py` + CI integration —
   machine-checkable enforcement of the underscore-prefix
   middleware-lane convention documented in
