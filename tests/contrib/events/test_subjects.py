@@ -1,8 +1,8 @@
-"""Tests for heddle.core.subjects helpers (Sprint 1)."""
+"""Tests for heddle.contrib.events.subjects helpers (Sprint 1)."""
 
 import pytest
 
-from heddle.core.subjects import (
+from heddle.contrib.events.subjects import (
     command_stream_name,
     command_subject,
     command_subject_filter,

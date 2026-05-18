@@ -28,10 +28,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from heddle.contrib.events.envelopes import CommandMessage, EventEnvelope
 from heddle.core.messages import (
     CheckpointState,
-    CommandMessage,
-    EventEnvelope,
     OrchestratorGoal,
     TaskMessage,
     TaskResult,
