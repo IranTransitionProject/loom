@@ -175,3 +175,63 @@ line without editing the file.
   and chain them into pipelines.
 - **[RAG Pipeline Guide](rag-howto.md)** — set up the social media analysis
   pipeline.
+
+---
+
+## Issuer conventions (heddle.contrib.events)
+
+Every event and command carried through `heddle.contrib.events` has a
+`metadata.issued_by` field with one of six reserved prefixes. This
+field is **semi-structured** — the prefix is constrained; everything
+after is free-form.
+
+| Prefix | Issuer | Example |
+|---|---|---|
+| `framework:` | Internal framework projectors (P1/P2/P3) and infrastructure | `framework:cascade`, `framework:horizon`, `framework:scope_membership`, `framework:bootstrap` |
+| `observer:{name}` | Scheduled PF observers | `observer:pf_job_status`, `observer:pf_route_step` |
+| `projector:{name}` | Application projectors emitting events as a side effect of projection | `projector:operation_labor_projector` |
+| `user:badge:{id}` | Shop-floor operator action via badge scan | `user:badge:206` |
+| `user:system:{component}` | Application-mediated, non-operator-specific | `user:system:shoppulse_admin`, `user:system:emergency_correction:{engineer_id}` |
+| `bridge:{worker_type}` | (Post-M2) gateway/bridge translating LLM/processor worker results | `bridge:fault_classifier_llm` |
+
+### Multi-segment suffixes
+
+Each prefix governs only the leading segment(s) up to and including
+its named scope. Everything after is opaque to the validator. For
+example, `is_user_issuer` accepts any string starting with `user:` —
+including multi-segment forms like:
+
+- `user:badge:123`
+- `user:system:emergency_correction:eng-42`
+- `user:system:tool:abc:def`
+
+Validators MUST NOT cap segment count. This is what allows the
+emergency-correction runbook (§4.12 of the M2 architecture doc) to
+encode an `{engineer_id}` after `user:system:emergency_correction`.
+
+### Provenance enforcement
+
+Aggregate `apply()` methods MAY enforce `issued_by` requirements for
+specific event types. The canonical example: `InternalFinalized`
+events MUST have `issued_by` starting with `framework:` — see
+`Aggregate.apply()` (Sprint 2).
+
+### Runtime check
+
+```python
+from heddle.contrib.events.issuer_conventions import (
+    is_framework_issuer,
+    is_observer_issuer,
+    is_projector_issuer,
+    is_user_issuer,
+    is_system_issuer,
+    is_bridge_issuer,
+    is_recognized_issuer,
+)
+```
+
+The `is_system_issuer` helper is a *strict subcheck* of
+`is_user_issuer`: it accepts only `user:system:*` values. Code paths
+that must reject operator-initiated commands (e.g.,
+emergency-correction tooling) should use `is_system_issuer`, not
+`is_user_issuer`.

@@ -1,0 +1,108 @@
+{
+  "$defs": {
+    "CommandMetadata": {
+      "description": "Provenance and correlation for a command.\n\nSame ``issued_by`` reserved-prefix conventions as :class:`EventMetadata`.\nThe ``issued_by_legacy`` slot is reserved for future use and is NOT part\nof the Sprint 1 surface \u2014 included in the schema so adding it later\ndoesn't break wire-compat.",
+      "properties": {
+        "correlation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Correlation Id"
+        },
+        "extra": {
+          "additionalProperties": true,
+          "title": "Extra",
+          "type": "object"
+        },
+        "issued_by": {
+          "description": "Same reserved prefix conventions as EventMetadata.issued_by.",
+          "title": "Issued By",
+          "type": "string"
+        },
+        "issued_by_legacy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Issued By Legacy"
+        }
+      },
+      "required": [
+        "issued_by"
+      ],
+      "title": "CommandMetadata",
+      "type": "object"
+    }
+  },
+  "description": "Canonical command envelope for heddle.contrib.events.\n\nPublished to JetStream ``HEDDLE_COMMANDS_{TYPE}`` streams. Consumed by\n``CommandHandler`` (Sprint 2/3). Distinct from :class:`TaskMessage`:\n``CommandMessage`` targets an aggregate by natural identity and CAS;\n``TaskMessage`` targets a worker class via router rules.\n\n``expected_aggregate_version`` is the optimistic concurrency token.\n``None`` means \"no version check\" (typical for create-from-PF observers\nthat have no prior state).",
+  "properties": {
+    "aggregate_id": {
+      "title": "Aggregate Id",
+      "type": "string"
+    },
+    "aggregate_type": {
+      "title": "Aggregate Type",
+      "type": "string"
+    },
+    "command_id": {
+      "description": "UUIDv7. Used as JetStream Nats-Msg-Id.",
+      "title": "Command Id",
+      "type": "string"
+    },
+    "command_type": {
+      "description": "CamelCase command type, e.g. 'JobClockIn'.",
+      "title": "Command Type",
+      "type": "string"
+    },
+    "command_version": {
+      "default": 1,
+      "title": "Command Version",
+      "type": "integer"
+    },
+    "expected_aggregate_version": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Expected Aggregate Version"
+    },
+    "issued_at": {
+      "format": "date-time",
+      "title": "Issued At",
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/CommandMetadata"
+    },
+    "payload": {
+      "additionalProperties": true,
+      "title": "Payload",
+      "type": "object"
+    }
+  },
+  "required": [
+    "aggregate_type",
+    "aggregate_id",
+    "command_type",
+    "metadata",
+    "issued_at"
+  ],
+  "title": "CommandMessage",
+  "type": "object"
+}

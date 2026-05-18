@@ -30,6 +30,8 @@ from typing import Any
 
 from heddle.core.messages import (
     CheckpointState,
+    CommandMessage,
+    EventEnvelope,
     OrchestratorGoal,
     TaskMessage,
     TaskResult,
@@ -45,6 +47,8 @@ _EXPORTS: list[tuple[str, type]] = [
     ("task_result", TaskResult),
     ("orchestrator_goal", OrchestratorGoal),
     ("checkpoint_state", CheckpointState),
+    ("event_envelope", EventEnvelope),
+    ("command_message", CommandMessage),
 ]
 
 _OUTPUT_DIR = Path(__file__).resolve().parents[1] / "schemas" / "v1"

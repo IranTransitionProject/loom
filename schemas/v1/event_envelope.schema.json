@@ -1,0 +1,108 @@
+{
+  "$defs": {
+    "EventMetadata": {
+      "description": "Provenance and correlation for an event.\n\n`issued_by` is a semi-structured identifier with one of six reserved\nprefixes \u2014 see ``heddle.contrib.events.issuer_conventions``. Framework\nenforces the prefix at ``apply()`` for sensitive event types (e.g.\n``InternalFinalized`` requires ``framework:*``).",
+      "properties": {
+        "command_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command Id"
+        },
+        "correlation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Correlation Id"
+        },
+        "extra": {
+          "additionalProperties": true,
+          "title": "Extra",
+          "type": "object"
+        },
+        "issued_by": {
+          "description": "Semi-structured issuer identifier. Reserved prefixes: framework:, observer:{name}, projector:{name}, user:badge:{id}, user:system:{component}, bridge:{worker_type}. See heddle.contrib.events.issuer_conventions.",
+          "title": "Issued By",
+          "type": "string"
+        }
+      },
+      "required": [
+        "issued_by"
+      ],
+      "title": "EventMetadata",
+      "type": "object"
+    }
+  },
+  "description": "Canonical event envelope for heddle.contrib.events.\n\nPersisted in JetStream ``HEDDLE_EVENTS_{TYPE}`` streams. Replayed by\naggregates to reconstruct state. See architecture v7 \u00a74.1.\n\nOrdering authority:\n  - ``aggregate_version``: authoritative for in-aggregate ordering;\n    CAS field on ``EventLog.append()``.\n  - ``recorded_at``: authoritative for cross-aggregate log ordering.\n  - ``occurred_at``: for domain queries only \u2014 never for ordering\n    computation.",
+  "properties": {
+    "aggregate_id": {
+      "title": "Aggregate Id",
+      "type": "string"
+    },
+    "aggregate_type": {
+      "title": "Aggregate Type",
+      "type": "string"
+    },
+    "aggregate_version": {
+      "minimum": 1,
+      "title": "Aggregate Version",
+      "type": "integer"
+    },
+    "event_id": {
+      "description": "UUIDv7. Used as JetStream Nats-Msg-Id for opportunistic dedup.",
+      "title": "Event Id",
+      "type": "string"
+    },
+    "event_type": {
+      "description": "CamelCase event type, e.g. 'JobClockedIn'. (aggregate_type, event_type) is global identity.",
+      "title": "Event Type",
+      "type": "string"
+    },
+    "event_version": {
+      "default": 1,
+      "title": "Event Version",
+      "type": "integer"
+    },
+    "metadata": {
+      "$ref": "#/$defs/EventMetadata"
+    },
+    "occurred_at": {
+      "format": "date-time",
+      "title": "Occurred At",
+      "type": "string"
+    },
+    "payload": {
+      "additionalProperties": true,
+      "title": "Payload",
+      "type": "object"
+    },
+    "recorded_at": {
+      "format": "date-time",
+      "title": "Recorded At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "aggregate_type",
+    "aggregate_id",
+    "aggregate_version",
+    "event_type",
+    "metadata",
+    "occurred_at",
+    "recorded_at"
+  ],
+  "title": "EventEnvelope",
+  "type": "object"
+}

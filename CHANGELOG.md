@@ -91,6 +91,26 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
 
 ### Added
 
+- `heddle.contrib.events` package skeleton (Sprint 1 of M2 plan):
+  - `EventEnvelope` and `CommandMessage` Pydantic models in
+    `heddle.core.messages`, with associated `EventMetadata` and
+    `CommandMetadata`.
+  - `heddle.core.subjects` — helpers for the `heddle.events.*`,
+    `heddle.commands.*`, and `heddle.rejections.*` NATS subjects and
+    `HEDDLE_EVENTS_*` / `HEDDLE_COMMANDS_*` / `HEDDLE_REJECTIONS_*`
+    JetStream stream names.
+  - `heddle.contrib.events.issuer_conventions` — six `is_*_issuer`
+    validators (framework, observer, projector, user, system, bridge)
+    plus `is_recognized_issuer`. Multi-segment suffixes accepted; no
+    fixed segment cap.
+  - JSON Schemas exported to `schemas/v1/event_envelope.schema.json`
+    and `schemas/v1/command_message.schema.json`. The
+    `tools/export_schemas.py --check` drift gate covers both.
+  - Issuer-conventions section added to `docs/CONCEPTS.md`.
+  - `uuid_utils >= 0.10.0` added as an `events` optional extra. Bare
+    install is unaffected; only constructing an `EventEnvelope` /
+    `CommandMessage` without an explicit id requires the extra. Refs:
+    `heddle-contrib-events-m2-architecture-v7.md` §4.1, §6 Sprint 1.
 - Four more framework metrics (completing OTel-audit S4's five-
   instrument plan; the first one, `heddle.tasks.completed`, landed
   in the previous commit):
