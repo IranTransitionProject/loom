@@ -144,7 +144,7 @@ agent layer is split across two files plus a sibling repo:
 - Cross-repo guidance — philosophy, the framework invariants, the
   wire-protocol contract map, and the shared skills + subagents —
   lives in the sibling
-  [`heddle-agent-toolkit`](https://github.com/getheddle/heddle-agent-toolkit)
+  [`heddle-workspace`](https://github.com/getheddle/heddle-workspace)
   repo. Clone it as a sibling and run its `install.sh` to populate
   this repo's `.claude/`.
 

@@ -1,6 +1,6 @@
 """Tests pinning the underscore-prefix middleware-lane convention.
 
-See ``heddle-agent-toolkit/anchors/CONTRACT_MAP.md`` "Reserved
+See ``heddle-workspace/anchors/CONTRACT_MAP.md`` "Reserved
 middleware lane" for the convention itself. These tests pin its
 *runtime* behaviour: middleware-prefixed wire keys must coexist with
 the typed Pydantic envelope without breaking validation, contaminating

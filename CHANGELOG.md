@@ -160,7 +160,7 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
 - `tools/check_envelope_convention.py` + CI integration —
   machine-checkable enforcement of the underscore-prefix
   middleware-lane convention documented in
-  `heddle-agent-toolkit/anchors/CONTRACT_MAP.md` "Reserved middleware
+  `heddle-workspace/anchors/CONTRACT_MAP.md` "Reserved middleware
   lane." Four rules: (1) no Pydantic field in
   `heddle.core.messages` may start with `_`; (2) tagged middleware
   modules (allowlist starts with `heddle.tracing.otel`) may only

@@ -46,7 +46,7 @@ jobs:
 
       - name: Envelope convention (underscore-prefix middleware lane)
         # Enforces the wire-protocol convention documented in
-        # heddle-agent-toolkit/anchors/CONTRACT_MAP.md "Reserved
+        # heddle-workspace/anchors/CONTRACT_MAP.md "Reserved
         # middleware lane": Pydantic envelope fields may not start with
         # `_` (the prefix is reserved for middleware); tagged middleware
         # modules (e.g. heddle.tracing.otel) may only read/write
