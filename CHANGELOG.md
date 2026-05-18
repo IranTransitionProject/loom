@@ -44,6 +44,50 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
   promoted to the worker, where the framework's stateless-worker
   invariant guarantees `reset()` between tasks. Resolves
   Invariant-audit W1.
+- `docs/releases/README.md` gains a "Workflow" section pointing at
+  the new `RELEASING.md`, plus explicit `gh release create` and
+  `gh release edit` commands for attaching and refreshing release
+  notes. Prior version implied the workflow without naming the
+  commands.
+- Per-release notes moved from repo-root `RELEASE_NOTES_v0.9.2.md` to
+  `docs/releases/v0.9.2.md`. The root-level location didn't scale
+  past one release and sat outside the MkDocs tree. New convention
+  documented in [`docs/releases/README.md`](docs/releases/README.md):
+  one file per release named `vX.Y.Z.md`, frozen at release time,
+  written only when a release needs more than a CHANGELOG entry can
+  carry (breaking-change migration guide, major version, multi-
+  subsystem narrative). Routine releases stay CHANGELOG-only.
+  Cross-references in this file updated; no other paths reference the
+  old location.
+- `TaskWorker._publish_result` now injects `_trace_context` into the
+  outgoing `TaskResult` payload so the return path is symmetric with
+  the outbound `TaskMessage`. Today no orchestrator-side consumer
+  reads the field — the trace tree already forms correctly via the
+  outbound chain (`extract_trace_context` at the worker entry sets
+  the worker span's parent). The injection exists so any future
+  consumer-side span (in `orchestrator/dispatch.py` or elsewhere)
+  can parent under the worker span. No behavioural change for
+  existing OTel users; no behaviour for users without OTel
+  installed (the injector no-ops). See `OTEL_AUDIT_2026-05-15.md` S1
+  for the rationale.
+- `heddle/k8s/kustomization.yaml` header now explicitly marks the
+  bundled manifests as **Minikube / local-development only** and
+  documents the steps required to fork them for production
+  (pin `heddle-*:latest` to a released tag; remove
+  `imagePullPolicy: Never`; push to a real registry). The previous
+  header mentioned `imagePullPolicy: Never` only as a one-line note;
+  k8s-fluent readers were misreading the dev convention as a
+  configuration bug. No manifest behaviour changed.
+- Store abstraction lifted from `heddle.orchestrator.store` to
+  `heddle.core.kvstore` and renamed for generality. Backward-compat
+  aliases preserve every public name through the v0.x series and will
+  be removed at v1.0:
+  - `heddle.orchestrator.store.CheckpointStore` → alias of `KeyValueStore`
+  - `heddle.orchestrator.store.InMemoryCheckpointStore` → alias of `InMemoryKeyValueStore`
+  - `heddle.contrib.redis.store.RedisCheckpointStore` → alias of `RedisKeyValueStore`
+- `CheckpointManager` now looks up its key prefix via
+  `domain_prefix("checkpoint")` instead of hardcoding it. On-disk keys
+  are **bit-exact unchanged**; existing data in Valkey is unaffected.
 
 ### Added
 
@@ -174,9 +218,6 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
   Substrate for orchestrator checkpoints today; aggregate snapshots
   (`heddle.contrib.events`) and `ProcessorWorker` cross-process locks
   in upcoming work.
-
-### Added
-
 - `docs/RELEASING.md` — agent-runnable, end-to-end release workflow
   covering version bump, CHANGELOG close-out, optional per-release
   notes file, tag, GitHub Release creation, and automated PyPI
@@ -188,53 +229,6 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
   (version bumps, tag pushes, direct `uv publish`, force-pushes).
   Cross-referenced from `AGENTS.md` "Repo pointers" and from
   `docs/releases/README.md`; added to the MkDocs Development nav.
-
-### Changed
-
-- `docs/releases/README.md` gains a "Workflow" section pointing at
-  the new `RELEASING.md`, plus explicit `gh release create` and
-  `gh release edit` commands for attaching and refreshing release
-  notes. Prior version implied the workflow without naming the
-  commands.
-- Per-release notes moved from repo-root `RELEASE_NOTES_v0.9.2.md` to
-  `docs/releases/v0.9.2.md`. The root-level location didn't scale
-  past one release and sat outside the MkDocs tree. New convention
-  documented in [`docs/releases/README.md`](docs/releases/README.md):
-  one file per release named `vX.Y.Z.md`, frozen at release time,
-  written only when a release needs more than a CHANGELOG entry can
-  carry (breaking-change migration guide, major version, multi-
-  subsystem narrative). Routine releases stay CHANGELOG-only.
-  Cross-references in this file updated; no other paths reference the
-  old location.
-- `TaskWorker._publish_result` now injects `_trace_context` into the
-  outgoing `TaskResult` payload so the return path is symmetric with
-  the outbound `TaskMessage`. Today no orchestrator-side consumer
-  reads the field — the trace tree already forms correctly via the
-  outbound chain (`extract_trace_context` at the worker entry sets
-  the worker span's parent). The injection exists so any future
-  consumer-side span (in `orchestrator/dispatch.py` or elsewhere)
-  can parent under the worker span. No behavioural change for
-  existing OTel users; no behaviour for users without OTel
-  installed (the injector no-ops). See `OTEL_AUDIT_2026-05-15.md` S1
-  for the rationale.
-- `heddle/k8s/kustomization.yaml` header now explicitly marks the
-  bundled manifests as **Minikube / local-development only** and
-  documents the steps required to fork them for production
-  (pin `heddle-*:latest` to a released tag; remove
-  `imagePullPolicy: Never`; push to a real registry). The previous
-  header mentioned `imagePullPolicy: Never` only as a one-line note;
-  k8s-fluent readers were misreading the dev convention as a
-  configuration bug. No manifest behaviour changed.
-- Store abstraction lifted from `heddle.orchestrator.store` to
-  `heddle.core.kvstore` and renamed for generality. Backward-compat
-  aliases preserve every public name through the v0.x series and will
-  be removed at v1.0:
-  - `heddle.orchestrator.store.CheckpointStore` → alias of `KeyValueStore`
-  - `heddle.orchestrator.store.InMemoryCheckpointStore` → alias of `InMemoryKeyValueStore`
-  - `heddle.contrib.redis.store.RedisCheckpointStore` → alias of `RedisKeyValueStore`
-- `CheckpointManager` now looks up its key prefix via
-  `domain_prefix("checkpoint")` instead of hardcoding it. On-disk keys
-  are **bit-exact unchanged**; existing data in Valkey is unaffected.
 
 ## [0.9.2] — 2026-05-11
 

@@ -234,23 +234,23 @@ def status() -> dict[str, Any]:
         A dict with these keys (always present, types as documented):
 
         - ``enabled`` (bool): ``True`` if the OTel SDK is installed
-          *and* :func:`init_tracing` completed successfully.
-          ``False`` otherwise — including when OTel is installed but
-          ``init_tracing`` has not been called yet, and when an
-          ``init_tracing`` attempt failed (e.g. exporter SDK import
-          error).
+            *and* :func:`init_tracing` completed successfully.
+            ``False`` otherwise — including when OTel is installed but
+            ``init_tracing`` has not been called yet, and when an
+            ``init_tracing`` attempt failed (e.g. exporter SDK import
+            error).
         - ``service_name`` (str | None): the ``service_name`` the
-          last successful ``init_tracing`` was called with; ``None``
-          if not yet initialized.
+            last successful ``init_tracing`` was called with; ``None``
+            if not yet initialized.
         - ``endpoint`` (str | None): the effective OTLP endpoint,
-          resolved from (in priority order) the explicit ``endpoint``
-          kwarg to ``init_tracing`` or the
-          ``OTEL_EXPORTER_OTLP_ENDPOINT`` environment variable.
-          ``None`` if neither is set or if not yet initialized.
+            resolved from (in priority order) the explicit ``endpoint``
+            kwarg to ``init_tracing`` or the
+            ``OTEL_EXPORTER_OTLP_ENDPOINT`` environment variable.
+            ``None`` if neither is set or if not yet initialized.
         - ``exporter_class`` (str | None): the fully-qualified class
-          name of the configured span exporter (e.g.
-          ``"opentelemetry.exporter.otlp.proto.grpc.trace_exporter.OTLPSpanExporter"``).
-          ``None`` if not yet initialized.
+            name of the configured span exporter (e.g.
+            ``"opentelemetry.exporter.otlp.proto.grpc.trace_exporter.OTLPSpanExporter"``).
+            ``None`` if not yet initialized.
 
     The returned dict is a shallow copy of internal state — mutating
     it does not affect future ``status()`` calls.
