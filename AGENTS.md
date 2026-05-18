@@ -8,7 +8,7 @@ via NATS. It replaces monolithic LLM contexts with narrowly-scoped
 This file is the source of truth for agent guidance in *this* repo.
 Cross-repo guidance, invariants, philosophy, and the wire-protocol
 contract live in
-**[`heddle-agent-toolkit/`](../heddle-agent-toolkit/)** —
+**[`heddle-workspace/`](../heddle-workspace/)** —
 read those before structural work.
 
 ## Toolkit install
@@ -17,8 +17,8 @@ The toolkit is sibling to this repo. To populate `.claude/skills/` and
 `.claude/agents/` from a fresh clone:
 
 ```bash
-git clone https://github.com/getheddle/heddle-agent-toolkit.git ../heddle-agent-toolkit
-../heddle-agent-toolkit/install.sh .
+git clone https://github.com/getheddle/heddle-workspace.git ../heddle-workspace
+../heddle-workspace/install.sh .
 ```
 
 Until the toolkit is published, contributors will need a local sibling
@@ -30,11 +30,11 @@ subagents (`heddle-architect`, `heddle-invariant-guard`,
 
 ### From the toolkit (shared across `getheddle/*`)
 
-- `heddle-agent-toolkit/anchors/ECOSYSTEM.md` — where this repo sits.
-- `heddle-agent-toolkit/anchors/PHILOSOPHY.md` — design opinions.
-- `heddle-agent-toolkit/anchors/INVARIANTS.md` — non-negotiable rules
+- `heddle-workspace/anchors/ECOSYSTEM.md` — where this repo sits.
+- `heddle-workspace/anchors/PHILOSOPHY.md` — design opinions.
+- `heddle-workspace/anchors/INVARIANTS.md` — non-negotiable rules
   (and the cross-repo additions C1–C7).
-- `heddle-agent-toolkit/anchors/CONTRACT_MAP.md` — wire protocol,
+- `heddle-workspace/anchors/CONTRACT_MAP.md` — wire protocol,
   subjects, schema flow.
 
 ### From this repo (heddle-specific)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Enforce the underscore-prefix middleware-lane wire convention.
 
-See ``heddle-agent-toolkit/anchors/CONTRACT_MAP.md`` "Reserved
+See ``heddle-workspace/anchors/CONTRACT_MAP.md`` "Reserved
 middleware lane" for the convention. This script is its
 machine-checkable counterpart and runs in CI.
 
@@ -225,7 +225,7 @@ def main() -> int:
         for err in all_errors:
             print(f"  - {err}", file=sys.stderr)  # noqa: T201 — CLI tool output
         print(  # noqa: T201 — CLI tool output
-            "\nSee heddle-agent-toolkit/anchors/CONTRACT_MAP.md "
+            "\nSee heddle-workspace/anchors/CONTRACT_MAP.md "
             "'Reserved middleware lane' for the convention.",
             file=sys.stderr,
         )
