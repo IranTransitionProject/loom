@@ -286,6 +286,7 @@ include = [
     "src/heddle/bus",
     "src/heddle/worker",
     "src/heddle/orchestrator",
+    "src/heddle/contrib/events",
 ]
 exclude = [
     "**/__pycache__",
