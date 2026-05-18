@@ -26,7 +26,7 @@ session-starters/
 # applied to the repo).  Not part of any deliverable.
 CLAUDE_CODE_PROMPT.md
 
-# Toolkit-installed skills and subagents — managed by heddle-agent-toolkit/install.sh
+# Toolkit-installed skills and subagents — managed by heddle-workspace/install.sh
 .claude/skills/
 .claude/agents/heddle-architect.md
 .claude/agents/heddle-contract-reviewer.md
