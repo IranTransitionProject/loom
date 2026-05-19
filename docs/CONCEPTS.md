@@ -419,3 +419,174 @@ setup and restores at teardown. Tests that register fake aggregates
 should depend on this fixture (e.g., via
 `pytest.mark.usefixtures("registry_isolation")`) to avoid leaking
 registrations across tests.
+
+## Sprint 2 → Sprint 3 behavior boundary
+
+These behaviors of `heddle.contrib.events` are described in
+`heddle-contrib-events-m2-architecture-v7.md` and were partially
+implemented in Sprint 2 (in-memory) and completed in Sprint 3
+(JetStream + Valkey + cache + snapshot). The table captures
+exactly what observably changes.
+
+| Behavior | Sprint 2 (in-memory) | Sprint 3 (production) |
+|---|---|---|
+| Dedup within a single `handle()` call | ✓ via in-memory buffer | ✓ unchanged |
+| Dedup across `handle()` calls in same process | ✗ aggregate reloaded each call; buffer reset | ✓ aggregate cached (T2); buffer survives |
+| Dedup across processes | ✗ N/A | ✓ via published `mark_processed` events to `heddle.dedup.{type}.{id}` (T4) updating cached aggregates in other processes |
+| Aggregate rebuild from empty log | empty dedup buffer (per v7 §4.5) | empty dedup buffer (unchanged) |
+| Aggregate rebuild after snapshot exists | N/A (no snapshot store) | dedup buffer restored from snapshot |
+| Aggregate rebuild from log replay only (no snapshot) | structurally the only path | last-resort path; buffer empty (v7 §4.5 — buffer is NEVER reconstructed from event replay alone) |
+| EventDispatcher subscription race | ✗ `start(type)` returned before subscription registered (callers needed polling helper) | ✓ `start(type)` awaits readiness (T1) |
+| Finalization atomicity (P2 vs P3) | ✗ P3 was a stub; only P2 fired | ✓ both projectors gated by Valkey lease on `heddle:events:horizon:{type}:{id}`; loser preempted (T5/T6/T7) |
+| Cascade idempotence | ✓ via deterministic command_id (sha256-derived) | ✓ unchanged; lease (T5) adds audit-trail clarity |
+| Forged `*.InternalFinalized` defense | application-layer only — `apply()` provenance check + `CorruptAggregateAlert` | application-layer (unchanged) + NATS publish ACL (T10/ADR-013) blocking forged publishes upstream |
+
+**The v7 invariant is preserved.** The dedup buffer is restored
+from snapshot or stays empty after pure-replay rebuilds — *never*
+reconstructed from replayed events' metadata. Cross-process dedup
+is via `mark_processed` events updating cached buffers, not via
+replay-derivation.
+
+**Sprint 3 makes these signals observable.** The Sprint 2 J4
+internal contradiction (snapshot-only buffer claim plus cross-call
+dedup expectation) resolves once snapshots ship. Three paired tests
+document the shift:
+
+- `test_dedup_was_per_call_in_sprint_2` — pins Sprint 2 behavior
+  (no cache, no snapshot) for regression purposes.
+- `test_dedup_works_within_call_via_cache` — Sprint 3 cache alone
+  (default-on) makes in-process dedup work.
+- `test_dedup_works_cross_call_with_snapshot` — Sprint 3 positive
+  case across CommandHandler instances.
+
+## Aggregate cache (Sprint 3)
+
+`AggregateCache` is a process-local LRU keyed on
+`(aggregate_type, aggregate_id)`. Default size: 1024. Configurable
+via the `cache` argument to `CommandHandler.__init__`; pass
+`AggregateCache(max_size=0)` to disable caching entirely (useful
+for reproducing Sprint 2's reload-every-call semantics in tests).
+
+Cache eviction fires the `on_evict` callback, which the
+CommandHandler wires to `DedupSubscriber.unsubscribe` so that
+cross-process dedup subscriptions don't outlive their aggregate.
+
+## Snapshot store (Sprint 3)
+
+`SnapshotStore` adapts the existing `KeyValueStore` to aggregate
+snapshots. Keys:
+
+- Blob: `heddle:events:snapshot:{aggregate_type}:{aggregate_id}`
+- Version: `heddle:events:snapshot:version:{aggregate_type}:{aggregate_id}`
+
+The version key lets `CommandHandler._load_or_create` replay only
+events with `aggregate_version > snapshot_version`. Snapshot-on-
+write is count-based — every `SNAPSHOT_EVERY_N` events on the
+cached aggregate. The brief's time-based trigger
+(`SNAPSHOT_EVERY_T_SECONDS`) is recorded as a constant but not
+enforced in Sprint 3.
+
+The dedup buffer survives snapshot round-trips. A pure-replay
+rebuild (no snapshot) starts with an empty buffer — v7 §4.5
+invariant.
+
+## Hybrid dedup (Sprint 3)
+
+After a successful `handle()` the in-memory aggregate's
+`mark_processed(command_id)` is called synchronously (same-process
+dedup works immediately). The command_id is then published to
+`heddle.dedup.{type}.{id}` on NATS core (not JetStream — these
+events don't need durability).
+
+Any CommandHandler instance with the same aggregate in its cache
+has a NATS-core subscription on that subject; on receive, it calls
+`cached_aggregate.mark_processed(command_id)`. Cross-process dedup
+correctness is best-effort, bounded by cache hit rate and snapshot
+recency.
+
+`NullDedupPublisher` / `NullDedupSubscriber` are the defaults —
+single-process deployments and tests pay no NATS cost.
+
+## Finalization lease (Sprint 3)
+
+`finalization_lease` is an async context manager that claims a
+Valkey lease keyed on `heddle:events:horizon:{type}:{id}` via the
+`KeyValueStore.set_if_not_exists` primitive (atomic SETNX EX with
+TTL). Default TTL: 30 seconds.
+
+P2 (cascade) and P3 (horizon) both attempt the lease before
+publishing `InternalFinalize`. Whichever claims first wins; the
+other logs and skips. The lease is **not** released in the normal
+flow — releasing early invites re-claim races. Crashed projectors
+recover automatically after TTL.
+
+The lease is for **audit clarity**, not state correctness. The
+receiving aggregate's `apply_internal_finalized` already no-ops on
+already-finalized aggregates; the lease prevents redundant writes
+plus gives a clean "who finalized this" signal in the audit trail.
+
+## P3 horizon timers (Sprint 3)
+
+`FinalizationHorizonProjector` maintains one `asyncio.Task` per
+active aggregate. Each `IntervalAggregate` subclass may override
+`HORIZON_TIMEOUT_SECONDS` as a ClassVar; the default is 24 hours.
+Sprint 4a domain aggregates (e.g., `OperatorJobSession`) will set
+their own.
+
+Timers are armed when P3 observes any event on an
+`IntervalAggregate`-typed aggregate (proxy for "active"), cancelled
+when an `InternalFinalized` is observed. `shutdown()` cancels all
+timers cleanly on dispatcher stop.
+
+## JetStream subjects and streams (Sprint 3)
+
+| Subject pattern | Used for | Transport |
+|---|---|---|
+| `heddle.events.{type}.{id}.{event_type}` | EventEnvelope publish | JetStream (`HEDDLE_EVENTS_{TYPE}`) |
+| `heddle.commands.{type}.{id}.{command_type}` | CommandMessage publish | JetStream (`HEDDLE_COMMANDS_{TYPE}`) |
+| `heddle.rejections.{type}.{id}.{command_type}` | RejectionEnvelope publish | JetStream (`HEDDLE_REJECTIONS_{TYPE}`) |
+| `heddle.dedup.{type}.{id}` | mark_processed publish | NATS core (ephemeral) |
+| `heddle:events:snapshot:{type}:{id}` | Aggregate snapshot blob | Valkey KV (string) |
+| `heddle:events:horizon:{type}:{id}` | Finalization lease | Valkey KV (SET NX EX) |
+
+Streams are configured idempotently via the
+`heddle.contrib.events.jetstream.ensure_event_stream` /
+`ensure_command_stream` / `ensure_rejection_stream` helpers. Defaults:
+file storage, single replica, age-based retention (7 days for events
+and commands, 30 days for rejections).
+
+CAS append for events uses the `Nats-Expected-Last-Subject-Sequence`
+header. JetStream's wrong-last-sequence error (APIError code 10071)
+is translated to `ConcurrencyError`.
+
+## SLI signals (Sprint 3)
+
+`heddle.contrib.events.sli` provides three OpenTelemetry-compatible
+histogram observations:
+
+| Signal | Labels |
+|---|---|
+| `command_handle_duration` | `aggregate_type`, `command_type`, `outcome` (success / rejected / concurrency_error / error) |
+| `dispatcher_fan_out_duration` | `aggregate_type` |
+| `lease_acquisition_duration` | `aggregate_type`, `projector_name`, `outcome` (claimed / preempted) |
+
+Applications install a `Recorder` once at startup via
+`install_recorder(recorder)`. The default is a no-op; tests can use
+a `_CapturingRecorder` (or write their own) to assert specific
+observations fire.
+
+## NATS auth and publish ACLs (Sprint 3)
+
+See [ADR-013](adr/013-nats-auth-model.md) and the
+[`nats-acl-configuration` runbook](runbooks/nats-acl-configuration.md).
+Four roles: `framework`, `application`, `observer`, `workshop`.
+Only `framework` may publish `*.InternalFinalized` — the structural
+defense behind the `Aggregate.apply()` provenance check.
+
+## The `snake_case` convention
+
+Cross-module framework helpers within a `heddle.contrib.<pkg>`
+package use **no** underscore prefix. Module-local helpers keep
+the leading underscore. Precedent: Sprint 2 J3 promoted
+`_snake_case` → `snake_case` on `heddle.contrib.events.aggregate`
+when `CommandHandler` started importing it from another module.

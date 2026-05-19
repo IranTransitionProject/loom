@@ -26,7 +26,11 @@ import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
+from heddle.contrib.events.sli import get_recorder, time_observation
+
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from heddle.contrib.events.envelopes import EventEnvelope
     from heddle.contrib.events.event_log import EventLog
 
@@ -72,13 +76,19 @@ class EventDispatcher:
     async def start(self, aggregate_type: str) -> None:
         """Begin dispatching events for an aggregate type.
 
+        Awaits subscription readiness before returning — callers can
+        safely publish events to ``aggregate_type`` immediately after
+        ``start()`` returns and be sure they will be delivered. The
+        Sprint 2 J5 race (start scheduled the task but registration
+        happened on first iteration) is eliminated by pre-registering
+        synchronously here.
+
         Idempotent: calling twice for the same type is a no-op.
-        Sprint 2 spawns one ``asyncio.Task`` per type; Sprint 3 may
-        swap to a JetStream durable consumer per type.
         """
         if aggregate_type in self._running:
             return
-        task = asyncio.create_task(self._run(aggregate_type))
+        iterator = await self._event_log.subscribe(aggregate_type)
+        task = asyncio.create_task(self._consume(aggregate_type, iterator))
         self._running[aggregate_type] = task
 
     async def stop(self) -> None:
@@ -88,17 +98,26 @@ class EventDispatcher:
         await asyncio.gather(*self._running.values(), return_exceptions=True)
         self._running.clear()
 
-    async def _run(self, aggregate_type: str) -> None:
+    async def _consume(
+        self,
+        aggregate_type: str,
+        iterator: AsyncIterator[EventEnvelope],
+    ) -> None:
         try:
-            async for envelope in self._event_log.subscribe(aggregate_type):
-                for projector in self._projectors:
-                    try:
-                        await projector.project(envelope)
-                    except Exception:
-                        _log.exception(
-                            "projector %s failed on event %s; continuing",
-                            type(projector).__name__,
-                            envelope.event_id,
-                        )
+            async for envelope in iterator:
+                with time_observation() as elapsed:
+                    for projector in self._projectors:
+                        try:
+                            await projector.project(envelope)
+                        except Exception:
+                            _log.exception(
+                                "projector %s failed on event %s; continuing",
+                                type(projector).__name__,
+                                envelope.event_id,
+                            )
+                get_recorder().observe_dispatcher_fan_out(
+                    aggregate_type=aggregate_type,
+                    duration_seconds=elapsed(),
+                )
         except asyncio.CancelledError:
             raise

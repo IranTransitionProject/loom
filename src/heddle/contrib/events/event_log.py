@@ -12,8 +12,12 @@ Contract:
 - ``load(aggregate_type, aggregate_id, from_version=0)`` — async
   stream of envelopes in aggregate_version order, with
   ``aggregate_version > from_version``.
-- ``subscribe(aggregate_type)`` — async stream of newly-appended
-  events for the given type. Yields forever unless cancelled.
+- ``subscribe(aggregate_type)`` — async method returning an
+  :class:`AsyncIterator` of newly-appended events. The underlying
+  subscription is registered BEFORE this method returns; callers may
+  publish to ``aggregate_type`` immediately after ``await subscribe(...)``
+  and be sure those events will be delivered. Iteration is forever
+  unless cancelled.
 """
 
 from __future__ import annotations
@@ -61,12 +65,15 @@ class EventLog(ABC):
         """Stream events for an aggregate, ordered by aggregate_version."""
 
     @abstractmethod
-    def subscribe(self, aggregate_type: str) -> AsyncIterator[EventEnvelope]:
+    async def subscribe(self, aggregate_type: str) -> AsyncIterator[EventEnvelope]:
         """Subscribe to live events for an aggregate type.
 
-        Yields envelopes as they're appended. Iteration is forever
-        unless the consumer cancels. Cancellation cleans up subscriber
-        state.
+        Returns an async iterator that yields envelopes as they're
+        appended. The underlying subscription is ALREADY REGISTERED
+        with the log by the time this method returns; callers do NOT
+        need to await the first yield to be sure registration is
+        complete. Iteration is forever unless the consumer cancels.
+        Cancellation cleans up subscriber state.
         """
 
 
@@ -127,10 +134,23 @@ class InMemoryEventLog(EventLog):
                 yield ev
 
     async def subscribe(self, aggregate_type: str) -> AsyncIterator[EventEnvelope]:
-        """Yield newly-appended events for ``aggregate_type`` until cancelled."""
+        """Register a subscription then return an iterator over new events.
+
+        Registration is synchronous w.r.t. this method's return — the
+        caller's queue is in ``self._subscribers[aggregate_type]`` by the
+        time ``await subscribe(...)`` resolves, so any subsequent
+        ``append()`` is guaranteed delivery.
+        """
         q: asyncio.Queue[EventEnvelope] = asyncio.Queue()
         with self._lock:
             self._subscribers.setdefault(aggregate_type, []).append(q)
+        return self._iterate_subscription(q, aggregate_type)
+
+    async def _iterate_subscription(
+        self,
+        q: asyncio.Queue[EventEnvelope],
+        aggregate_type: str,
+    ) -> AsyncIterator[EventEnvelope]:
         try:
             while True:
                 envelope = await q.get()

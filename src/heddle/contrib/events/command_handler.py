@@ -27,6 +27,9 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from heddle.contrib.events.aggregate import Aggregate, snake_case
+from heddle.contrib.events.cache import AggregateCache, CacheKey
+from heddle.contrib.events.dedup_publisher import DedupPublisher, NullDedupPublisher
+from heddle.contrib.events.dedup_subscriber import DedupSubscriber, NullDedupSubscriber
 from heddle.contrib.events.envelopes import (
     EventEnvelope,
     EventMetadata,
@@ -37,6 +40,8 @@ from heddle.contrib.events.errors import (
 )
 from heddle.contrib.events.registry import get_aggregate_class
 from heddle.contrib.events.rejection_log import RejectionEnvelope
+from heddle.contrib.events.sli import get_recorder, time_observation
+from heddle.contrib.events.snapshot_store import SNAPSHOT_EVERY_N, SnapshotStore
 
 if TYPE_CHECKING:
     from heddle.contrib.events.envelopes import CommandMessage
@@ -45,11 +50,45 @@ if TYPE_CHECKING:
 
 
 class CommandHandler:
-    """Orchestrate command processing through the aggregate model."""
+    """Orchestrate command processing through the aggregate model.
 
-    def __init__(self, event_log: EventLog, rejection_log: RejectionLog) -> None:
+    Sprint 3 adds process-local caching (T2), snapshot persistence (T3),
+    and cross-process dedup via published ``mark_processed`` events
+    (T4). All three are optional via dependency injection — pass
+    ``cache=AggregateCache(max_size=0)`` to disable caching; pass
+    ``snapshot_store=None`` to skip the snapshot fast path; pass a
+    ``NullDedupPublisher`` / ``NullDedupSubscriber`` (the defaults)
+    for single-process deployments.
+    """
+
+    def __init__(
+        self,
+        event_log: EventLog,
+        rejection_log: RejectionLog,
+        *,
+        cache: AggregateCache | None = None,
+        snapshot_store: SnapshotStore | None = None,
+        dedup_publisher: DedupPublisher | None = None,
+        dedup_subscriber: DedupSubscriber | None = None,
+        snapshot_every_n: int = SNAPSHOT_EVERY_N,
+    ) -> None:
         self._event_log = event_log
         self._rejection_log = rejection_log
+        self._snapshot_store = snapshot_store
+        self._dedup_publisher = dedup_publisher or NullDedupPublisher()
+        self._dedup_subscriber = dedup_subscriber or NullDedupSubscriber()
+        self._snapshot_every_n = snapshot_every_n
+        # Wire cache eviction to dedup-subscriber unsubscribe so stale
+        # subscriptions don't outlive their aggregate.
+        if cache is None:
+            cache = AggregateCache(on_evict=self._on_cache_evict)
+        elif cache.on_evict is None:
+            cache.on_evict = self._on_cache_evict
+        self._cache = cache
+
+    async def _on_cache_evict(self, key: CacheKey, _aggregate: Aggregate) -> None:
+        agg_type, agg_id = key
+        await self._dedup_subscriber.unsubscribe(agg_type, agg_id)
 
     async def handle(self, cmd: CommandMessage) -> EventEnvelope:
         """Process a command and produce the resulting event.
@@ -60,6 +99,27 @@ class CommandHandler:
             CommandRejected: aggregate handler rejected the command.
             AttributeError: aggregate has no ``handle_<command_type>``.
         """
+        with time_observation() as elapsed:
+            outcome = "error"
+            try:
+                envelope = await self._handle_impl(cmd)
+                outcome = "success"
+                return envelope
+            except CommandRejected:
+                outcome = "rejected"
+                raise
+            except ConcurrencyError:
+                outcome = "concurrency_error"
+                raise
+            finally:
+                get_recorder().observe_command_handle(
+                    aggregate_type=cmd.aggregate_type,
+                    command_type=cmd.command_type,
+                    outcome=outcome,
+                    duration_seconds=elapsed(),
+                )
+
+    async def _handle_impl(self, cmd: CommandMessage) -> EventEnvelope:
         cls = get_aggregate_class(cmd.aggregate_type)
         aggregate = await self._load_or_create(cls, cmd.aggregate_id)
 
@@ -130,13 +190,56 @@ class CommandHandler:
         aggregate.apply(envelope)
         aggregate.mark_processed(cmd.command_id)
 
+        # ---- 10. Cross-process dedup announcement. ------------------------
+        await self._dedup_publisher.publish(
+            cmd.aggregate_type, cmd.aggregate_id, cmd.command_id
+        )
+
+        # ---- 11. Snapshot-on-write (count-based). -------------------------
+        if (
+            self._snapshot_store is not None
+            and self._snapshot_every_n > 0
+            and aggregate.aggregate_version % self._snapshot_every_n == 0
+        ):
+            await self._snapshot_store.save(aggregate)
+
         return envelope
 
     async def _load_or_create(self, cls: type[Aggregate], aggregate_id: str) -> Aggregate:
-        """Rebuild aggregate from event-log replay (no snapshot in Sprint 2)."""
-        aggregate = cls(aggregate_id=aggregate_id)
-        async for envelope in self._event_log.load(cls.aggregate_type, aggregate_id):
+        """Rebuild aggregate, preferring cache > snapshot > event replay.
+
+        Sprint 3 path:
+
+        1. Cache hit: return the cached instance immediately.
+        2. Cache miss: try snapshot (if configured); replay only events
+           with ``aggregate_version > snapshot_version``.
+        3. No snapshot: fresh aggregate + full replay from version 0.
+
+        Per v7 §4.5 the dedup buffer is restored from snapshot only —
+        pure-replay rebuilds (path 3) start with an empty buffer.
+        """
+        key: CacheKey = (cls.aggregate_type, aggregate_id)
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+
+        aggregate: Aggregate | None = None
+        from_version = 0
+        if self._snapshot_store is not None:
+            aggregate = await self._snapshot_store.load(cls, aggregate_id)
+            if aggregate is not None:
+                from_version = aggregate.aggregate_version
+
+        if aggregate is None:
+            aggregate = cls(aggregate_id=aggregate_id)
+
+        async for envelope in self._event_log.load(
+            cls.aggregate_type, aggregate_id, from_version=from_version
+        ):
             aggregate.apply(envelope)
+
+        await self._cache.put(key, aggregate)
+        await self._dedup_subscriber.subscribe(cls.aggregate_type, aggregate_id, self._cache)
         return aggregate
 
     async def _find_event_by_command_id(

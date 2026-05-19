@@ -235,6 +235,71 @@ async def test_non_internal_finalized_event_ignored(wiring) -> None:
 
 
 @pytest.mark.asyncio
+async def test_lease_preempts_cascade(wiring) -> None:
+    """Sprint 3 T7: with kv provided, P2's cascade attempts the lease;
+    if pre-claimed (e.g. by P3), the cascade silently skips."""
+    from heddle.contrib.events.lease import lease_key
+    from heddle.core.kvstore import InMemoryKeyValueStore
+
+    el, _rl, h, m, _c = wiring
+    kv = InMemoryKeyValueStore()
+    # Re-build cascade with a kv to enable leasing.
+    c_with_lease = CascadeProjector(m, h, kv=kv)
+
+    # Register a child + pre-claim its lease as if P3 already won.
+    await m.project(
+        EventEnvelope(
+            aggregate_type="CRoot",
+            aggregate_id="root-1",
+            aggregate_version=1,
+            event_type="ChildLinked",
+            payload={CHILD_MEMBERSHIP_KEY: {"add": [{"type": "CChild", "id": "c-1"}]}},
+            metadata=EventMetadata(issued_by="user:badge:t"),
+            occurred_at=datetime.now(UTC),
+            recorded_at=datetime.now(UTC),
+        )
+    )
+    await kv.set_if_not_exists(
+        lease_key("CChild", "c-1"), "framework:horizon:xyz", ttl_seconds=30
+    )
+
+    await c_with_lease.project(_root_finalized_envelope())
+
+    # No event landed for CChild — cascade was preempted at the lease.
+    events = [ev async for ev in el.load("CChild", "c-1")]
+    assert events == []
+
+
+@pytest.mark.asyncio
+async def test_lease_claim_then_publish(wiring) -> None:
+    """With kv provided and lease free, cascade claims and publishes."""
+    from heddle.core.kvstore import InMemoryKeyValueStore
+
+    el, _rl, h, m, _c = wiring
+    kv = InMemoryKeyValueStore()
+    c_with_lease = CascadeProjector(m, h, kv=kv)
+
+    await m.project(
+        EventEnvelope(
+            aggregate_type="CRoot",
+            aggregate_id="root-1",
+            aggregate_version=1,
+            event_type="ChildLinked",
+            payload={CHILD_MEMBERSHIP_KEY: {"add": [{"type": "CChild", "id": "c-1"}]}},
+            metadata=EventMetadata(issued_by="user:badge:t"),
+            occurred_at=datetime.now(UTC),
+            recorded_at=datetime.now(UTC),
+        )
+    )
+
+    await c_with_lease.project(_root_finalized_envelope())
+
+    events = [ev async for ev in el.load("CChild", "c-1")]
+    assert len(events) == 1
+    assert events[0].event_type == "InternalFinalized"
+
+
+@pytest.mark.asyncio
 async def test_non_root_internal_finalized_ignored(wiring) -> None:
     el, _rl, _h, _m, c = wiring
     # CChild is an IntervalAggregate, not a Root. Even if it finalizes,
