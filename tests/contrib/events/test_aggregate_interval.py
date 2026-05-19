@@ -17,7 +17,7 @@ pytestmark = pytest.mark.usefixtures("registry_isolation")
 def _internal_finalized_envelope(version: int) -> EventEnvelope:
     now = datetime.now(timezone.utc)
     return EventEnvelope(
-        aggregate_type="FakeInterval",
+        aggregate_type="IsoInterval",
         aggregate_id="i-1",
         aggregate_version=version,
         event_type="InternalFinalized",
@@ -29,7 +29,7 @@ def _internal_finalized_envelope(version: int) -> EventEnvelope:
 
 
 def _make_cls():
-    @register_aggregate("FakeInterval")
+    @register_aggregate("IsoInterval")
     class _Fake(IntervalAggregate):
         pass
 

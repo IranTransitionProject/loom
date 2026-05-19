@@ -12,7 +12,7 @@ pytestmark = pytest.mark.usefixtures("registry_isolation")
 
 
 def _make_cls():
-    @register_aggregate("FakeRoot")
+    @register_aggregate("IsoRoot")
     class _Root(RootAggregate):
         pass
 
