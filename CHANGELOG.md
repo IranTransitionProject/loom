@@ -32,6 +32,7 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
 
 ### Changed
 
+- Formalized the **Middleware Lane** pattern (Invariant #22): top-level JSON keys starting with an underscore (e.g., ``_trace_context``) are reserved for framework middleware and MUST be preserved and propagated by all actors. Documentation updated in ``docs/DESIGN_INVARIANTS.md``, ``docs/foreign-actors.md``, and inline comments in ``src/heddle/core/messages.py``. This change ensures that cross-cutting concerns like distributed tracing remain durable across multi-language actor meshes.
 - `heddle/src/heddle/worker/embeddings.py` module docstring gains a
   "Statelessness convention" section documenting the implicit rule
   that `EmbeddingProvider` subclasses are stateless-by-convention

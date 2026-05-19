@@ -113,6 +113,11 @@ class TaskResult(BaseModel):
 
     Published to: heddle.results.{parent_task_id or 'default'}
     The output dict must conform to the worker's output_schema (JSON Schema).
+
+    Note on Middleware Lane:
+        Must include any underscore-prefixed keys (e.g. ``_trace_context``)
+        received in the original TaskMessage to ensure end-to-end
+        observability. See DESIGN_INVARIANTS.md #22.
     """
 
     task_id: str
@@ -216,4 +221,6 @@ class CheckpointState(BaseModel):
     decisions_made: list[str]  # Important choices and rationale
     context_token_count: int  # Tokens at time of checkpoint
     checkpoint_number: int
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+er: int
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

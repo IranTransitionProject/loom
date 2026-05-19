@@ -382,6 +382,24 @@ If the convergence check could modify the transcript, it would be
 possible for a runaway LLM judge to terminate discussions prematurely
 by injecting "we all agree" into the record.
 
+### 22. Middleware Lane — preserve underscore-prefixed keys {: #22-middleware-lane }
+
+The wire envelope contains a **Middleware Lane**: any top-level key
+starting with an underscore (`_`) is owned by the framework's
+middleware (tracing, correlation, metrics) and is not part of the
+schema-declared application contract. Every actor MUST preserve and
+propagate these keys unchanged.
+
+**Why:** Separating middleware fields from application fields allows
+cross-cutting concerns to evolve without requiring a versioned schema
+update or breaking downstream clients. Tracing context (`_trace_context`) is
+the primary example today.
+
+**How it fails:** If an actor filters out unknown `_` keys or fails to
+propagate them from `TaskMessage` to `TaskResult`, it breaks distributed
+tracing and observability for the entire pipeline. The failure is "silent"
+to the application but fatal to operational monitoring.
+
 ---
 
 ## Summary — Framework Red Lines {: #summary--framework-red-lines }
@@ -409,6 +427,9 @@ the change sounds:
    is a security boundary, not a hint. (Invariant 19)
 8. **Never let a convergence detector mutate the transcript.** Detection is
    observation, not intervention. (Invariant 21)
+9. **Never drop or filter underscore-prefixed envelope keys.** The
+   Middleware Lane (`_trace_context`, etc.) must be propagated for
+   observability. (Invariant 22)
 
 **Application-level red lines** (knowledge-silo isolation, blind-audit
 discipline, behavioural-monitor isolation) live in
