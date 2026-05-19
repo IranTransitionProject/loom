@@ -40,20 +40,6 @@ from heddle.contrib.events.testing import make_command
 DISPATCH_DRAIN = 0.10
 
 
-async def _wait_for_subscriber(
-    event_log: InMemoryEventLog, aggregate_type: str, timeout: float = 1.0
-) -> None:
-    """Spin until the dispatcher's _run task has registered its queue
-    with the in-memory event log. Cheaper and more deterministic than
-    sleeping a magic constant."""
-    deadline = asyncio.get_event_loop().time() + timeout
-    while asyncio.get_event_loop().time() < deadline:
-        if event_log._subscribers.get(aggregate_type):
-            return
-        await asyncio.sleep(0)
-    raise AssertionError(f"dispatcher did not subscribe to {aggregate_type!r} within {timeout}s")
-
-
 @pytest.mark.asyncio
 async def test_root_finalization_cascades_to_children() -> None:
     event_log = InMemoryEventLog()
@@ -67,8 +53,6 @@ async def test_root_finalization_cascades_to_children() -> None:
     dispatcher.register(cascade)
     await dispatcher.start("FakeRoot")
     await dispatcher.start("FakeInterval")
-    await _wait_for_subscriber(event_log, "FakeRoot")
-    await _wait_for_subscriber(event_log, "FakeInterval")
 
     try:
         # 1. Bring root + 2 children into existence.
@@ -169,8 +153,6 @@ async def test_demo_uses_wired_dispatcher_fixture(
     P1 + P2 onto the dispatcher correctly."""
     await wired_dispatcher.start("FakeRoot")
     await wired_dispatcher.start("FakeInterval")
-    await _wait_for_subscriber(in_memory_event_log, "FakeRoot")
-    await _wait_for_subscriber(in_memory_event_log, "FakeInterval")
 
     await command_handler.handle(
         make_command(
@@ -198,3 +180,138 @@ async def test_demo_uses_wired_dispatcher_fixture(
         ev.event_type == "InternalFinalized" and ev.metadata.issued_by == CASCADE_ISSUED_BY
         for ev in child_events
     )
+
+
+# ---------------------------------------------------------------------------
+# Sprint 3 demo-scenario extensions (T15).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cross_process_dedup_via_published_events() -> None:
+    """Sprint 3 R7 end-to-end: two CommandHandler instances share a
+    snapshot store and an in-memory NATS-core bus. Handler1 processes
+    a command; Handler2 (with the aggregate already cached) sees the
+    published mark_processed event and treats a repeat as a dup."""
+    from heddle.contrib.events.dedup_publisher import NatsDedupPublisher
+    from heddle.contrib.events.dedup_subscriber import NatsDedupSubscriber
+    from heddle.contrib.events.registry import get_aggregate_class
+    from heddle.contrib.events.snapshot_store import SnapshotStore
+    from heddle.core.kvstore import InMemoryKeyValueStore
+    from tests.contrib.events.test_hybrid_dedup import InMemoryNatsBus
+
+    event_log = InMemoryEventLog()
+    rejection_log = InMemoryRejectionLog()
+    bus = InMemoryNatsBus()
+    kv = InMemoryKeyValueStore()
+    snapshots = SnapshotStore(kv)
+
+    h1 = CommandHandler(
+        event_log,
+        rejection_log,
+        snapshot_store=snapshots,
+        dedup_publisher=NatsDedupPublisher(bus),  # type: ignore[arg-type]
+        dedup_subscriber=NatsDedupSubscriber(bus),  # type: ignore[arg-type]
+    )
+    h2 = CommandHandler(
+        event_log,
+        rejection_log,
+        snapshot_store=snapshots,
+        dedup_publisher=NatsDedupPublisher(bus),  # type: ignore[arg-type]
+        dedup_subscriber=NatsDedupSubscriber(bus),  # type: ignore[arg-type]
+    )
+
+    # Prime h2's cache so it has a live mark_processed subscription.
+    await h2._load_or_create(get_aggregate_class("FakeRoot"), "root-shared")
+
+    first = await h1.handle(
+        make_command(
+            aggregate_type="FakeRoot",
+            aggregate_id="root-shared",
+            command_type="AddChild",
+            payload={"child_id": "x"},
+        )
+    )
+    await asyncio.sleep(0)  # let the subscriber callback complete
+
+    # h2's cached aggregate now knows about the command_id from h1.
+    cached = h2._cache.get(("FakeRoot", "root-shared"))
+    assert cached is not None
+    assert cached.has_processed(first.metadata.command_id or "")
+
+    # Re-running the same command on h2 returns the original event.
+    second = await h2.handle(
+        make_command(
+            aggregate_type="FakeRoot",
+            aggregate_id="root-shared",
+            command_type="AddChild",
+            payload={"child_id": "x"},
+            command_id=first.metadata.command_id,
+            expected_aggregate_version=1,
+        )
+    )
+    assert second.event_id == first.event_id
+
+
+@pytest.mark.asyncio
+async def test_lease_prevents_double_finalization() -> None:
+    """Sprint 3 R5 end-to-end: with both P2 and P3 wired up against a
+    shared in-memory KV, a horizon fire and a cascade attempt cannot
+    both publish — the lease serialises them."""
+    from heddle.contrib.events.lease import finalization_lease, lease_key
+    from heddle.core.kvstore import InMemoryKeyValueStore
+
+    event_log = InMemoryEventLog()
+    rejection_log = InMemoryRejectionLog()
+    handler = CommandHandler(event_log, rejection_log)
+    kv = InMemoryKeyValueStore()
+    membership = ScopeMembershipProjector()
+    cascade = CascadeProjector(membership, handler, kv=kv)
+
+    dispatcher = EventDispatcher(event_log)
+    dispatcher.register(membership)
+    dispatcher.register(cascade)
+    await dispatcher.start("FakeRoot")
+    await dispatcher.start("FakeInterval")
+
+    try:
+        # Bring the root + a child into existence.
+        await handler.handle(
+            make_command(
+                aggregate_type="FakeRoot",
+                aggregate_id="root-lease",
+                command_type="AddChild",
+                payload={"child_id": "c-lease"},
+            )
+        )
+        await asyncio.sleep(DISPATCH_DRAIN)
+
+        # Simulate P3 winning the race by pre-claiming the child's lease.
+        async with finalization_lease(
+            kv, "FakeInterval", "c-lease", "framework:horizon"
+        ) as claimed:
+            assert claimed is True
+            # While the lease is held, finalise the root; cascade fires
+            # but the lease is occupied → cascade publish is skipped.
+            await handler.handle(
+                make_command(
+                    aggregate_type="FakeRoot",
+                    aggregate_id="root-lease",
+                    command_type="InternalFinalize",
+                    payload={},
+                    issued_by="framework:horizon",
+                    expected_aggregate_version=1,
+                )
+            )
+            await asyncio.sleep(DISPATCH_DRAIN)
+
+        # Verify: child has NOT been finalised by cascade (lease blocked it).
+        child_events = [ev async for ev in event_log.load("FakeInterval", "c-lease")]
+        finalised = [ev for ev in child_events if ev.event_type == "InternalFinalized"]
+        assert finalised == [], "cascade should not have published while lease was held"
+        # Lease key remains for audit.
+        held = await kv.get(lease_key("FakeInterval", "c-lease"))
+        assert held is not None
+        assert held.startswith("framework:horizon:")
+    finally:
+        await dispatcher.stop()

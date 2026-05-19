@@ -52,6 +52,21 @@ class KeyValueStore(ABC):
         """Retrieve a value, or ``None`` if missing/expired."""
         ...
 
+    @abstractmethod
+    async def set_if_not_exists(self, key: str, value: str, ttl_seconds: int) -> bool:
+        """Atomically set ``key`` to ``value`` with TTL only if absent.
+
+        Returns ``True`` if the value was stored (caller "won the
+        race"), ``False`` if the key already existed (caller lost).
+        TTL is mandatory — the SETNX-without-TTL footgun (orphaned
+        leases on crash) is explicitly disallowed.
+
+        Used by :func:`heddle.contrib.events.lease.finalization_lease`
+        and any other coordination primitive that needs a single-writer
+        guarantee with bounded recovery.
+        """
+        ...
+
     async def aclose(self) -> None:  # noqa: B027 — intentional no-op default
         """Release any I/O resources held by this store.
 
@@ -97,6 +112,22 @@ class InMemoryKeyValueStore(KeyValueStore):
             return None
         return value
 
+    async def set_if_not_exists(self, key: str, value: str, ttl_seconds: int) -> bool:
+        """Atomic set-if-absent. Lazily expires the existing entry first.
+
+        Single-event-loop atomicity is sufficient for the test/dev use
+        cases this store targets; multi-process coordination requires
+        :class:`RedisKeyValueStore`.
+        """
+        entry = self._data.get(key)
+        if entry is not None:
+            _v, expires_at = entry
+            if expires_at is None or time.monotonic() <= expires_at:
+                return False
+            del self._data[key]
+        self._data[key] = (value, time.monotonic() + ttl_seconds)
+        return True
+
 
 class ScopedKeyValueStore(KeyValueStore):
     """A view of a parent ``KeyValueStore`` with a fixed key prefix.
@@ -120,6 +151,10 @@ class ScopedKeyValueStore(KeyValueStore):
     async def get(self, key: str) -> str | None:
         """Retrieve a value with the configured prefix prepended."""
         return await self._parent.get(self._prefix + key)
+
+    async def set_if_not_exists(self, key: str, value: str, ttl_seconds: int) -> bool:
+        """Delegate atomic set-if-absent with the configured prefix."""
+        return await self._parent.set_if_not_exists(self._prefix + key, value, ttl_seconds)
 
 
 # ---------------------------------------------------------------------------

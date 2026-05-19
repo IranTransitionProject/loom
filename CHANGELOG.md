@@ -32,6 +32,20 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
 
 ### Changed
 
+- **`heddle.contrib.events.event_log.EventLog.subscribe` signature
+  (R4).** Now `async def` returning `AsyncIterator` — the
+  underlying subscription is registered BEFORE the method returns,
+  so callers may publish immediately afterwards and be guaranteed
+  delivery. Eliminates the Sprint 2 J5 race that required
+  `_wait_for_subscriber` polling helpers. `EventDispatcher.start`
+  is updated to match.
+- **`CommandHandler.__init__` keyword arguments.** Adds optional
+  `cache`, `snapshot_store`, `dedup_publisher`, `dedup_subscriber`,
+  `snapshot_every_n`. All default to Null/None for back-compat with
+  Sprint 2 in-memory tests.
+- **`CascadeProjector.__init__`** accepts an optional `kv` argument
+  enabling lease integration. `kv=None` (the default) preserves
+  Sprint 2 behaviour.
 - Formalized the **Middleware Lane** pattern (Invariant #22): top-level JSON keys starting with an underscore (e.g., ``_trace_context``) are reserved for framework middleware and MUST be preserved and propagated by all actors. Documentation updated in ``docs/DESIGN_INVARIANTS.md``, ``docs/foreign-actors.md``, and inline comments in ``src/heddle/core/messages.py``. This change ensures that cross-cutting concerns like distributed tracing remain durable across multi-language actor meshes.
 - `heddle/src/heddle/worker/embeddings.py` module docstring gains a
   "Statelessness convention" section documenting the implicit rule
@@ -92,6 +106,45 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
 
 ### Added
 
+- **`heddle.contrib.events` Sprint 3 — production runtime.** Replaces
+  the Sprint 2 in-memory machinery with JetStream + Valkey backings
+  and the coordination mechanisms the in-memory paths didn't need.
+  Per architecture v7 §6 Sprint 3 plus Sprint 2 feedback R1, R4,
+  R5, R7. Components:
+  - `JetStreamEventLog` / `JetStreamRejectionLog` —
+    production `EventLog` / `RejectionLog` over NATS JetStream.
+    CAS append via `Nats-Expected-Last-Subject-Sequence` (APIError
+    code 10071 → `ConcurrencyError`). Idempotent stream-config
+    helpers `ensure_event_stream` / `ensure_command_stream` /
+    `ensure_rejection_stream`.
+  - `AggregateCache` — process-local LRU (default 1024).
+    `CommandHandler` consults cache → snapshot → log replay; in-
+    process dedup now works across `handle()` calls.
+  - `SnapshotStore` — adapts `KeyValueStore` to aggregate snapshots
+    at `heddle:events:snapshot:{type}:{id}`. Count-based snapshot-
+    on-write (every N events).
+  - Hybrid `mark_processed` — `DedupPublisher` / `DedupSubscriber`
+    on subject `heddle.dedup.{type}.{id}` (NATS core, not
+    JetStream). `NullDedupPublisher` / `NullDedupSubscriber` for
+    tests; `NatsDedupPublisher` / `NatsDedupSubscriber` for
+    production.
+  - `finalization_lease` — Valkey SETNX EX lease at
+    `heddle:events:horizon:{type}:{id}` (TTL 30s). P2 and P3 both
+    attempt it before publishing `InternalFinalize`; loser logs and
+    skips. Cascade's deterministic command_id mechanism preserved
+    as defense-in-depth.
+  - Real `FinalizationHorizonProjector` (P3) replaces the Sprint 2
+    stub. Per-aggregate `asyncio.Task` timers; configurable via
+    `IntervalAggregate.HORIZON_TIMEOUT_SECONDS` ClassVar
+    (default 24h). `issued_by="framework:horizon"`.
+  - `KeyValueStore.set_if_not_exists` — new abstract method on the
+    KV ABC. Implementations: in-memory (single-event-loop atomic),
+    scoped (delegates with prefix), Redis (`SET NX EX`).
+  - SLI instrumentation hooks (`heddle.contrib.events.sli`) —
+    OpenTelemetry-compatible `Recorder` Protocol; three histogram
+    observations (command handle, dispatcher fan-out, lease
+    acquisition). Default no-op recorder; `install_recorder` for
+    application-installed exporters.
 - Per-package coverage gates (K4 closeout). The global
   `fail_under = 91` in `[tool.coverage.report]` is unchanged; in
   addition, `[tool.heddle.coverage-gates]` now holds per-package

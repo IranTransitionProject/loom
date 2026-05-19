@@ -155,3 +155,30 @@ async def test_re_register_same_projector_instance_is_noop() -> None:
     d.register(p)
     d.register(p)
     assert len(d._projectors) == 1
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_start_is_synchronous_with_subscription() -> None:
+    """Sprint 3 R4: after `await dispatcher.start(type)` returns, an
+    event appended to that type MUST be delivered to projectors —
+    without a magic-constant sleep or polling helper between start()
+    and append().
+    """
+    log = InMemoryEventLog()
+    p = _RecorderProjector("p")
+    d = EventDispatcher(log)
+    d.register(p)
+
+    await d.start("FakeT")
+    try:
+        await log.append(_ev(version=1), expected_version=0)
+        # No `await asyncio.sleep(0)` here — start() returned with the
+        # subscription already registered. We still need to yield once
+        # so the consumer task can drain the queue.
+        for _ in range(50):
+            if p.seen:
+                break
+            await asyncio.sleep(0)
+        assert p.seen == [("FakeT", "a-1", 1)]
+    finally:
+        await d.stop()

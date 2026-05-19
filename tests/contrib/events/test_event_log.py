@@ -129,22 +129,35 @@ async def test_concurrent_appends_one_wins() -> None:
 
 
 @pytest.mark.asyncio
+async def test_subscribe_returns_after_registration() -> None:
+    """Sprint 3 R4: `await subscribe()` returns AFTER registration —
+    the subscriber queue is visible in `_subscribers` synchronously
+    on the awaiter side, without needing to begin iteration."""
+    log = InMemoryEventLog()
+    iterator = await log.subscribe("FakeT")
+    assert len(log._subscribers["FakeT"]) == 1
+    # Drain and confirm an event published immediately after registration is delivered.
+    await log.append(_ev(version=1), expected_version=0)
+    first = await asyncio.wait_for(iterator.__anext__(), timeout=1.0)
+    assert first.aggregate_version == 1
+    # Cleanup.
+    await iterator.aclose()
+
+
+@pytest.mark.asyncio
 async def test_subscribe_yields_events_appended_after() -> None:
     log = InMemoryEventLog()
     seen: list[int] = []
-    started = asyncio.Event()
+
+    iterator = await log.subscribe("FakeT")
 
     async def consumer() -> None:
-        async for ev in log.subscribe("FakeT"):
+        async for ev in iterator:
             seen.append(ev.aggregate_version)
-            if not started.is_set():
-                started.set()
             if len(seen) >= 2:
                 return
 
     task = asyncio.create_task(consumer())
-    # Give the subscriber a turn to register before we publish.
-    await asyncio.sleep(0)
     await log.append(_ev(version=1), expected_version=0)
     await log.append(_ev(version=2), expected_version=1)
     await asyncio.wait_for(task, timeout=1.0)
@@ -156,15 +169,15 @@ async def test_subscribe_does_not_yield_prior_events() -> None:
     log = InMemoryEventLog()
     await log.append(_ev(version=1), expected_version=0)
 
+    iterator = await log.subscribe("FakeT")
     seen: list[int] = []
 
     async def consumer() -> None:
-        async for ev in log.subscribe("FakeT"):
+        async for ev in iterator:
             seen.append(ev.aggregate_version)
             return
 
     task = asyncio.create_task(consumer())
-    await asyncio.sleep(0)
     await log.append(_ev(version=2), expected_version=1)
     await asyncio.wait_for(task, timeout=1.0)
     assert seen == [2]
@@ -174,21 +187,23 @@ async def test_subscribe_does_not_yield_prior_events() -> None:
 async def test_subscribe_cleanup_on_cancel() -> None:
     log = InMemoryEventLog()
 
+    iterator = await log.subscribe("FakeT")
+    assert len(log._subscribers["FakeT"]) == 1
+
     async def consumer() -> None:
-        async for _ev in log.subscribe("FakeT"):
+        async for _ev in iterator:
             pass
 
     task = asyncio.create_task(consumer())
-    await asyncio.sleep(0)  # let the subscriber register
-    assert len(log._subscribers["FakeT"]) == 1
+    await asyncio.sleep(0)  # let consumer start iterating
 
     task.cancel()
     try:
         await task
     except asyncio.CancelledError:
-        # Expected: cancellation propagates from the subscribe() async
-        # generator out through the consumer task. The point of this
-        # test is to verify cleanup happens regardless.
+        # Expected: cancellation propagates from the iterator out
+        # through the consumer task. Cleanup runs in the iterator's
+        # finally block.
         pass
 
     assert log._subscribers.get("FakeT", []) == []

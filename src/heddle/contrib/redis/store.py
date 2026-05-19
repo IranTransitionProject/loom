@@ -46,6 +46,11 @@ class RedisKeyValueStore(KeyValueStore):
             return result.decode()
         return result
 
+    async def set_if_not_exists(self, key: str, value: str, ttl_seconds: int) -> bool:
+        """Atomic SET NX EX (Valkey/Redis primitive)."""
+        result = await self._redis.set(key, value, ex=ttl_seconds, nx=True)
+        return bool(result)
+
     async def aclose(self) -> None:
         """Close the underlying Redis client connection pool."""
         await self._redis.aclose()

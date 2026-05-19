@@ -12,7 +12,7 @@
       "type": "string"
     }
   },
-  "description": "Message sent FROM a worker actor after processing.\n\nPublished to: heddle.results.{parent_task_id or 'default'}\nThe output dict must conform to the worker's output_schema (JSON Schema).",
+  "description": "Message sent FROM a worker actor after processing.\n\nPublished to: heddle.results.{parent_task_id or 'default'}\nThe output dict must conform to the worker's output_schema (JSON Schema).\n\nNote on Middleware Lane:\n    Must include any underscore-prefixed keys (e.g. ``_trace_context``)\n    received in the original TaskMessage to ensure end-to-end\n    observability. See DESIGN_INVARIANTS.md #22.",
   "properties": {
     "completed_at": {
       "format": "date-time",

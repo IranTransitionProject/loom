@@ -41,6 +41,7 @@ Each ADR follows this skeleton:
 | [ADR-010](010-condition-eval-defaults.md) | Condition-evaluation defaults — fail-closed by default, env-gated legacy | [Invariant 10](../DESIGN_INVARIANTS.md#10-condition-evaluation-malformed--false-skip-missing-path--false-skip) |
 | [ADR-011](011-first-completed-vs-gather.md) | Pipeline parallel levels use FIRST_COMPLETED, not gather | [Invariant 16](../DESIGN_INVARIANTS.md#16-pipeline-parallel-levels-use-first_completed-not-gather) |
 | [ADR-012](012-drop-message-level-retry.md) | Drop message-level retry fields | [Invariant 1](../DESIGN_INVARIANTS.md#1-worker-statelessness-is-enforced-not-optional) |
+| [ADR-013](013-nats-auth-model.md) | NATS auth model — multi-user, single account | [runbook: nats-acl-configuration](../runbooks/nats-acl-configuration.md) |
 
 ## When to write a new ADR
 
