@@ -56,7 +56,7 @@ _FIRST_CAP_RE = re.compile(r"(.)([A-Z][a-z]+)")
 _ALL_CAP_RE = re.compile(r"([a-z0-9])([A-Z])")
 
 
-def _snake_case(camel: str) -> str:
+def snake_case(camel: str) -> str:
     """Convert CamelCase event/command types to ``apply_*`` / ``handle_*`` names.
 
     Examples::
@@ -144,7 +144,7 @@ class Aggregate(ABC):
                 f"does not follow current version {self.aggregate_version}"
             )
 
-        method_name = f"apply_{_snake_case(envelope.event_type)}"
+        method_name = f"apply_{snake_case(envelope.event_type)}"
         handler = getattr(self, method_name, None)
         if handler is None:
             raise UnknownEventVersionError(

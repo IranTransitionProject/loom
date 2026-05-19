@@ -14,7 +14,7 @@ import pytest
 from heddle.contrib.events.aggregate import (
     PROCESSED_COMMAND_RING_SIZE,
     Aggregate,
-    _snake_case,
+    snake_case,
 )
 from heddle.contrib.events.envelopes import EventEnvelope, EventMetadata
 from heddle.contrib.events.errors import (
@@ -44,8 +44,8 @@ pytestmark = pytest.mark.usefixtures("registry_isolation")
         ("A", "a"),
     ],
 )
-def test_snake_case(camel: str, snake: str) -> None:
-    assert _snake_case(camel) == snake
+def testsnake_case(camel: str, snake: str) -> None:
+    assert snake_case(camel) == snake
 
 
 # ---------------------------------------------------------------------------
