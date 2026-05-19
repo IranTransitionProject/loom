@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 from heddle.contrib.events.envelopes import EventEnvelope, EventMetadata
-from heddle.contrib.events.projectors import FinalizationHorizonProjector
-from heddle.contrib.events.projectors import finalization_horizon
+from heddle.contrib.events.projectors import FinalizationHorizonProjector, finalization_horizon
 
 
 @pytest.mark.asyncio
 async def test_project_is_noop() -> None:
     p = FinalizationHorizonProjector()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     envelope = EventEnvelope(
         aggregate_type="Any",
         aggregate_id="any-1",

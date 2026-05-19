@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -10,12 +10,11 @@ from heddle.contrib.events.aggregate import IntervalAggregate
 from heddle.contrib.events.envelopes import EventEnvelope, EventMetadata
 from heddle.contrib.events.registry import register_aggregate
 
-
 pytestmark = pytest.mark.usefixtures("registry_isolation")
 
 
 def _internal_finalized_envelope(version: int) -> EventEnvelope:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return EventEnvelope(
         aggregate_type="IsoInterval",
         aggregate_id="i-1",

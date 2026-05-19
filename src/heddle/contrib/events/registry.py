@@ -17,10 +17,12 @@ MUST use the ``registry_isolation`` pytest fixture from
 
 from __future__ import annotations
 
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from heddle.contrib.events.aggregate import Aggregate, RootAggregate
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _AggregateCls = TypeVar("_AggregateCls", bound=type[Aggregate])
 
@@ -33,7 +35,9 @@ runtime; tests reset it via ``registry_isolation``.
 """
 
 
-def register_aggregate(aggregate_type: str):
+def register_aggregate(
+    aggregate_type: str,
+) -> Callable[[_AggregateCls], _AggregateCls]:
     """Class decorator that registers an :class:`Aggregate` subclass.
 
     Sets the class's ``aggregate_type`` ClassVar and adds it to

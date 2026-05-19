@@ -23,11 +23,11 @@ subclass plus the snapshot fast path. Sprint 4a's PFObservers use
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from heddle.contrib.events.aggregate import Aggregate, snake_case
 from heddle.contrib.events.envelopes import (
-    CommandMessage,
     EventEnvelope,
     EventMetadata,
 )
@@ -35,12 +35,13 @@ from heddle.contrib.events.errors import (
     CommandRejected,
     ConcurrencyError,
 )
-from heddle.contrib.events.event_log import EventLog
 from heddle.contrib.events.registry import get_aggregate_class
-from heddle.contrib.events.rejection_log import (
-    RejectionEnvelope,
-    RejectionLog,
-)
+from heddle.contrib.events.rejection_log import RejectionEnvelope
+
+if TYPE_CHECKING:
+    from heddle.contrib.events.envelopes import CommandMessage
+    from heddle.contrib.events.event_log import EventLog
+    from heddle.contrib.events.rejection_log import RejectionLog
 
 
 class CommandHandler:
@@ -77,13 +78,15 @@ class CommandHandler:
             # event with a new event_id is harmless.
 
         # ---- 4. Optimistic concurrency check at command level. -------------
-        if cmd.expected_aggregate_version is not None:
-            if cmd.expected_aggregate_version != aggregate.aggregate_version:
-                raise ConcurrencyError(
-                    f"command expected_aggregate_version="
-                    f"{cmd.expected_aggregate_version} but aggregate "
-                    f"version={aggregate.aggregate_version}"
-                )
+        if (
+            cmd.expected_aggregate_version is not None
+            and cmd.expected_aggregate_version != aggregate.aggregate_version
+        ):
+            raise ConcurrencyError(
+                f"command expected_aggregate_version="
+                f"{cmd.expected_aggregate_version} but aggregate "
+                f"version={aggregate.aggregate_version}"
+            )
 
         # ---- 5. Dispatch to aggregate.handle_<command_type>(). -------------
         handler_name = f"handle_{snake_case(cmd.command_type)}"
@@ -102,14 +105,14 @@ class CommandHandler:
                     command=cmd,
                     reason=rej.reason,
                     detail=rej.detail,
-                    rejected_at=datetime.now(timezone.utc),
+                    rejected_at=datetime.now(UTC),
                 )
             )
             raise
 
         # ---- 8. Build envelope. --------------------------------------------
         current_version = aggregate.aggregate_version
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         envelope = EventEnvelope(
             aggregate_type=cmd.aggregate_type,
             aggregate_id=cmd.aggregate_id,

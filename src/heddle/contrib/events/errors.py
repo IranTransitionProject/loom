@@ -33,7 +33,7 @@ class AggregateInvariantError(HeddleEventsError):
     """
 
 
-class CommandRejected(HeddleEventsError):
+class CommandRejected(HeddleEventsError):  # noqa: N818 - name fixed by v7 §4.5 wire contract
     """A command was rejected by aggregate validation, before any event was produced.
 
     Raised by command-handler methods on the aggregate. The
@@ -64,7 +64,7 @@ class BusResultTimeoutError(HeddleEventsError):
     """
 
 
-class CorruptAggregateAlert(HeddleEventsError):
+class CorruptAggregateAlert(HeddleEventsError):  # noqa: N818 - name fixed by v7 §4.5 wire contract
     """An aggregate's event log contains a forged or impossible event.
 
     Raised at :meth:`Aggregate.apply` time when an ``InternalFinalized``

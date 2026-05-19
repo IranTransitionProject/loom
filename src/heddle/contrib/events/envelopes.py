@@ -23,7 +23,7 @@ See Also:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime  # noqa: TC003 - Pydantic field type, used at runtime
 from typing import Any
 
 from pydantic import BaseModel, Field

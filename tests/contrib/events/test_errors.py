@@ -12,7 +12,6 @@ from heddle.contrib.events.errors import (
     UnknownEventVersionError,
 )
 
-
 _LEAVES = (
     UnknownEventVersionError,
     AggregateInvariantError,
@@ -29,13 +28,17 @@ def test_inherits_from_base(cls: type[HeddleEventsError]) -> None:
     assert issubclass(cls, Exception)
 
 
+def _raise(cls: type[HeddleEventsError]) -> None:
+    # CommandRejected requires reason/detail; build accordingly.
+    if cls is CommandRejected:
+        raise cls("X", "y")
+    raise cls("boom")
+
+
 @pytest.mark.parametrize("cls", _LEAVES)
 def test_catchable_as_family(cls: type[HeddleEventsError]) -> None:
     with pytest.raises(HeddleEventsError):
-        # CommandRejected requires reason/detail; build accordingly.
-        if cls is CommandRejected:
-            raise cls("X", "y")
-        raise cls("boom")
+        _raise(cls)
 
 
 def test_command_rejected_with_reason_and_detail() -> None:

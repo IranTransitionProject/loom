@@ -6,7 +6,7 @@ framework-only event types, dedup buffer, and snapshot round-trip.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -24,7 +24,6 @@ from heddle.contrib.events.errors import (
 )
 from heddle.contrib.events.registry import register_aggregate
 
-
 pytestmark = pytest.mark.usefixtures("registry_isolation")
 
 
@@ -34,7 +33,7 @@ pytestmark = pytest.mark.usefixtures("registry_isolation")
 
 
 @pytest.mark.parametrize(
-    "camel,snake",
+    ("camel", "expected"),
     [
         ("JobClockedIn", "job_clocked_in"),
         ("InternalFinalized", "internal_finalized"),
@@ -44,8 +43,8 @@ pytestmark = pytest.mark.usefixtures("registry_isolation")
         ("A", "a"),
     ],
 )
-def testsnake_case(camel: str, snake: str) -> None:
-    assert snake_case(camel) == snake
+def test_snake_case_helper(camel: str, expected: str) -> None:
+    assert snake_case(camel) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +61,7 @@ def _envelope(
     aggregate_id: str = "agg-1",
     payload: dict[str, Any] | None = None,
 ) -> EventEnvelope:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return EventEnvelope(
         aggregate_type=aggregate_type,
         aggregate_id=aggregate_id,

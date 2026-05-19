@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -20,7 +20,7 @@ def _ev(
     version: int,
     payload: dict[str, Any] | None = None,
 ) -> EventEnvelope:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return EventEnvelope(
         aggregate_type=aggregate_type,
         aggregate_id=aggregate_id,
@@ -186,6 +186,9 @@ async def test_subscribe_cleanup_on_cancel() -> None:
     try:
         await task
     except asyncio.CancelledError:
+        # Expected: cancellation propagates from the subscribe() async
+        # generator out through the consumer task. The point of this
+        # test is to verify cleanup happens regardless.
         pass
 
     assert log._subscribers.get("FakeT", []) == []

@@ -8,10 +8,13 @@ runtime against the public fixtures-friendly entry points.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Iterator
+from typing import TYPE_CHECKING
 
 import pytest
 import pytest_asyncio
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Iterator
 
 from heddle.contrib.events.command_handler import CommandHandler
 from heddle.contrib.events.dispatcher import EventDispatcher

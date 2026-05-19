@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -14,12 +14,11 @@ from heddle.contrib.events.projectors import (
 )
 from heddle.contrib.events.registry import register_aggregate
 
-
 pytestmark = pytest.mark.usefixtures("registry_isolation")
 
 
 def _ev(*, agg_type: str, agg_id: str = "r-1", payload: dict | None = None) -> EventEnvelope:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return EventEnvelope(
         aggregate_type=agg_type,
         aggregate_id=agg_id,

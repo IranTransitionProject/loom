@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -24,7 +24,6 @@ from heddle.contrib.events.projectors import (
 )
 from heddle.contrib.events.registry import register_aggregate
 from heddle.contrib.events.rejection_log import InMemoryRejectionLog
-
 
 pytestmark = pytest.mark.usefixtures("registry_isolation")
 
@@ -58,17 +57,17 @@ def _make_classes():
 def _root_finalized_envelope(
     *, root_id: str = "root-1", event_id: str | None = None
 ) -> EventEnvelope:
-    now = datetime.now(timezone.utc)
-    kwargs: dict[str, Any] = dict(
-        aggregate_type="CRoot",
-        aggregate_id=root_id,
-        aggregate_version=1,
-        event_type="InternalFinalized",
-        payload={},
-        metadata=EventMetadata(issued_by="framework:horizon"),
-        occurred_at=now,
-        recorded_at=now,
-    )
+    now = datetime.now(UTC)
+    kwargs: dict[str, Any] = {
+        "aggregate_type": "CRoot",
+        "aggregate_id": root_id,
+        "aggregate_version": 1,
+        "event_type": "InternalFinalized",
+        "payload": {},
+        "metadata": EventMetadata(issued_by="framework:horizon"),
+        "occurred_at": now,
+        "recorded_at": now,
+    }
     if event_id is not None:
         kwargs["event_id"] = event_id
     return EventEnvelope(**kwargs)
@@ -103,8 +102,8 @@ async def test_cascade_finalizes_registered_children(wiring) -> None:
                     }
                 },
                 metadata=EventMetadata(issued_by="user:badge:test"),
-                occurred_at=datetime.now(timezone.utc),
-                recorded_at=datetime.now(timezone.utc),
+                occurred_at=datetime.now(UTC),
+                recorded_at=datetime.now(UTC),
             )
         )
 
@@ -152,8 +151,8 @@ async def test_cascade_is_idempotent(wiring) -> None:
                 }
             },
             metadata=EventMetadata(issued_by="user:badge:test"),
-            occurred_at=datetime.now(timezone.utc),
-            recorded_at=datetime.now(timezone.utc),
+            occurred_at=datetime.now(UTC),
+            recorded_at=datetime.now(UTC),
         )
     )
 
@@ -185,8 +184,8 @@ async def test_command_rejected_swallowed(wiring) -> None:
                 }
             },
             metadata=EventMetadata(issued_by="user:badge:test"),
-            occurred_at=datetime.now(timezone.utc),
-            recorded_at=datetime.now(timezone.utc),
+            occurred_at=datetime.now(UTC),
+            recorded_at=datetime.now(UTC),
         )
     )
     # Pre-finalize the child via direct cascade-shaped command.
@@ -199,7 +198,7 @@ async def test_command_rejected_swallowed(wiring) -> None:
             command_type="InternalFinalize",
             payload={},
             metadata=CommandMetadata(issued_by="framework:cascade"),
-            issued_at=datetime.now(timezone.utc),
+            issued_at=datetime.now(UTC),
         )
     )
 
@@ -228,8 +227,8 @@ async def test_non_internal_finalized_event_ignored(wiring) -> None:
                 }
             },
             metadata=EventMetadata(issued_by="user:badge:test"),
-            occurred_at=datetime.now(timezone.utc),
-            recorded_at=datetime.now(timezone.utc),
+            occurred_at=datetime.now(UTC),
+            recorded_at=datetime.now(UTC),
         )
     )
 
@@ -242,8 +241,8 @@ async def test_non_internal_finalized_event_ignored(wiring) -> None:
             event_type="ChildAdded",
             payload={},
             metadata=EventMetadata(issued_by="user:badge:test"),
-            occurred_at=datetime.now(timezone.utc),
-            recorded_at=datetime.now(timezone.utc),
+            occurred_at=datetime.now(UTC),
+            recorded_at=datetime.now(UTC),
         )
     )
 
@@ -264,8 +263,8 @@ async def test_non_root_internal_finalized_ignored(wiring) -> None:
             event_type="InternalFinalized",
             payload={},
             metadata=EventMetadata(issued_by="framework:horizon"),
-            occurred_at=datetime.now(timezone.utc),
-            recorded_at=datetime.now(timezone.utc),
+            occurred_at=datetime.now(UTC),
+            recorded_at=datetime.now(UTC),
         )
     )
     # Nothing should have been emitted.

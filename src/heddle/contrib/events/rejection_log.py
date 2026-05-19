@@ -15,12 +15,17 @@ from __future__ import annotations
 
 import threading
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
-from datetime import datetime
+from datetime import datetime  # noqa: TC003 - Pydantic field type, used at runtime
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
-from heddle.contrib.events.envelopes import CommandMessage
+from heddle.contrib.events.envelopes import (
+    CommandMessage,  # noqa: TC001 - Pydantic field type, used at runtime
+)
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 def _uuid7() -> str:
@@ -60,7 +65,8 @@ class RejectionLog(ABC):
     """Append-only audit stream of rejected commands."""
 
     @abstractmethod
-    async def append(self, envelope: RejectionEnvelope) -> None: ...
+    async def append(self, envelope: RejectionEnvelope) -> None:
+        """Append a rejection envelope to the log."""
 
     @abstractmethod
     def load(
@@ -81,12 +87,14 @@ class InMemoryRejectionLog(RejectionLog):
         self._lock = threading.Lock()
 
     async def append(self, envelope: RejectionEnvelope) -> None:
+        """Append a rejection envelope under the internal lock."""
         with self._lock:
             self._rejections.append(envelope)
 
     async def load(
         self, aggregate_type: str, aggregate_id: str | None = None
     ) -> AsyncIterator[RejectionEnvelope]:
+        """Yield rejections matching the optional aggregate filter, in append-order."""
         with self._lock:
             snapshot = list(self._rejections)
         for rej in snapshot:

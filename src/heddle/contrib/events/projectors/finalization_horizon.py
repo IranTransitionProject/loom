@@ -30,8 +30,12 @@ The end-to-end demo scenario test in Sprint 2 wires P1 + P2 only.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from heddle.contrib.events.dispatcher import Projector
-from heddle.contrib.events.envelopes import EventEnvelope
+
+if TYPE_CHECKING:
+    from heddle.contrib.events.envelopes import EventEnvelope
 
 
 class FinalizationHorizonProjector(Projector):

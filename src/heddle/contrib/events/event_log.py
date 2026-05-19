@@ -21,10 +21,14 @@ from __future__ import annotations
 import asyncio
 import threading
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
-from heddle.contrib.events.envelopes import EventEnvelope
 from heddle.contrib.events.errors import ConcurrencyError
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from heddle.contrib.events.envelopes import EventEnvelope
 
 
 class EventLog(ABC):
@@ -88,6 +92,7 @@ class InMemoryEventLog(EventLog):
     async def append(
         self, envelope: EventEnvelope, expected_version: int | None
     ) -> None:
+        """Append an envelope with the CAS+monotonicity contract from the ABC."""
         key = (envelope.aggregate_type, envelope.aggregate_id)
         with self._lock:
             current = self._events.get(key, [])
@@ -121,6 +126,7 @@ class InMemoryEventLog(EventLog):
         aggregate_id: str,
         from_version: int = 0,
     ) -> AsyncIterator[EventEnvelope]:
+        """Yield stored events for ``(aggregate_type, aggregate_id)`` in order."""
         key = (aggregate_type, aggregate_id)
         with self._lock:
             # Snapshot to avoid yielding under the lock.
@@ -132,6 +138,7 @@ class InMemoryEventLog(EventLog):
     async def subscribe(
         self, aggregate_type: str
     ) -> AsyncIterator[EventEnvelope]:
+        """Yield newly-appended events for ``aggregate_type`` until cancelled."""
         q: asyncio.Queue[EventEnvelope] = asyncio.Queue()
         with self._lock:
             self._subscribers.setdefault(aggregate_type, []).append(q)

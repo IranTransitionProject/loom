@@ -24,9 +24,8 @@ from __future__ import annotations
 import re
 from abc import ABC
 from collections import deque
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
-from heddle.contrib.events.envelopes import EventEnvelope, EventMetadata
 from heddle.contrib.events.errors import (
     AggregateInvariantError,
     CorruptAggregateAlert,
@@ -34,13 +33,16 @@ from heddle.contrib.events.errors import (
 )
 from heddle.contrib.events.issuer_conventions import is_framework_issuer
 
+if TYPE_CHECKING:
+    from heddle.contrib.events.envelopes import EventEnvelope, EventMetadata
+
 
 PROCESSED_COMMAND_RING_SIZE: int = 512
 """Per-aggregate command-id dedup ring size.
 
 ~20x headroom over peak observed burst (worst-realistic Operation
-chaotic-shift workload is ~25–250 commands/aggregate/active window).
-Snapshot-only persistence; never reconstructed from event replay —
+chaotic-shift workload is ~25-250 commands/aggregate/active window).
+Snapshot-only persistence; never reconstructed from event replay --
 see v7 §4.5 on ring-buffer rebuild semantics.
 """
 
@@ -70,7 +72,7 @@ def snake_case(camel: str) -> str:
     return _ALL_CAP_RE.sub(r"\1_\2", s1).lower()
 
 
-class Aggregate(ABC):
+class Aggregate(ABC):  # noqa: B024 - construction blocked via runtime check in __init__
     """Abstract aggregate base.
 
     Concrete subclasses MUST set the ``aggregate_type`` ClassVar (via
@@ -129,14 +131,16 @@ class Aggregate(ABC):
            :class:`UnknownEventVersionError`.
         4. Version commit (only after handler returns cleanly).
         """
-        if envelope.event_type in FRAMEWORK_ONLY_EVENT_TYPES:
-            if not is_framework_issuer(envelope.metadata.issued_by):
-                raise CorruptAggregateAlert(
-                    f"event {envelope.event_id} of type {envelope.event_type!r} "
-                    f"has non-framework issued_by="
-                    f"{envelope.metadata.issued_by!r}; likely forged. "
-                    f"See v7 §4.12 manual recovery runbook."
-                )
+        if (
+            envelope.event_type in FRAMEWORK_ONLY_EVENT_TYPES
+            and not is_framework_issuer(envelope.metadata.issued_by)
+        ):
+            raise CorruptAggregateAlert(
+                f"event {envelope.event_id} of type {envelope.event_type!r} "
+                f"has non-framework issued_by="
+                f"{envelope.metadata.issued_by!r}; likely forged. "
+                f"See v7 §4.12 manual recovery runbook."
+            )
 
         if envelope.aggregate_version != self.aggregate_version + 1:
             raise AggregateInvariantError(
@@ -197,7 +201,7 @@ class Aggregate(ABC):
         }
 
     @classmethod
-    def from_snapshot(cls, data: dict[str, Any]) -> "Aggregate":
+    def from_snapshot(cls, data: dict[str, Any]) -> Aggregate:
         """Restore an aggregate from a snapshot dict.
 
         Concrete subclasses MUST override to also restore their
@@ -244,12 +248,14 @@ class IntervalAggregate(Aggregate):
         self.phase = "finalized"
 
     def to_snapshot(self) -> dict[str, Any]:
+        """Extend the base snapshot with the phase field."""
         data = super().to_snapshot()
         data["phase"] = self.phase
         return data
 
     @classmethod
-    def from_snapshot(cls, data: dict[str, Any]) -> "IntervalAggregate":
+    def from_snapshot(cls, data: dict[str, Any]) -> IntervalAggregate:
+        """Restore phase in addition to the base aggregate state."""
         instance = super().from_snapshot(data)
         assert isinstance(instance, IntervalAggregate)
         instance.phase = str(data.get("phase", "created"))
@@ -289,12 +295,14 @@ class RootAggregate(IntervalAggregate):
         return {k: frozenset(v) for k, v in self._children.items()}
 
     def to_snapshot(self) -> dict[str, Any]:
+        """Extend the interval snapshot with the children registry."""
         data = super().to_snapshot()
         data["children"] = {k: sorted(v) for k, v in self._children.items()}
         return data
 
     @classmethod
-    def from_snapshot(cls, data: dict[str, Any]) -> "RootAggregate":
+    def from_snapshot(cls, data: dict[str, Any]) -> RootAggregate:
+        """Restore the children registry in addition to interval state."""
         instance = super().from_snapshot(data)
         assert isinstance(instance, RootAggregate)
         instance._children = {

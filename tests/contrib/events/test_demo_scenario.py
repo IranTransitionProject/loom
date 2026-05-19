@@ -34,7 +34,6 @@ from heddle.contrib.events.projectors import (
 from heddle.contrib.events.rejection_log import InMemoryRejectionLog
 from heddle.contrib.events.testing import make_command
 
-
 # Empirically: ~10 ms is plenty for the dispatcher loop + projector
 # fan-out + cascade command-handler round-trip on a quiet machine.
 # Bumped to 100 ms for CI variance.

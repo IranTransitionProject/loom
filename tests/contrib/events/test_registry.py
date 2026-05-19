@@ -16,7 +16,6 @@ from heddle.contrib.events.registry import (
     register_aggregate,
 )
 
-
 pytestmark = pytest.mark.usefixtures("registry_isolation")
 
 
@@ -36,7 +35,7 @@ def test_re_registering_same_class_is_noop() -> None:
         pass
 
     # Re-apply the decorator to the same class — must not raise.
-    _R = register_aggregate("Repeat")(_R)
+    _R = register_aggregate("Repeat")(_R)  # noqa: N806
     assert get_aggregate_class("Repeat") is _R
 
 

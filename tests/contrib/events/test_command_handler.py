@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -22,7 +22,6 @@ from heddle.contrib.events.event_log import InMemoryEventLog
 from heddle.contrib.events.registry import register_aggregate
 from heddle.contrib.events.rejection_log import InMemoryRejectionLog
 
-
 pytestmark = pytest.mark.usefixtures("registry_isolation")
 
 
@@ -37,17 +36,17 @@ def _cmd(
     expected_aggregate_version: int | None = None,
     command_id: str | None = None,
 ) -> CommandMessage:
-    kwargs: dict[str, Any] = dict(
-        aggregate_type=aggregate_type,
-        aggregate_id=aggregate_id,
-        command_type=command_type,
-        payload=payload or {},
-        metadata=CommandMetadata(
+    kwargs: dict[str, Any] = {
+        "aggregate_type": aggregate_type,
+        "aggregate_id": aggregate_id,
+        "command_type": command_type,
+        "payload": payload or {},
+        "metadata": CommandMetadata(
             issued_by=issued_by, correlation_id=correlation_id
         ),
-        issued_at=datetime.now(timezone.utc),
-        expected_aggregate_version=expected_aggregate_version,
-    )
+        "issued_at": datetime.now(UTC),
+        "expected_aggregate_version": expected_aggregate_version,
+    }
     if command_id is not None:
         kwargs["command_id"] = command_id
     return CommandMessage(**kwargs)

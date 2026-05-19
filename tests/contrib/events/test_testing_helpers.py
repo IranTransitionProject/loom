@@ -8,7 +8,7 @@ produce valid envelopes.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -34,7 +34,7 @@ def test_make_event_defaults() -> None:
 
 
 def test_make_event_overrides() -> None:
-    when = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    when = datetime(2026, 1, 1, tzinfo=UTC)
     env = make_event(
         aggregate_type="Job",
         aggregate_id="39174-004",

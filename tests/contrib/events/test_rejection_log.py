@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -26,7 +26,7 @@ def _cmd(
         command_type=command_type,
         payload={"badge": "206"},
         metadata=CommandMetadata(issued_by="user:badge:206"),
-        issued_at=datetime.now(timezone.utc),
+        issued_at=datetime.now(UTC),
     )
 
 
@@ -37,7 +37,7 @@ def _rej(
         command=cmd,
         reason=reason,
         detail=detail,
-        rejected_at=datetime.now(timezone.utc),
+        rejected_at=datetime.now(UTC),
     )
 
 

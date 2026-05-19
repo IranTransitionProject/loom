@@ -29,23 +29,22 @@ via the horizon timeout.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from hashlib import sha256
+from typing import TYPE_CHECKING
 from uuid import UUID
 
-from heddle.contrib.events.command_handler import CommandHandler
 from heddle.contrib.events.dispatcher import Projector
-from heddle.contrib.events.envelopes import (
-    CommandMessage,
-    CommandMetadata,
-    EventEnvelope,
-)
+from heddle.contrib.events.envelopes import CommandMessage, CommandMetadata
 from heddle.contrib.events.errors import CommandRejected, ConcurrencyError
-from heddle.contrib.events.projectors.scope_membership import (
-    ScopeMembershipProjector,
-)
 from heddle.contrib.events.registry import is_root_type
 
+if TYPE_CHECKING:
+    from heddle.contrib.events.command_handler import CommandHandler
+    from heddle.contrib.events.envelopes import EventEnvelope
+    from heddle.contrib.events.projectors.scope_membership import (
+        ScopeMembershipProjector,
+    )
 
 CASCADE_ISSUED_BY = "framework:cascade"
 
@@ -79,6 +78,7 @@ class CascadeProjector(Projector):
         self._handler = command_handler
 
     async def project(self, envelope: EventEnvelope) -> None:
+        """Emit cascade commands when a root aggregate finalizes."""
         if envelope.event_type != "InternalFinalized":
             return
         if not is_root_type(envelope.aggregate_type):
@@ -102,7 +102,7 @@ class CascadeProjector(Projector):
                         or envelope.event_id,
                         issued_by=CASCADE_ISSUED_BY,
                     ),
-                    issued_at=datetime.now(timezone.utc),
+                    issued_at=datetime.now(UTC),
                     expected_aggregate_version=None,
                 )
                 try:

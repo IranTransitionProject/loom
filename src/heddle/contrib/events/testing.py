@@ -17,7 +17,7 @@ teardown so the fakes registered here don't pollute test isolation.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from heddle.contrib.events.aggregate import IntervalAggregate, RootAggregate
@@ -46,7 +46,7 @@ def make_event(
     recorded_at: datetime | None = None,
 ) -> EventEnvelope:
     """Construct an :class:`EventEnvelope` with sensible test defaults."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return EventEnvelope(
         aggregate_type=aggregate_type,
         aggregate_id=aggregate_id,
@@ -78,18 +78,18 @@ def make_command(
     command_id: str | None = None,
 ) -> CommandMessage:
     """Construct a :class:`CommandMessage` with sensible test defaults."""
-    kwargs: dict[str, Any] = dict(
-        aggregate_type=aggregate_type,
-        aggregate_id=aggregate_id,
-        command_type=command_type,
-        command_version=command_version,
-        payload=payload or {},
-        metadata=CommandMetadata(
+    kwargs: dict[str, Any] = {
+        "aggregate_type": aggregate_type,
+        "aggregate_id": aggregate_id,
+        "command_type": command_type,
+        "command_version": command_version,
+        "payload": payload or {},
+        "metadata": CommandMetadata(
             correlation_id=correlation_id, issued_by=issued_by
         ),
-        issued_at=issued_at or datetime.now(timezone.utc),
-        expected_aggregate_version=expected_aggregate_version,
-    )
+        "issued_at": issued_at or datetime.now(UTC),
+        "expected_aggregate_version": expected_aggregate_version,
+    }
     if command_id is not None:
         kwargs["command_id"] = command_id
     return CommandMessage(**kwargs)
@@ -114,6 +114,7 @@ class FakeIntervalAggregate(IntervalAggregate):
     def handle_do_thing(
         self, payload: dict[str, Any], metadata: CommandMetadata
     ) -> tuple[str, dict[str, Any]]:
+        """Echo the payload as a ``ThingHappened`` event; reject if forbidden."""
         if payload.get("forbidden"):
             raise CommandRejected("FORBIDDEN", "test rejection")
         return "ThingHappened", dict(payload)
@@ -121,11 +122,13 @@ class FakeIntervalAggregate(IntervalAggregate):
     def apply_thing_happened(
         self, payload: dict[str, Any], metadata: EventMetadata
     ) -> None:
+        """Record the most recent payload for assertion purposes."""
         self.last_payload = dict(payload)
 
     def handle_internal_finalize(
         self, payload: dict[str, Any], metadata: CommandMetadata
     ) -> tuple[str, dict[str, Any]]:
+        """Emit ``InternalFinalized`` unless already finalized."""
         if self.phase == "finalized":
             raise CommandRejected("ALREADY_FINALIZED", "already finalized")
         return "InternalFinalized", {}
@@ -146,6 +149,7 @@ class FakeRootAggregate(RootAggregate):
     def handle_add_child(
         self, payload: dict[str, Any], metadata: CommandMetadata
     ) -> tuple[str, dict[str, Any]]:
+        """Emit ``ChildAdded`` with the ``_child_membership`` convention for P1."""
         child_id = payload["child_id"]
         return "ChildAdded", {
             "child_id": child_id,
@@ -157,11 +161,13 @@ class FakeRootAggregate(RootAggregate):
     def apply_child_added(
         self, payload: dict[str, Any], metadata: EventMetadata
     ) -> None:
+        """Register the newly-added child in the in-aggregate registry."""
         self.register_child("FakeInterval", payload["child_id"])
 
     def handle_internal_finalize(
         self, payload: dict[str, Any], metadata: CommandMetadata
     ) -> tuple[str, dict[str, Any]]:
+        """Emit ``InternalFinalized`` unless already finalized."""
         if self.phase == "finalized":
             raise CommandRejected("ALREADY_FINALIZED", "root already finalized")
         return "InternalFinalized", {}

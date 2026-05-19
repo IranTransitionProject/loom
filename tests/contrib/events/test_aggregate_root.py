@@ -7,7 +7,6 @@ import pytest
 from heddle.contrib.events.aggregate import RootAggregate
 from heddle.contrib.events.registry import register_aggregate
 
-
 pytestmark = pytest.mark.usefixtures("registry_isolation")
 
 

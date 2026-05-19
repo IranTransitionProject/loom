@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -13,7 +13,7 @@ from heddle.contrib.events.event_log import InMemoryEventLog
 
 
 def _ev(*, agg_type: str = "FakeT", agg_id: str = "a-1", version: int = 1) -> EventEnvelope:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return EventEnvelope(
         aggregate_type=agg_type,
         aggregate_id=agg_id,
@@ -61,8 +61,6 @@ async def test_register_then_project() -> None:
 @pytest.mark.asyncio
 async def test_multiple_projectors_in_registration_order() -> None:
     log = InMemoryEventLog()
-    p1 = _RecorderProjector("p1")
-    p2 = _RecorderProjector("p2")
     order: list[str] = []
 
     class _Tracer(Projector):

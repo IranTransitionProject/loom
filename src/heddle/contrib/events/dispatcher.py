@@ -24,9 +24,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
-from heddle.contrib.events.envelopes import EventEnvelope
-from heddle.contrib.events.event_log import EventLog
+if TYPE_CHECKING:
+    from heddle.contrib.events.envelopes import EventEnvelope
+    from heddle.contrib.events.event_log import EventLog
 
 
 _log = logging.getLogger(__name__)
@@ -46,7 +48,8 @@ class Projector(ABC):
     """
 
     @abstractmethod
-    async def project(self, envelope: EventEnvelope) -> None: ...
+    async def project(self, envelope: EventEnvelope) -> None:
+        """Consume a single event envelope. Implementations MUST be idempotent."""
 
 
 class EventDispatcher:
