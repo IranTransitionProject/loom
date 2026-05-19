@@ -222,5 +222,3 @@ class CheckpointState(BaseModel):
     context_token_count: int  # Tokens at time of checkpoint
     checkpoint_number: int
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-er: int
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
