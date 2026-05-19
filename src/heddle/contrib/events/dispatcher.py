@@ -85,9 +85,7 @@ class EventDispatcher:
         """Cancel all dispatcher tasks and wait for them to finish."""
         for task in self._running.values():
             task.cancel()
-        await asyncio.gather(
-            *self._running.values(), return_exceptions=True
-        )
+        await asyncio.gather(*self._running.values(), return_exceptions=True)
         self._running.clear()
 
     async def _run(self, aggregate_type: str) -> None:

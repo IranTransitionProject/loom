@@ -49,9 +49,7 @@ if TYPE_CHECKING:
 CASCADE_ISSUED_BY = "framework:cascade"
 
 
-def deterministic_cascade_id(
-    root_id: str, child_id: str, root_event_id: str
-) -> str:
+def deterministic_cascade_id(root_id: str, child_id: str, root_event_id: str) -> str:
     """Generate a deterministic UUIDv4-shaped id for a cascade command.
 
     Same ``(root_id, child_id, root_event_id)`` always yields the same
@@ -60,9 +58,7 @@ def deterministic_cascade_id(
     command's identity is the (root, child, root_event) triple, not
     wall-clock ordering.
     """
-    digest = sha256(
-        f"cascade:{root_id}:{child_id}:{root_event_id}".encode()
-    ).digest()
+    digest = sha256(f"cascade:{root_id}:{child_id}:{root_event_id}".encode()).digest()
     return str(UUID(bytes=digest[:16]))
 
 
@@ -84,9 +80,7 @@ class CascadeProjector(Projector):
         if not is_root_type(envelope.aggregate_type):
             return
 
-        children = self._membership.all_children_of(
-            envelope.aggregate_type, envelope.aggregate_id
-        )
+        children = self._membership.all_children_of(envelope.aggregate_type, envelope.aggregate_id)
         for child_type, child_ids in children.items():
             for child_id in child_ids:
                 cmd = CommandMessage(
@@ -98,8 +92,7 @@ class CascadeProjector(Projector):
                     command_type="InternalFinalize",
                     payload={},
                     metadata=CommandMetadata(
-                        correlation_id=envelope.metadata.correlation_id
-                        or envelope.event_id,
+                        correlation_id=envelope.metadata.correlation_id or envelope.event_id,
                         issued_by=CASCADE_ISSUED_BY,
                     ),
                     issued_at=datetime.now(UTC),

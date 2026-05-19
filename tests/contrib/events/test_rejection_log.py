@@ -30,9 +30,7 @@ def _cmd(
     )
 
 
-def _rej(
-    cmd: CommandMessage, *, reason: str = "INVALID", detail: str = ""
-) -> RejectionEnvelope:
+def _rej(cmd: CommandMessage, *, reason: str = "INVALID", detail: str = "") -> RejectionEnvelope:
     return RejectionEnvelope(
         command=cmd,
         reason=reason,

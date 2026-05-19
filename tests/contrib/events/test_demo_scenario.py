@@ -51,9 +51,7 @@ async def _wait_for_subscriber(
         if event_log._subscribers.get(aggregate_type):
             return
         await asyncio.sleep(0)
-    raise AssertionError(
-        f"dispatcher did not subscribe to {aggregate_type!r} within {timeout}s"
-    )
+    raise AssertionError(f"dispatcher did not subscribe to {aggregate_type!r} within {timeout}s")
 
 
 @pytest.mark.asyncio
@@ -115,12 +113,8 @@ async def test_root_finalization_cascades_to_children() -> None:
         # 4. P2 cascade-finalized both children with
         # issued_by='framework:cascade'.
         for child_id in ("child-1", "child-2"):
-            events = [
-                ev async for ev in event_log.load("FakeInterval", child_id)
-            ]
-            finalized = [
-                ev for ev in events if ev.event_type == "InternalFinalized"
-            ]
+            events = [ev async for ev in event_log.load("FakeInterval", child_id)]
+            finalized = [ev for ev in events if ev.event_type == "InternalFinalized"]
             assert len(finalized) == 1, (
                 f"child {child_id} missing InternalFinalized "
                 f"(events={[e.event_type for e in events]})"
@@ -130,21 +124,15 @@ async def test_root_finalization_cascades_to_children() -> None:
         # 5. Idempotence: re-deliver the root's InternalFinalized
         # via a direct project() call. Deterministic command IDs +
         # already-finalized rejection mean no double-finalization.
-        root_events = [
-            ev async for ev in event_log.load("FakeRoot", "root-1")
-        ]
+        root_events = [ev async for ev in event_log.load("FakeRoot", "root-1")]
         finalized_root_event = next(
             ev for ev in root_events if ev.event_type == "InternalFinalized"
         )
         await cascade.project(finalized_root_event)
 
         for child_id in ("child-1", "child-2"):
-            events = [
-                ev async for ev in event_log.load("FakeInterval", child_id)
-            ]
-            internal_finalized = [
-                ev for ev in events if ev.event_type == "InternalFinalized"
-            ]
+            events = [ev async for ev in event_log.load("FakeInterval", child_id)]
+            internal_finalized = [ev for ev in events if ev.event_type == "InternalFinalized"]
             assert len(internal_finalized) == 1, (
                 f"child {child_id} double-finalized; cascade not idempotent"
             )
@@ -164,9 +152,7 @@ async def test_root_finalization_cascades_to_children() -> None:
             )
         assert exc.value.reason == "ALREADY_FINALIZED"
 
-        rejections = [
-            r async for r in rejection_log.load("FakeRoot", "root-1")
-        ]
+        rejections = [r async for r in rejection_log.load("FakeRoot", "root-1")]
         assert len(rejections) == 1
         assert rejections[0].reason == "ALREADY_FINALIZED"
         assert rejections[0].command.command_type == "InternalFinalize"
@@ -207,13 +193,8 @@ async def test_demo_uses_wired_dispatcher_fixture(
     )
     await asyncio.sleep(DISPATCH_DRAIN)
 
-    child_events = [
-        ev async for ev in in_memory_event_log.load(
-            "FakeInterval", "c-fixture"
-        )
-    ]
+    child_events = [ev async for ev in in_memory_event_log.load("FakeInterval", "c-fixture")]
     assert any(
-        ev.event_type == "InternalFinalized"
-        and ev.metadata.issued_by == CASCADE_ISSUED_BY
+        ev.event_type == "InternalFinalized" and ev.metadata.issued_by == CASCADE_ISSUED_BY
         for ev in child_events
     )

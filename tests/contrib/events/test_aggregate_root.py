@@ -24,9 +24,7 @@ def test_register_child_then_children_of() -> None:
     agg.register_child("Operation", "39174-004:laser-cut")
     agg.register_child("Operation", "39174-004:bend")
 
-    assert agg.children_of("Operation") == frozenset(
-        {"39174-004:laser-cut", "39174-004:bend"}
-    )
+    assert agg.children_of("Operation") == frozenset({"39174-004:laser-cut", "39174-004:bend"})
     assert agg.children_of("Missing") == frozenset()
 
 

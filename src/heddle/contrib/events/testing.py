@@ -84,9 +84,7 @@ def make_command(
         "command_type": command_type,
         "command_version": command_version,
         "payload": payload or {},
-        "metadata": CommandMetadata(
-            correlation_id=correlation_id, issued_by=issued_by
-        ),
+        "metadata": CommandMetadata(correlation_id=correlation_id, issued_by=issued_by),
         "issued_at": issued_at or datetime.now(UTC),
         "expected_aggregate_version": expected_aggregate_version,
     }
@@ -119,9 +117,7 @@ class FakeIntervalAggregate(IntervalAggregate):
             raise CommandRejected("FORBIDDEN", "test rejection")
         return "ThingHappened", dict(payload)
 
-    def apply_thing_happened(
-        self, payload: dict[str, Any], metadata: EventMetadata
-    ) -> None:
+    def apply_thing_happened(self, payload: dict[str, Any], metadata: EventMetadata) -> None:
         """Record the most recent payload for assertion purposes."""
         self.last_payload = dict(payload)
 
@@ -153,14 +149,10 @@ class FakeRootAggregate(RootAggregate):
         child_id = payload["child_id"]
         return "ChildAdded", {
             "child_id": child_id,
-            "_child_membership": {
-                "add": [{"type": "FakeInterval", "id": child_id}]
-            },
+            "_child_membership": {"add": [{"type": "FakeInterval", "id": child_id}]},
         }
 
-    def apply_child_added(
-        self, payload: dict[str, Any], metadata: EventMetadata
-    ) -> None:
+    def apply_child_added(self, payload: dict[str, Any], metadata: EventMetadata) -> None:
         """Register the newly-added child in the in-aggregate registry."""
         self.register_child("FakeInterval", payload["child_id"])
 

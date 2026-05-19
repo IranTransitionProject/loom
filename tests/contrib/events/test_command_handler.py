@@ -41,9 +41,7 @@ def _cmd(
         "aggregate_id": aggregate_id,
         "command_type": command_type,
         "payload": payload or {},
-        "metadata": CommandMetadata(
-            issued_by=issued_by, correlation_id=correlation_id
-        ),
+        "metadata": CommandMetadata(issued_by=issued_by, correlation_id=correlation_id),
         "issued_at": datetime.now(UTC),
         "expected_aggregate_version": expected_aggregate_version,
     }
@@ -66,9 +64,7 @@ def _make_fake_class():
                 raise CommandRejected("FORBIDDEN", "payload had forbidden flag")
             return "ThingHappened", dict(payload)
 
-        def apply_thing_happened(
-            self, payload: dict[str, Any], metadata: EventMetadata
-        ) -> None:
+        def apply_thing_happened(self, payload: dict[str, Any], metadata: EventMetadata) -> None:
             self.things.append(payload)
 
     return _Fake
@@ -209,9 +205,7 @@ async def test_dedup_edge_case_path_is_reachable_within_a_call(handler) -> None:
     # Submitting a fresh command_id should still succeed — buffer is
     # empty after replay; the only path through CommandHandler is the
     # normal happy path.
-    env = await h.handle(
-        _cmd(command_id="fresh", expected_aggregate_version=1)
-    )
+    env = await h.handle(_cmd(command_id="fresh", expected_aggregate_version=1))
     assert env.aggregate_version == 2
 
 

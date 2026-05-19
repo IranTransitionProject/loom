@@ -57,8 +57,7 @@ def register_aggregate(
     def decorator(cls: _AggregateCls) -> _AggregateCls:
         if not issubclass(cls, Aggregate):
             raise TypeError(
-                f"@register_aggregate target must subclass Aggregate; "
-                f"got {cls.__name__}"
+                f"@register_aggregate target must subclass Aggregate; got {cls.__name__}"
             )
         existing = AGGREGATE_REGISTRY.get(aggregate_type)
         if existing is not None and existing is not cls:

@@ -83,9 +83,7 @@ def _make_fake_class():
             super().__init__(aggregate_id)
             self.things: list[dict[str, Any]] = []
 
-        def apply_thing_happened(
-            self, payload: dict[str, Any], metadata: EventMetadata
-        ) -> None:
+        def apply_thing_happened(self, payload: dict[str, Any], metadata: EventMetadata) -> None:
             self.things.append(payload)
 
         def apply_internal_finalized(

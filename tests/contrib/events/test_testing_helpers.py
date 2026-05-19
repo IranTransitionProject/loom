@@ -89,9 +89,7 @@ def test_fake_root_registered() -> None:
 
 def test_fake_interval_handler_emits_event() -> None:
     agg = FakeIntervalAggregate(aggregate_id="x")
-    event_type, payload = agg.handle_do_thing(
-        {"a": 1}, make_command().metadata
-    )
+    event_type, payload = agg.handle_do_thing({"a": 1}, make_command().metadata)
     assert event_type == "ThingHappened"
     assert payload == {"a": 1}
 
@@ -105,9 +103,7 @@ def test_fake_interval_handler_rejects_forbidden() -> None:
 
 def test_fake_root_handler_emits_child_membership() -> None:
     agg = FakeRootAggregate(aggregate_id="r-1")
-    event_type, payload = agg.handle_add_child(
-        {"child_id": "c-1"}, make_command().metadata
-    )
+    event_type, payload = agg.handle_add_child({"child_id": "c-1"}, make_command().metadata)
     assert event_type == "ChildAdded"
     assert payload["_child_membership"]["add"][0]["id"] == "c-1"
     assert payload["_child_membership"]["add"][0]["type"] == "FakeInterval"

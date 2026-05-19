@@ -96,11 +96,7 @@ async def test_cascade_finalizes_registered_children(wiring) -> None:
                 aggregate_id="root-1",
                 aggregate_version=1,
                 event_type="ChildAdded",
-                payload={
-                    CHILD_MEMBERSHIP_KEY: {
-                        "add": [{"type": "CChild", "id": child_id}]
-                    }
-                },
+                payload={CHILD_MEMBERSHIP_KEY: {"add": [{"type": "CChild", "id": child_id}]}},
                 metadata=EventMetadata(issued_by="user:badge:test"),
                 occurred_at=datetime.now(UTC),
                 recorded_at=datetime.now(UTC),
@@ -145,11 +141,7 @@ async def test_cascade_is_idempotent(wiring) -> None:
             aggregate_id="root-1",
             aggregate_version=1,
             event_type="ChildAdded",
-            payload={
-                CHILD_MEMBERSHIP_KEY: {
-                    "add": [{"type": "CChild", "id": "c-1"}]
-                }
-            },
+            payload={CHILD_MEMBERSHIP_KEY: {"add": [{"type": "CChild", "id": "c-1"}]}},
             metadata=EventMetadata(issued_by="user:badge:test"),
             occurred_at=datetime.now(UTC),
             recorded_at=datetime.now(UTC),
@@ -178,11 +170,7 @@ async def test_command_rejected_swallowed(wiring) -> None:
             aggregate_id="root-1",
             aggregate_version=1,
             event_type="ChildAdded",
-            payload={
-                CHILD_MEMBERSHIP_KEY: {
-                    "add": [{"type": "CChild", "id": "c-1"}]
-                }
-            },
+            payload={CHILD_MEMBERSHIP_KEY: {"add": [{"type": "CChild", "id": "c-1"}]}},
             metadata=EventMetadata(issued_by="user:badge:test"),
             occurred_at=datetime.now(UTC),
             recorded_at=datetime.now(UTC),
@@ -221,11 +209,7 @@ async def test_non_internal_finalized_event_ignored(wiring) -> None:
             aggregate_id="root-1",
             aggregate_version=1,
             event_type="ChildAdded",
-            payload={
-                CHILD_MEMBERSHIP_KEY: {
-                    "add": [{"type": "CChild", "id": "c-1"}]
-                }
-            },
+            payload={CHILD_MEMBERSHIP_KEY: {"add": [{"type": "CChild", "id": "c-1"}]}},
             metadata=EventMetadata(issued_by="user:badge:test"),
             occurred_at=datetime.now(UTC),
             recorded_at=datetime.now(UTC),

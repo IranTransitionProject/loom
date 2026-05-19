@@ -42,9 +42,7 @@ class RejectionEnvelope(BaseModel):
         default_factory=_uuid7,
         description="UUIDv7. Globally unique rejection identifier.",
     )
-    command: CommandMessage = Field(
-        ..., description="The full command that was rejected."
-    )
+    command: CommandMessage = Field(..., description="The full command that was rejected.")
     reason: str = Field(
         ...,
         description=(
@@ -56,9 +54,7 @@ class RejectionEnvelope(BaseModel):
         default="",
         description="Human-readable diagnostic detail. May be empty.",
     )
-    rejected_at: datetime = Field(
-        ..., description="When the rejection was recorded."
-    )
+    rejected_at: datetime = Field(..., description="When the rejection was recorded.")
 
 
 class RejectionLog(ABC):
@@ -100,9 +96,6 @@ class InMemoryRejectionLog(RejectionLog):
         for rej in snapshot:
             if rej.command.aggregate_type != aggregate_type:
                 continue
-            if (
-                aggregate_id is not None
-                and rej.command.aggregate_id != aggregate_id
-            ):
+            if aggregate_id is not None and rej.command.aggregate_id != aggregate_id:
                 continue
             yield rej

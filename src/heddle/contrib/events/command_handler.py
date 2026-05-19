@@ -47,9 +47,7 @@ if TYPE_CHECKING:
 class CommandHandler:
     """Orchestrate command processing through the aggregate model."""
 
-    def __init__(
-        self, event_log: EventLog, rejection_log: RejectionLog
-    ) -> None:
+    def __init__(self, event_log: EventLog, rejection_log: RejectionLog) -> None:
         self._event_log = event_log
         self._rejection_log = rejection_log
 
@@ -92,9 +90,7 @@ class CommandHandler:
         handler_name = f"handle_{snake_case(cmd.command_type)}"
         handler = getattr(aggregate, handler_name, None)
         if handler is None:
-            raise AttributeError(
-                f"{type(aggregate).__name__} has no {handler_name}"
-            )
+            raise AttributeError(f"{type(aggregate).__name__} has no {handler_name}")
 
         # ---- 6+7. Invoke handler; rejection -> append + re-raise. ----------
         try:
@@ -136,14 +132,10 @@ class CommandHandler:
 
         return envelope
 
-    async def _load_or_create(
-        self, cls: type[Aggregate], aggregate_id: str
-    ) -> Aggregate:
+    async def _load_or_create(self, cls: type[Aggregate], aggregate_id: str) -> Aggregate:
         """Rebuild aggregate from event-log replay (no snapshot in Sprint 2)."""
         aggregate = cls(aggregate_id=aggregate_id)
-        async for envelope in self._event_log.load(
-            cls.aggregate_type, aggregate_id
-        ):
+        async for envelope in self._event_log.load(cls.aggregate_type, aggregate_id):
             aggregate.apply(envelope)
         return aggregate
 

@@ -54,9 +54,7 @@ async def test_add_registers_child() -> None:
     await p.project(
         _ev(
             agg_type="FRoot",
-            payload={
-                CHILD_MEMBERSHIP_KEY: {"add": [{"type": "Op", "id": "X"}]}
-            },
+            payload={CHILD_MEMBERSHIP_KEY: {"add": [{"type": "Op", "id": "X"}]}},
         )
     )
     assert p.children_of("FRoot", "r-1", "Op") == frozenset({"X"})
@@ -77,9 +75,7 @@ async def test_non_root_aggregate_ignored() -> None:
     await p.project(
         _ev(
             agg_type="FInterval",
-            payload={
-                CHILD_MEMBERSHIP_KEY: {"add": [{"type": "Op", "id": "X"}]}
-            },
+            payload={CHILD_MEMBERSHIP_KEY: {"add": [{"type": "Op", "id": "X"}]}},
         )
     )
     assert p.all_children_of("FInterval", "r-1") == {}
@@ -102,9 +98,7 @@ async def test_remove_discards_child() -> None:
     await p.project(
         _ev(
             agg_type="FRoot",
-            payload={
-                CHILD_MEMBERSHIP_KEY: {"remove": [{"type": "Op", "id": "X"}]}
-            },
+            payload={CHILD_MEMBERSHIP_KEY: {"remove": [{"type": "Op", "id": "X"}]}},
         )
     )
     assert p.children_of("FRoot", "r-1", "Op") == frozenset({"Y"})
@@ -118,16 +112,10 @@ async def test_multiple_adds_accumulate() -> None:
         await p.project(
             _ev(
                 agg_type="FRoot",
-                payload={
-                    CHILD_MEMBERSHIP_KEY: {
-                        "add": [{"type": "Op", "id": f"op-{i}"}]
-                    }
-                },
+                payload={CHILD_MEMBERSHIP_KEY: {"add": [{"type": "Op", "id": f"op-{i}"}]}},
             )
         )
-    assert p.children_of("FRoot", "r-1", "Op") == frozenset(
-        {f"op-{i}" for i in range(5)}
-    )
+    assert p.children_of("FRoot", "r-1", "Op") == frozenset({f"op-{i}" for i in range(5)})
 
 
 @pytest.mark.asyncio

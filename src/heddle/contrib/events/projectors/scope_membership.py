@@ -43,9 +43,7 @@ class ScopeMembershipProjector(Projector):
 
     def __init__(self) -> None:
         # (root_type, root_id) -> child_type -> {child_id, ...}
-        self._membership: dict[
-            tuple[str, str], dict[str, set[str]]
-        ] = {}
+        self._membership: dict[tuple[str, str], dict[str, set[str]]] = {}
         self._lock = threading.Lock()
 
     async def project(self, envelope: EventEnvelope) -> None:
@@ -64,20 +62,12 @@ class ScopeMembershipProjector(Projector):
                 if rm["type"] in ms:
                     ms[rm["type"]].discard(rm["id"])
 
-    def children_of(
-        self, root_type: str, root_id: str, child_type: str
-    ) -> frozenset[str]:
+    def children_of(self, root_type: str, root_id: str, child_type: str) -> frozenset[str]:
         """Read-only view of children of a specific type."""
         with self._lock:
-            return frozenset(
-                self._membership.get((root_type, root_id), {}).get(
-                    child_type, set()
-                )
-            )
+            return frozenset(self._membership.get((root_type, root_id), {}).get(child_type, set()))
 
-    def all_children_of(
-        self, root_type: str, root_id: str
-    ) -> dict[str, frozenset[str]]:
+    def all_children_of(self, root_type: str, root_id: str) -> dict[str, frozenset[str]]:
         """Snapshot-style view of every child type and its members."""
         with self._lock:
             ms = self._membership.get((root_type, root_id), {})

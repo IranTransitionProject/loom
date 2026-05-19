@@ -103,9 +103,7 @@ class Aggregate(ABC):  # noqa: B024 - construction blocked via runtime check in 
             )
         self.aggregate_id: str = aggregate_id
         self.aggregate_version: int = 0
-        self._processed_command_ids: deque[str] = deque(
-            maxlen=PROCESSED_COMMAND_RING_SIZE
-        )
+        self._processed_command_ids: deque[str] = deque(maxlen=PROCESSED_COMMAND_RING_SIZE)
 
     # ---- replay + state ---------------------------------------------------
 
@@ -131,9 +129,8 @@ class Aggregate(ABC):  # noqa: B024 - construction blocked via runtime check in 
            :class:`UnknownEventVersionError`.
         4. Version commit (only after handler returns cleanly).
         """
-        if (
-            envelope.event_type in FRAMEWORK_ONLY_EVENT_TYPES
-            and not is_framework_issuer(envelope.metadata.issued_by)
+        if envelope.event_type in FRAMEWORK_ONLY_EVENT_TYPES and not is_framework_issuer(
+            envelope.metadata.issued_by
         ):
             raise CorruptAggregateAlert(
                 f"event {envelope.event_id} of type {envelope.event_type!r} "
@@ -163,9 +160,7 @@ class Aggregate(ABC):  # noqa: B024 - construction blocked via runtime check in 
         except (AggregateInvariantError, CorruptAggregateAlert):
             raise
         except Exception as exc:
-            raise AggregateInvariantError(
-                f"{method_name} raised: {exc}"
-            ) from exc
+            raise AggregateInvariantError(f"{method_name} raised: {exc}") from exc
 
         self.aggregate_version = envelope.aggregate_version
 
@@ -232,9 +227,7 @@ class IntervalAggregate(Aggregate):
         super().__init__(aggregate_id)
         self.phase: str = "created"
 
-    def apply_internal_finalized(
-        self, payload: dict[str, Any], metadata: EventMetadata
-    ) -> None:
+    def apply_internal_finalized(self, payload: dict[str, Any], metadata: EventMetadata) -> None:
         """Apply the framework-internal finalization event.
 
         Provenance is already checked by :meth:`Aggregate.apply`.
@@ -305,7 +298,5 @@ class RootAggregate(IntervalAggregate):
         """Restore the children registry in addition to interval state."""
         instance = super().from_snapshot(data)
         assert isinstance(instance, RootAggregate)
-        instance._children = {
-            k: set(v) for k, v in data.get("children", {}).items()
-        }
+        instance._children = {k: set(v) for k, v in data.get("children", {}).items()}
         return instance

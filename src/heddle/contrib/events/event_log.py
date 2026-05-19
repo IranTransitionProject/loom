@@ -35,9 +35,7 @@ class EventLog(ABC):
     """Per-aggregate-type append-only event store."""
 
     @abstractmethod
-    async def append(
-        self, envelope: EventEnvelope, expected_version: int | None
-    ) -> None:
+    async def append(self, envelope: EventEnvelope, expected_version: int | None) -> None:
         """Append an event with optimistic concurrency control.
 
         ``expected_version`` semantics:
@@ -63,9 +61,7 @@ class EventLog(ABC):
         """Stream events for an aggregate, ordered by aggregate_version."""
 
     @abstractmethod
-    def subscribe(
-        self, aggregate_type: str
-    ) -> AsyncIterator[EventEnvelope]:
+    def subscribe(self, aggregate_type: str) -> AsyncIterator[EventEnvelope]:
         """Subscribe to live events for an aggregate type.
 
         Yields envelopes as they're appended. Iteration is forever
@@ -89,18 +85,13 @@ class InMemoryEventLog(EventLog):
         self._lock = threading.Lock()
         self._subscribers: dict[str, list[asyncio.Queue[EventEnvelope]]] = {}
 
-    async def append(
-        self, envelope: EventEnvelope, expected_version: int | None
-    ) -> None:
+    async def append(self, envelope: EventEnvelope, expected_version: int | None) -> None:
         """Append an envelope with the CAS+monotonicity contract from the ABC."""
         key = (envelope.aggregate_type, envelope.aggregate_id)
         with self._lock:
             current = self._events.get(key, [])
             current_version = current[-1].aggregate_version if current else 0
-            if (
-                expected_version is not None
-                and expected_version != current_version
-            ):
+            if expected_version is not None and expected_version != current_version:
                 raise ConcurrencyError(
                     f"append for {envelope.aggregate_type}:"
                     f"{envelope.aggregate_id} expected_version="
@@ -135,9 +126,7 @@ class InMemoryEventLog(EventLog):
             if ev.aggregate_version > from_version:
                 yield ev
 
-    async def subscribe(
-        self, aggregate_type: str
-    ) -> AsyncIterator[EventEnvelope]:
+    async def subscribe(self, aggregate_type: str) -> AsyncIterator[EventEnvelope]:
         """Yield newly-appended events for ``aggregate_type`` until cancelled."""
         q: asyncio.Queue[EventEnvelope] = asyncio.Queue()
         with self._lock:
