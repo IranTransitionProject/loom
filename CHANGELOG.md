@@ -93,12 +93,16 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
 
 - `heddle.contrib.events` package skeleton (Sprint 1 of M2 plan):
   - `EventEnvelope` and `CommandMessage` Pydantic models in
-    `heddle.core.messages`, with associated `EventMetadata` and
-    `CommandMetadata`.
-  - `heddle.core.subjects` — helpers for the `heddle.events.*`,
-    `heddle.commands.*`, and `heddle.rejections.*` NATS subjects and
-    `HEDDLE_EVENTS_*` / `HEDDLE_COMMANDS_*` / `HEDDLE_REJECTIONS_*`
-    JetStream stream names.
+    `heddle.contrib.events.envelopes`, with associated
+    `EventMetadata` and `CommandMetadata`. (Initially landed in
+    `heddle.core.messages` during Sprint 1; relocated to
+    `heddle.contrib.events.envelopes` at the start of Sprint 2.
+    Vendored JSON schemas are byte-identical.)
+  - `heddle.contrib.events.subjects` — helpers for the
+    `heddle.events.*`, `heddle.commands.*`, and `heddle.rejections.*`
+    NATS subjects and `HEDDLE_EVENTS_*` / `HEDDLE_COMMANDS_*` /
+    `HEDDLE_REJECTIONS_*` JetStream stream names. (Initially at
+    `heddle.core.subjects`; relocated alongside the envelopes.)
   - `heddle.contrib.events.issuer_conventions` — six `is_*_issuer`
     validators (framework, observer, projector, user, system, bridge)
     plus `is_recognized_issuer`. Multi-segment suffixes accepted; no
@@ -111,6 +115,93 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
     install is unaffected; only constructing an `EventEnvelope` /
     `CommandMessage` without an explicit id requires the extra. Refs:
     `heddle-contrib-events-m2-architecture-v7.md` §4.1, §6 Sprint 1.
+- `heddle.contrib.events` runtime (Sprint 2 of M2 plan):
+  - `heddle.contrib.events.errors` — six errors per v7 §4.5/§4.6,
+    all inheriting `HeddleEventsError`: `UnknownEventVersionError`,
+    `AggregateInvariantError`, `CommandRejected(reason, detail)`,
+    `ConcurrencyError`, `BusResultTimeoutError`,
+    `CorruptAggregateAlert`. `BusResultTimeoutError` is defined now
+    so the hierarchy is complete from the start; it's raised by
+    Sprint 3 NATS request/reply paths.
+  - `heddle.contrib.events.aggregate` — three base classes:
+    `Aggregate` (apply() discipline: deterministic, no I/O, mutate
+    self only; snapshot-only N=512 dedup ring buffer; CAS via
+    aggregate_version monotonicity; apply()-time provenance check
+    on `InternalFinalized` events as the application-layer backstop
+    for the Sprint 3 NATS publish ACL), `IntervalAggregate`
+    (`created` → `active` → `finalized` phase machine, no-op on
+    duplicate `InternalFinalized` per v7 §4.11), and `RootAggregate`
+    (child registry that feeds P2 cascade). `snake_case` helper is
+    public — used by both `apply()` and `CommandHandler` for
+    `apply_*` / `handle_*` dispatch.
+  - `heddle.contrib.events.registry` — `AGGREGATE_REGISTRY` and the
+    `@register_aggregate("Type")` decorator. `get_aggregate_class()`
+    raises `KeyError` for unknown types; `is_root_type()` feeds P1
+    and P2 dispatch.
+  - `heddle.contrib.events.event_log` — `EventLog` ABC and
+    `InMemoryEventLog`. `append()` is CAS by `expected_version`;
+    `None` skips the check (used by Sprint 4a PF observers
+    fabricating envelopes from PF state), but envelope-level
+    monotonicity is always enforced. `load()` is async-iter,
+    `subscribe()` is asyncio.Queue-backed with cleanup on
+    cancellation.
+  - `heddle.contrib.events.rejection_log` — `RejectionLog` ABC,
+    `InMemoryRejectionLog`, and the `RejectionEnvelope` Pydantic
+    model (rejection_id UUIDv7, full command, reason, detail,
+    rejected_at). JSON Schema exported to
+    `schemas/v1/rejection_envelope.schema.json`; drift gate
+    extended to cover it.
+  - `heddle.contrib.events.command_handler` — `CommandHandler`
+    base with the v7 §4.6 nine-step orchestration (load, replay,
+    dedup check, version check, dispatch, append with CAS, apply,
+    mark_processed; CommandRejected -> RejectionLog + re-raise).
+    Metadata propagation: command_id and correlation_id from the
+    command land on the produced event.
+  - `heddle.contrib.events.dispatcher` — `Projector` ABC and
+    `EventDispatcher` with serial fan-out per aggregate_type. A
+    projector raising an exception is logged but does not stop
+    subsequent projectors. `start()` is idempotent per type.
+  - `heddle.contrib.events.projectors`:
+    - `ScopeMembershipProjector` (P1) — complete. In-memory
+      root → child membership view via the reserved
+      `_child_membership` payload key. Sprint 3 migrates to a
+      KV-backed view.
+    - `CascadeProjector` (P2) — complete. On a root's
+      `InternalFinalized` event, fans out `InternalFinalize`
+      commands to all registered children. `command_id` is
+      deterministic over `(root_id, child_id, root_event_id)` via
+      sha256[:16] formatted as UUID, so retries dedupe naturally.
+      Idempotence in Sprint 2 in-memory comes from the receiving
+      aggregate rejecting `InternalFinalize` when already finalized
+      (CommandRejected, swallowed). Sprint 3 will route the
+      deterministic id through JetStream `Nats-Msg-Id` dedup.
+    - `FinalizationHorizonProjector` (P3) — STUB. ABC + empty
+      class so dependents import cleanly. Full implementation in
+      Sprint 3 alongside the Valkey atomicity-window mechanism;
+      docstring is the single source of truth for the Sprint 3
+      plan and a forcing-function test (`test_docstring_marks_
+      stub_for_sprint_3`) prevents the stub from graduating
+      silently.
+  - `heddle.contrib.events.testing` — public test utilities for
+    downstream apps: `make_event`, `make_command`,
+    `FakeIntervalAggregate` (registered "FakeInterval"),
+    `FakeRootAggregate` (registered "FakeRoot").
+  - `heddle/tests/fixtures.py` — pytest fixtures internal to
+    heddle's test suite: `registry_isolation`, `in_memory_event_log`,
+    `in_memory_rejection_log`, `command_handler`,
+    `membership_projector`, `wired_dispatcher` (pre-wired with
+    P1 + P2). Star-imported by `tests/conftest.py` for tree-wide
+    discovery.
+  - End-to-end demo scenario test
+    (`tests/contrib/events/test_demo_scenario.py`) exercising every
+    Sprint 2 component together: registry, both logs, handler,
+    dispatcher, P1, P2, aggregate apply() discipline, dedup, and
+    rejection path. The regression sentinel for Sprint 2.
+  - Concepts doc extended with sections on the aggregate base
+    classes, registration, EventLog/RejectionLog, CommandHandler
+    flow, EventDispatcher, and the test surface. Refs:
+    `heddle-contrib-events-m2-architecture-v7.md` §4.5–§4.9, §5.1,
+    §6 Sprint 2.
 - Four more framework metrics (completing OTel-audit S4's five-
   instrument plan; the first one, `heddle.tasks.completed`, landed
   in the previous commit):

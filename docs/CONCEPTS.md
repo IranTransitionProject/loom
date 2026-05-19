@@ -235,3 +235,187 @@ The `is_system_issuer` helper is a *strict subcheck* of
 that must reject operator-initiated commands (e.g.,
 emergency-correction tooling) should use `is_system_issuer`, not
 `is_user_issuer`.
+
+## Aggregate base classes (heddle.contrib.events)
+
+Sprint 2 of the M2 plan adds three abstract bases that concrete
+aggregates (Sprint 4a) subclass:
+
+- **`Aggregate`** — identity (`aggregate_type`, `aggregate_id`),
+  monotonic `aggregate_version`, the snapshot-only N=512 dedup ring
+  buffer, and the `apply()` discipline.
+- **`IntervalAggregate`** — adds the
+  `created` → `active` → `finalized` phase machine and the
+  framework-supplied `apply_internal_finalized`. Concrete examples
+  (Sprint 4a): `OperatorJobSession`, `Operation`.
+- **`RootAggregate`** — adds the child registry that P2
+  (`CascadeProjector`) reads when a root finalizes. Concrete
+  example: `Job`.
+
+### The `apply()` discipline
+
+`apply()` is the sole state-mutation path. It MUST be deterministic
+(same event sequence → same end state across replays), MUST NOT do
+I/O, and MUST NOT call out to the bus. The order of checks inside
+`apply()`:
+
+1. **Provenance.** Events in `FRAMEWORK_ONLY_EVENT_TYPES` (currently
+   just `InternalFinalized`) MUST carry `issued_by` starting with
+   `framework:`. Otherwise `CorruptAggregateAlert` — the
+   application-layer backstop for the Sprint 3 NATS publish ACL on
+   `*.InternalFinalized` subjects.
+2. **Version monotonicity.** `envelope.aggregate_version` must
+   equal `self.aggregate_version + 1`. Checked *before* dispatching
+   to the handler so a bad envelope cannot leave the aggregate in a
+   partially-mutated state.
+3. **Dispatch.** Look up `apply_<event_type_snake>` and invoke. A
+   missing handler raises `UnknownEventVersionError` (forward-compat
+   marker: a downgrade-from-newer-cluster scenario). Handler
+   exceptions other than `AggregateInvariantError` /
+   `CorruptAggregateAlert` are wrapped as `AggregateInvariantError`
+   with the original cause chained.
+4. **Commit.** Only after the handler returns cleanly:
+   `self.aggregate_version = envelope.aggregate_version`.
+
+### Snapshot-only dedup buffer
+
+`Aggregate` keeps a `deque(maxlen=512)` of processed command IDs.
+`has_processed(command_id)` is the dedup check; `mark_processed`
+is called by `CommandHandler` post-commit. The buffer is
+**snapshot-only** — pure event replay rebuilds an empty buffer.
+This means cross-call dedup is structurally impossible until Sprint
+3 ships the KV-snapshot path; Sprint 2's in-memory implementation
+relies on receiver-side rejection (e.g., `ALREADY_FINALIZED`) for
+idempotence.
+
+## Aggregate registration
+
+```python
+from heddle.contrib.events.aggregate import RootAggregate
+from heddle.contrib.events.registry import register_aggregate
+
+
+@register_aggregate("Job")
+class JobAggregate(RootAggregate):
+    def apply_job_shipped_from_pf(self, payload, metadata):
+        ...
+```
+
+The decorator sets the class's `aggregate_type` ClassVar and adds
+the class to the process-global `AGGREGATE_REGISTRY`. Re-registering
+the same `(name, class)` is a no-op; re-registering the same name
+with a different class raises `ValueError` to prevent silent
+shadowing.
+
+`@register_aggregate` was chosen over a `__init_subclass__` hook so
+the wiring is explicit (greppable, debuggable) and abstract bases
+can't accidentally register themselves.
+
+`get_aggregate_class(name)` returns the class or raises `KeyError`.
+`is_root_type(name)` returns True iff the registered class subclasses
+`RootAggregate` — used by P1 and P2 to decide whether to maintain
+membership / cascade.
+
+## EventLog and RejectionLog
+
+`EventLog` is the per-aggregate-type append-only event store.
+Sprint 2 ships `InMemoryEventLog`; Sprint 3 swaps in
+`JetStreamEventLog` without changing the ABC surface.
+
+- `append(envelope, expected_version)` — CAS append. `None` skips
+  the version check (used by Sprint 4a PF observers that fabricate
+  envelopes from PF rows without prior state). Envelope-level
+  monotonicity (`aggregate_version == current + 1`) is ALWAYS
+  enforced.
+- `load(aggregate_type, aggregate_id, from_version=0)` — async
+  stream in aggregate_version order, yielding events with
+  `aggregate_version > from_version`.
+- `subscribe(aggregate_type)` — async stream of newly-appended
+  events for the given type. Yields forever unless cancelled.
+
+`RejectionLog` is the parallel append-only audit stream for
+rejected commands. No CAS, no per-aggregate ordering. The Sprint 3
+JetStream version uses `HEDDLE_REJECTIONS_{TYPE}` streams so
+rejections can be queried independently. `RejectionEnvelope` is
+exported to `schemas/v1/rejection_envelope.schema.json`.
+
+## CommandHandler flow
+
+`CommandHandler.handle(cmd)` is the nine-step orchestration per
+v7 §4.6:
+
+1. Look up the aggregate class via the registry.
+2. Rebuild the aggregate from event-log replay (no snapshot path
+   in Sprint 2; Sprint 3 adds the KV snapshot fast path).
+3. `has_processed(command_id)` — if True, scan log for the matching
+   event and return it (idempotent retry). The fall-through branch
+   (buffer says yes but event missing) handles a Sprint 3 snapshot
+   edge case.
+4. Validate `expected_aggregate_version` if not None →
+   `ConcurrencyError` on mismatch.
+5. Dispatch to `handle_<command_type_snake>` →
+   `AttributeError` if missing.
+6. Handler returns `(event_type, event_payload)` or raises
+   `CommandRejected`.
+7. On `CommandRejected`: append `RejectionEnvelope` to the
+   `RejectionLog`, re-raise.
+8. Build `EventEnvelope` (new event_id, version=current+1,
+   propagating `command_id` / `correlation_id` / `issued_by` from
+   the command).
+9. `event_log.append(envelope, expected_version=current_version)`,
+   then `aggregate.apply(envelope)`, then
+   `aggregate.mark_processed(cmd.command_id)`. Return the envelope.
+
+## EventDispatcher and framework projectors
+
+`EventDispatcher` subscribes to `EventLog` per aggregate type and
+fans events out to registered projectors **serially** in
+registration order. A projector raising an exception is logged but
+does not stop subsequent projectors; projectors must NOT assume
+parallel-safety.
+
+`Projector.project()` must be idempotent — the dispatcher may
+re-deliver an event after a crash. Projectors emitting commands or
+events propagate the source event's `command_id` /
+`correlation_id` for trace continuity.
+
+The three framework projectors:
+
+- **P1 `ScopeMembershipProjector`** — complete. Maintains the
+  `(root_type, root_id) → child_type → {child_ids}` view in memory
+  by reading the reserved `_child_membership` payload key on root
+  events.
+- **P2 `CascadeProjector`** — complete. On a root's
+  `InternalFinalized` event, fans out `InternalFinalize` commands
+  to all registered children with `issued_by='framework:cascade'`
+  and a deterministic `command_id` over
+  `(root_id, child_id, root_event_id)`. `CommandRejected` /
+  `ConcurrencyError` are swallowed (cascade is opportunistic).
+- **P3 `FinalizationHorizonProjector`** — STUB in Sprint 2. ABC +
+  empty `project()`. Full implementation in Sprint 3 alongside the
+  Valkey atomicity-window mechanism.
+
+Application projectors that emit events as a side effect of
+projection use `issued_by='projector:<name>'`; framework projectors
+P1/P2/P3 use `issued_by='framework:<name>'`.
+
+## Test surface
+
+Two paths for tests that touch the events runtime:
+
+- **Downstream apps** import factories and reusable fake aggregates
+  from `heddle.contrib.events.testing` — `make_event`,
+  `make_command`, `FakeIntervalAggregate`, `FakeRootAggregate`.
+  These are part of the package's public surface.
+- **heddle's own tests** use pytest fixtures from
+  `heddle/tests/fixtures.py`: `registry_isolation`,
+  `in_memory_event_log`, `in_memory_rejection_log`,
+  `command_handler`, `membership_projector`, `wired_dispatcher`
+  (pre-wired with P1 + P2). The fixtures are star-imported by
+  `tests/conftest.py` so they're available tree-wide.
+
+`registry_isolation` snapshots `AGGREGATE_REGISTRY` at fixture
+setup and restores at teardown. Tests that register fake aggregates
+should depend on this fixture (e.g., via
+`pytest.mark.usefixtures("registry_isolation")`) to avoid leaking
+registrations across tests.
