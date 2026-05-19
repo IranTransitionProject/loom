@@ -259,9 +259,7 @@ async def test_lease_preempts_cascade(wiring) -> None:
             recorded_at=datetime.now(UTC),
         )
     )
-    await kv.set_if_not_exists(
-        lease_key("CChild", "c-1"), "framework:horizon:xyz", ttl_seconds=30
-    )
+    await kv.set_if_not_exists(lease_key("CChild", "c-1"), "framework:horizon:xyz", ttl_seconds=30)
 
     await c_with_lease.project(_root_finalized_envelope())
 

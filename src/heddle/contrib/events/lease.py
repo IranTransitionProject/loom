@@ -95,6 +95,8 @@ async def finalization_lease(
         holder = await kv.get(key)
         _log.info(
             "finalization lease for %s:%s preempted; holder=%s",
-            aggregate_type, aggregate_id, holder,
+            aggregate_type,
+            aggregate_id,
+            holder,
         )
     yield claimed

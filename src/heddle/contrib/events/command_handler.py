@@ -191,9 +191,7 @@ class CommandHandler:
         aggregate.mark_processed(cmd.command_id)
 
         # ---- 10. Cross-process dedup announcement. ------------------------
-        await self._dedup_publisher.publish(
-            cmd.aggregate_type, cmd.aggregate_id, cmd.command_id
-        )
+        await self._dedup_publisher.publish(cmd.aggregate_type, cmd.aggregate_id, cmd.command_id)
 
         # ---- 11. Snapshot-on-write (count-based). -------------------------
         if (

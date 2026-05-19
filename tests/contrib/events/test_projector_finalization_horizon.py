@@ -31,9 +31,7 @@ def _make_fast_horizon_class():
     class _FastHorizon(IntervalAggregate):
         HORIZON_TIMEOUT_SECONDS = 0.1
 
-        def handle_seed(
-            self, _payload: dict[str, Any], _meta: Any
-        ) -> tuple[str, dict[str, Any]]:
+        def handle_seed(self, _payload: dict[str, Any], _meta: Any) -> tuple[str, dict[str, Any]]:
             return "Seeded", {}
 
         def apply_seeded(self, _payload: dict[str, Any], _meta: EventMetadata) -> None:

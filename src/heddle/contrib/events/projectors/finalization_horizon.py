@@ -123,7 +123,8 @@ class FinalizationHorizonProjector(Projector):
             if not claimed:
                 _log.info(
                     "horizon fire preempted by lease holder for %s:%s",
-                    aggregate_type, aggregate_id,
+                    aggregate_type,
+                    aggregate_id,
                 )
                 return
 
@@ -144,7 +145,9 @@ class FinalizationHorizonProjector(Projector):
             except (CommandRejected, ConcurrencyError) as exc:
                 _log.info(
                     "horizon InternalFinalize rejected for %s:%s — %s",
-                    aggregate_type, aggregate_id, exc,
+                    aggregate_type,
+                    aggregate_id,
+                    exc,
                 )
 
     async def shutdown(self) -> None:

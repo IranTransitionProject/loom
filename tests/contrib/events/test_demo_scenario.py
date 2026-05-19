@@ -207,13 +207,15 @@ async def test_cross_process_dedup_via_published_events() -> None:
     snapshots = SnapshotStore(kv)
 
     h1 = CommandHandler(
-        event_log, rejection_log,
+        event_log,
+        rejection_log,
         snapshot_store=snapshots,
         dedup_publisher=NatsDedupPublisher(bus),  # type: ignore[arg-type]
         dedup_subscriber=NatsDedupSubscriber(bus),  # type: ignore[arg-type]
     )
     h2 = CommandHandler(
-        event_log, rejection_log,
+        event_log,
+        rejection_log,
         snapshot_store=snapshots,
         dedup_publisher=NatsDedupPublisher(bus),  # type: ignore[arg-type]
         dedup_subscriber=NatsDedupSubscriber(bus),  # type: ignore[arg-type]
@@ -304,13 +306,9 @@ async def test_lease_prevents_double_finalization() -> None:
             await asyncio.sleep(DISPATCH_DRAIN)
 
         # Verify: child has NOT been finalised by cascade (lease blocked it).
-        child_events = [
-            ev async for ev in event_log.load("FakeInterval", "c-lease")
-        ]
+        child_events = [ev async for ev in event_log.load("FakeInterval", "c-lease")]
         finalised = [ev for ev in child_events if ev.event_type == "InternalFinalized"]
-        assert finalised == [], (
-            "cascade should not have published while lease was held"
-        )
+        assert finalised == [], "cascade should not have published while lease was held"
         # Lease key remains for audit.
         held = await kv.get(lease_key("FakeInterval", "c-lease"))
         assert held is not None

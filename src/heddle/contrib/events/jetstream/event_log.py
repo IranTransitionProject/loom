@@ -68,13 +68,9 @@ class JetStreamEventLog(EventLog):
     def __init__(self, js: JetStreamContext) -> None:
         self._js = js
 
-    async def append(
-        self, envelope: EventEnvelope, expected_version: int | None
-    ) -> None:
+    async def append(self, envelope: EventEnvelope, expected_version: int | None) -> None:
         """Publish ``envelope`` with optional CAS on ``aggregate_version``."""
-        subject = event_subject(
-            envelope.aggregate_type, envelope.aggregate_id, envelope.event_type
-        )
+        subject = event_subject(envelope.aggregate_type, envelope.aggregate_id, envelope.event_type)
         payload = envelope.model_dump_json().encode()
         headers: dict[str, str] = {}
         if expected_version is not None:
@@ -124,9 +120,7 @@ class JetStreamEventLog(EventLog):
         finally:
             await sub.unsubscribe()
 
-    async def subscribe(
-        self, aggregate_type: str
-    ) -> AsyncIterator[EventEnvelope]:
+    async def subscribe(self, aggregate_type: str) -> AsyncIterator[EventEnvelope]:
         """Return an async iterator of newly-appended events for ``aggregate_type``.
 
         The underlying push subscription is established BEFORE this

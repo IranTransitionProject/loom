@@ -57,6 +57,9 @@ CVE-2026-42311
 # pygments 2.19.2 → 2.20.0 (transitive via rich / structlog rendering)
 CVE-2026-4539
 
+# pymdown-extensions 10.21 → 10.21.3 (transitive via mkdocs-material; docs-only)
+CVE-2026-46338
+
 # pytest 9.0.2 → 9.0.3 (dev-only; resolver already allows the fix)
 CVE-2025-71176
 

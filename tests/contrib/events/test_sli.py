@@ -168,6 +168,7 @@ async def test_dispatcher_fan_out_observed(recorder: _CapturingRecorder) -> None
             if recorder.fan_outs:
                 break
             import asyncio as _asyncio
+
             await _asyncio.sleep(0)
         assert any(obs["aggregate_type"] == "SliT" for obs in recorder.fan_outs)
     finally:

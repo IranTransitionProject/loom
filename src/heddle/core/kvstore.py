@@ -53,9 +53,7 @@ class KeyValueStore(ABC):
         ...
 
     @abstractmethod
-    async def set_if_not_exists(
-        self, key: str, value: str, ttl_seconds: int
-    ) -> bool:
+    async def set_if_not_exists(self, key: str, value: str, ttl_seconds: int) -> bool:
         """Atomically set ``key`` to ``value`` with TTL only if absent.
 
         Returns ``True`` if the value was stored (caller "won the
@@ -114,9 +112,7 @@ class InMemoryKeyValueStore(KeyValueStore):
             return None
         return value
 
-    async def set_if_not_exists(
-        self, key: str, value: str, ttl_seconds: int
-    ) -> bool:
+    async def set_if_not_exists(self, key: str, value: str, ttl_seconds: int) -> bool:
         """Atomic set-if-absent. Lazily expires the existing entry first.
 
         Single-event-loop atomicity is sufficient for the test/dev use
@@ -156,13 +152,9 @@ class ScopedKeyValueStore(KeyValueStore):
         """Retrieve a value with the configured prefix prepended."""
         return await self._parent.get(self._prefix + key)
 
-    async def set_if_not_exists(
-        self, key: str, value: str, ttl_seconds: int
-    ) -> bool:
+    async def set_if_not_exists(self, key: str, value: str, ttl_seconds: int) -> bool:
         """Delegate atomic set-if-absent with the configured prefix."""
-        return await self._parent.set_if_not_exists(
-            self._prefix + key, value, ttl_seconds
-        )
+        return await self._parent.set_if_not_exists(self._prefix + key, value, ttl_seconds)
 
 
 # ---------------------------------------------------------------------------

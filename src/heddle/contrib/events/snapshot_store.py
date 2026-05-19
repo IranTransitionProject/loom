@@ -56,9 +56,7 @@ class SnapshotStore:
     def __init__(self, kv: KeyValueStore) -> None:
         self._kv = kv
 
-    async def load(
-        self, cls: type[Aggregate], aggregate_id: str
-    ) -> Aggregate | None:
+    async def load(self, cls: type[Aggregate], aggregate_id: str) -> Aggregate | None:
         """Restore an aggregate from snapshot, or ``None`` if absent."""
         raw = await self._kv.get(_snapshot_key(cls.aggregate_type, aggregate_id))
         if raw is None:

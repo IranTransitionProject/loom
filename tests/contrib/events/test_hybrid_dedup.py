@@ -135,13 +135,15 @@ async def test_cross_process_dedup_via_bus() -> None:
     snapshots = SnapshotStore(kv)
 
     h1 = CommandHandler(
-        el, rl,
+        el,
+        rl,
         snapshot_store=snapshots,
         dedup_publisher=NatsDedupPublisher(bus),  # type: ignore[arg-type]
         dedup_subscriber=NatsDedupSubscriber(bus),  # type: ignore[arg-type]
     )
     h2 = CommandHandler(
-        el, rl,
+        el,
+        rl,
         snapshot_store=snapshots,
         dedup_publisher=NatsDedupPublisher(bus),  # type: ignore[arg-type]
         dedup_subscriber=NatsDedupSubscriber(bus),  # type: ignore[arg-type]
@@ -149,6 +151,7 @@ async def test_cross_process_dedup_via_bus() -> None:
 
     # Prime h2's cache so it has the aggregate and a live subscription.
     from heddle.contrib.events.registry import get_aggregate_class as _gac
+
     await h2._load_or_create(_gac("HybridT"), "a-1")
 
     # Sanity: h2 subscribed on cache.put → bus has the subscription.
@@ -182,13 +185,15 @@ async def test_subscriber_unsubscribes_on_cache_evict() -> None:
     subscriber = NatsDedupSubscriber(bus)  # type: ignore[arg-type]
     cache: AggregateCache = AggregateCache(max_size=1)
     h = CommandHandler(
-        el, rl,
+        el,
+        rl,
         cache=cache,
         dedup_publisher=NullDedupPublisher(),
         dedup_subscriber=subscriber,
     )
     # Load aggregate "a-1" → subscription created.
     from heddle.contrib.events.registry import get_aggregate_class
+
     cls = get_aggregate_class("HybridT")
     await h._load_or_create(cls, "a-1")
     assert bus.sub_count(dedup_subject("HybridT", "a-1")) == 1

@@ -98,9 +98,7 @@ async def test_subscribe_delivers_events_published_after(event_log: Any) -> None
         raise AssertionError("subscribe yielded nothing")
 
     task = asyncio.create_task(consumer())
-    await event_log.append(
-        _ev(version=1, agg_id="sub-1"), expected_version=0
-    )
+    await event_log.append(_ev(version=1, agg_id="sub-1"), expected_version=0)
     received = await asyncio.wait_for(task, timeout=2.0)
     assert received.aggregate_id == "sub-1"
 
@@ -108,8 +106,6 @@ async def test_subscribe_delivers_events_published_after(event_log: Any) -> None
 @pytest.mark.asyncio
 async def test_load_filters_from_version(event_log: Any) -> None:
     for v in (1, 2, 3):
-        await event_log.append(
-            _ev(version=v, agg_id="filt"), expected_version=v - 1
-        )
+        await event_log.append(_ev(version=v, agg_id="filt"), expected_version=v - 1)
     loaded = [ev async for ev in event_log.load("JsEvT", "filt", from_version=1)]
     assert [ev.aggregate_version for ev in loaded] == [2, 3]

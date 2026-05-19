@@ -96,9 +96,7 @@ class CascadeProjector(Projector):
         child_id: str,
     ) -> None:
         cmd = CommandMessage(
-            command_id=deterministic_cascade_id(
-                envelope.aggregate_id, child_id, envelope.event_id
-            ),
+            command_id=deterministic_cascade_id(envelope.aggregate_id, child_id, envelope.event_id),
             aggregate_type=child_type,
             aggregate_id=child_id,
             command_type="InternalFinalize",
@@ -116,9 +114,7 @@ class CascadeProjector(Projector):
             await self._try_handle(cmd)
             return
 
-        async with finalization_lease(
-            self._kv, child_type, child_id, CASCADE_ISSUED_BY
-        ) as claimed:
+        async with finalization_lease(self._kv, child_type, child_id, CASCADE_ISSUED_BY) as claimed:
             if not claimed:
                 return  # P3 (or another P2 instance) already claimed.
             await self._try_handle(cmd)
