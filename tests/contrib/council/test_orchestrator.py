@@ -282,6 +282,61 @@ class TestCouncilOrchestrator:
 
         await bus.close()
 
+    async def test_per_turn_timeout_produces_timeout_entry(self, monkeypatch):
+        """Per-turn timeout invariant — orchestrator side (J4).
+
+        Mirror of ``TestCouncilRunnerTimeouts.test_per_turn_timeout_
+        produces_timeout_entry`` in ``test_runner.py``. Pins the
+        cross-path invariant: when an agent turn exceeds the per-turn
+        budget, *both* execution paths produce ``[Timeout: ...]`` as
+        the transcript content for that agent, not a raised exception
+        that escapes to the caller.
+
+        The runner enforces the budget via ``call_with_budget`` and
+        catches ``CouncilTimeoutError`` to write the transcript entry;
+        the orchestrator enforces it via the dispatch-helper's
+        ``timeout=`` argument, treating ``None`` as the no-response
+        signal.  Different mechanisms, identical observable shape —
+        and that's the invariant J4 pins.
+        """
+        bus = InMemoryBus()
+        await bus.connect()
+
+        async def _fake_dispatch(*args, **kwargs):
+            return None
+
+        monkeypatch.setattr(
+            "heddle.contrib.council.orchestrator.dispatch_and_wait_for_result",
+            _fake_dispatch,
+        )
+
+        config_path = _write_yaml(_council_config(max_rounds=1))
+        backend = MockFacilitatorBackend()
+
+        orch = CouncilOrchestrator(
+            actor_id="test-council-per-turn-timeout",
+            config_path=config_path,
+            backend=backend,
+            bus=bus,
+        )
+
+        goal = OrchestratorGoal(instruction="Test per-turn timeout")
+        result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
+
+        await orch.handle_message(goal.model_dump(mode="json"))
+
+        final = await _get_final_result(result_sub, goal.goal_id)
+
+        assert final["status"] == "completed"
+        summaries = final["output"]["agent_summaries"]
+        # Every agent timed out; their latest position is the
+        # ``[Timeout: ...]`` entry.  Same invariant the runner test
+        # asserts on ``result.transcript[0].entries``.
+        assert summaries, "expected at least one agent summary"
+        assert all("[Timeout" in content for content in summaries.values())
+
+        await bus.close()
+
     async def test_worker_failure_noted_in_transcript(self):
         """When a worker returns FAILED, the transcript notes the error."""
         bus = InMemoryBus()
