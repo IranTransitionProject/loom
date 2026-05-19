@@ -151,8 +151,10 @@ omit = [
 
 [tool.coverage.report]
 show_missing = true
-# Total-line coverage gate. Per-package floors are documented in
-# docs/CODING_GUIDE.md (pytest-cov does not natively gate per package).
+# Total-line coverage gate. Per-package floors are configured in
+# [tool.heddle.coverage-gates] below and enforced by
+# tools/check_coverage_gates.py (coverage.py has no native
+# per-package fail_under).
 fail_under = 91
 exclude_lines = [
     "pragma: no cover",
@@ -160,6 +162,36 @@ exclude_lines = [
     "if TYPE_CHECKING",
     "raise NotImplementedError",
 ]
+
+[tool.heddle.coverage-gates]
+# Per-package coverage floors, enforced by tools/check_coverage_gates.py
+# after `pytest --cov --cov-report=json`. Each floor is
+# floor(current_branch_aware_coverage) - 2 at introduction (2026-05-19);
+# the 2pp buffer prevents CI red-lining on normal coverage noise. See
+# docs/CODING_GUIDE.md "Coverage gates and the ratchet rule" for the
+# policy on raising or lowering floors.
+bus = 95
+cli = 84
+core = 91
+discovery = 90
+mcp = 89
+orchestrator = 92
+router = 96
+scheduler = 92
+tracing = 91
+worker = 93
+workshop = 84
+# tui = ungated; full TUI coverage requires terminal-side interaction
+# tests we don't run in unit-test surface. Current coverage ~60%.
+"contrib/chatbridge" = 91
+"contrib/council" = 92
+"contrib/docproc" = 90
+"contrib/duckdb" = 93
+"contrib/events" = 94
+"contrib/lancedb" = 77
+"contrib/rag" = 90
+"contrib/redis" = 98
+"contrib/subprocess" = 93
 
 [tool.ruff]
 line-length = 100
@@ -244,6 +276,10 @@ ignore = [
     "D",      # Docstrings relaxed in examples
     "ANN",    # Type annotations relaxed in examples
     "TC001",  # TYPE_CHECKING imports not required in examples
+]
+"tools/**/*.py" = [
+    "T20",    # print() OK in maintenance scripts (CLI output)
+    "D",      # Docstrings relaxed for one-off script helpers
 ]
 
 [tool.ruff.lint.pydocstyle]

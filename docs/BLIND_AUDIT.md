@@ -391,6 +391,21 @@ final report that incorporates the reviewer's concerns.
 
 ---
 
+## Deployment note — ChatBridge-backed reviewers
+
+If any stage in the audit pipeline is implemented as a ChatBridge
+worker (multi-turn reviewer, follow-up clarifier, etc.), deploy
+those workers with `replicas=1` or front them with a session-affinity
+load balancer that hashes on `session_id`. Each replica owns
+`bridge._sessions` locally; without affinity, a follow-up turn may
+route to a different replica with no history, fragmenting the audit
+mid-flight. See
+[TROUBLESHOOTING.md — ChatBridge horizontal scaling: split-brain
+sessions](TROUBLESHOOTING.md#chatbridge-horizontal-scaling-split-brain-sessions)
+for the full diagnosis and `Invariant 20` in
+[DESIGN_INVARIANTS.md](DESIGN_INVARIANTS.md) for the framework
+contract.
+
 ## Related
 
 - **[Building Workflows](building-workflows.md)** — full guide to workers,

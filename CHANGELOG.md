@@ -144,6 +144,19 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
     observations (command handle, dispatcher fan-out, lease
     acquisition). Default no-op recorder; `install_recorder` for
     application-installed exporters.
+- Per-package coverage gates (K4 closeout). The global
+  `fail_under = 91` in `[tool.coverage.report]` is unchanged; in
+  addition, `[tool.heddle.coverage-gates]` now holds per-package
+  floors, set at introduction (2026-05-19) to
+  `floor(current_branch_aware_coverage) - 2`. The new
+  `tools/check_coverage_gates.py` reads
+  `pytest --cov-report=json` output and enforces the table; CI
+  runs it after the existing pytest+coverage step. Ratchet rule
+  ("sustained ≥3pp above floor across two PRs → raise to
+  `floor(current) - 1`; never lower without an ADR") documented
+  in `docs/CODING_GUIDE.md` "Coverage gates and the ratchet
+  rule". 20 packages gated; `tui` left ungated (terminal
+  interaction tests out of unit-test surface).
 - `heddle.contrib.events` package skeleton (Sprint 1 of M2 plan):
   - `EventEnvelope` and `CommandMessage` Pydantic models in
     `heddle.contrib.events.envelopes`, with associated

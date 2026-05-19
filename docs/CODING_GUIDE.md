@@ -541,26 +541,65 @@ class TestExecuteStage:
 - `asyncio_mode = "auto"` is configured — async test functions work without the
   `@pytest.mark.asyncio` decorator.
 
-### Coverage
+### Coverage gates and the ratchet rule
 
-**Total threshold: 91%** (enforced in CI via `fail_under` in
-`[tool.coverage.report]`). Raise only when the current run sustains
-the new floor with margin.
+Heddle enforces a **global** coverage gate (currently 91%, via
+`fail_under` in `[tool.coverage.report]`) plus **per-package**
+gates. The per-package floors live in
+`[tool.heddle.coverage-gates]` of `pyproject.toml` and are checked
+by `tools/check_coverage_gates.py` after `pytest --cov-report=json`.
+CI runs the script as a separate step; locally,
+`uv run python tools/check_coverage_gates.py` after a coverage run.
 
-**Per-package floors** (documented expectations — pytest-cov does
-not gate per package, so these are enforced by review, not CI):
+Each per-package floor was set at introduction (2026-05-19) to
+`floor(current_branch_aware_coverage) - 2`. The 2pp buffer prevents
+CI red-lining on normal coverage noise. Current floors:
 
-| Package | Floor | Rationale |
+| Package | Floor | Notes |
 | --- | --- | --- |
-| `core/`, `bus/`, `worker/`, `orchestrator/`, `router/` | 95% | Hot-path runtime; regressions hit every user. |
-| `cli/`, `workshop/`, `mcp/`, `scheduler/` | 85% | Operator-facing surfaces; many paths exercised end-to-end. |
-| `contrib/` | 70% | Optional integrations; some require external infra to fully cover. |
+| `bus` | 95 | Hot-path runtime. |
+| `core` | 91 | Hot-path runtime; `core/config.py` is the typical delta sink. |
+| `worker` | 93 | Hot-path runtime. |
+| `orchestrator` | 92 | Hot-path runtime. |
+| `router` | 96 | Hot-path runtime. |
+| `scheduler` | 92 | |
+| `tracing` | 91 | |
+| `discovery` | 90 | |
+| `mcp` | 89 | Operator-facing surface. |
+| `workshop` | 84 | FastAPI + HTMX surface; browser-side coverage out of scope. Some local-only paths (mDNS, OS-specific subprocess setup) don't exercise on Linux CI. |
+| `cli` | 84 | Many command paths only exercised end-to-end. |
+| `contrib/chatbridge` | 91 | |
+| `contrib/council` | 92 | |
+| `contrib/docproc` | 90 | |
+| `contrib/duckdb` | 93 | |
+| `contrib/events` | 94 | |
+| `contrib/lancedb` | 77 | Native-lib paths; some only exercised with infra. |
+| `contrib/rag` | 90 | I/O-heavy; some paths need external services. |
+| `contrib/redis` | 98 | |
+| `contrib/subprocess` | 93 | |
+| `tui` | ungated | Terminal-side interaction tests out of unit-test surface. |
+
+#### The ratchet rule
+
+When a package's coverage **sustains ≥3 percentage points above its
+gate across two PRs** (not a one-shot spike), raise the gate to
+`floor(current) - 1`. This is a manual discipline performed at the
+next CHANGELOG entry's `[Unreleased]` section, recorded as a
+"Maintenance" note.
+
+**Never lower a gate without an ADR.** Coverage drops are usually
+either real regressions or refactors that legitimately remove
+covered code; an ADR forces the distinction to be made explicitly.
 
 A package below its floor is a release blocker unless explicitly
-waived in the PR description. Today `core/` sits at ~94% — the delta
-is concentrated in `core/config.py`; lifting it is queued as part of
-the ongoing core/contracts hardening work tracked in the repository
-review reports.
+waived in the PR description.
+
+#### Why manual, not automated
+
+Automation would require a CI workflow that tracks coverage deltas
+across PRs, decides the spike-vs-sustained question, and proposes
+gate-raise PRs. That's possible but adds infrastructure to maintain.
+Manual ratcheting until the discipline drifts or becomes annoying.
 
 Use `# pragma: no cover` only for truly unreachable code (e.g.,
 `if __name__ == "__main__"` guards, `TYPE_CHECKING` blocks).
