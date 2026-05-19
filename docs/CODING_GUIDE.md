@@ -566,7 +566,7 @@ CI red-lining on normal coverage noise. Current floors:
 | `tracing` | 91 | |
 | `discovery` | 90 | |
 | `mcp` | 89 | Operator-facing surface. |
-| `workshop` | 92 | FastAPI + HTMX surface; browser-side coverage out of scope. |
+| `workshop` | 84 | FastAPI + HTMX surface; browser-side coverage out of scope. Some local-only paths (mDNS, OS-specific subprocess setup) don't exercise on Linux CI. |
 | `cli` | 84 | Many command paths only exercised end-to-end. |
 | `contrib/chatbridge` | 91 | |
 | `contrib/council` | 92 | |

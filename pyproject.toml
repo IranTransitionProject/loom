@@ -172,7 +172,7 @@ router = 96
 scheduler = 92
 tracing = 91
 worker = 93
-workshop = 92
+workshop = 84
 # tui = ungated; full TUI coverage requires terminal-side interaction
 # tests we don't run in unit-test surface. Current coverage ~60%.
 "contrib/chatbridge" = 91
