@@ -175,12 +175,12 @@ Python framework:
    Implementing full JSON Schema validation is allowed but produces
    stricter behaviour than the Python actors; document the divergence
    if you do.
-6. **OTel trace propagation.** If the incoming message has top-level
-   `_trace_context`, extract or preserve it as W3C Trace Context headers
-   and include top-level `_trace_context` on the `TaskResult`. Do not put
-   trace headers under `metadata`; that field is reserved for task and
-   worker context. If your language ecosystem lacks OTel maturity,
-   passing the value through verbatim is acceptable.
+6. **Middleware Lane propagation.** If the incoming message has
+   top-level keys starting with `_` (e.g. `_trace_context`), extract
+   any you understand (like W3C Trace Context) and **always include
+   every `_`-prefixed key verbatim** on the `TaskResult`. Do not put
+   these under `metadata`; they belong at the top level of the JSON
+   envelope.
 
 ## Scope — what foreign actors are (and aren't)
 
@@ -261,6 +261,10 @@ build a small SDK. The protocol surface is intentionally narrow.
 - `schemas/v1/` (in the repository) — authoritative JSON Schemas, CI-checked.
 - [Heddle SDK docs](https://getheddle.dev/heddle-sdk/) — .NET and Swift reference SDK documentation.
 - [getheddle/heddle-sdk](https://github.com/getheddle/heddle-sdk) — SDK source repository.
+- [Gateway Actors](gateway-actors.md) — for non-NATS protocols (MQTT, HTTP, IoT).
+- [Design Invariants](DESIGN_INVARIANTS.md) — framework-safety contracts (1, 5, 8, 17 in particular apply to foreign actors).
+- [ADR-001](adr/001-stateless-workers.md) — why the reset-between-tasks invariant exists.
+etheddle/heddle-sdk) — SDK source repository.
 - [Gateway Actors](gateway-actors.md) — for non-NATS protocols (MQTT, HTTP, IoT).
 - [Design Invariants](DESIGN_INVARIANTS.md) — framework-safety contracts (1, 5, 8, 17 in particular apply to foreign actors).
 - [ADR-001](adr/001-stateless-workers.md) — why the reset-between-tasks invariant exists.
