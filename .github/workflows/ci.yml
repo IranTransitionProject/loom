@@ -76,7 +76,10 @@ jobs:
       - name: Run tests with coverage
         run: |
           uv run pytest tests/ -v -m "not integration and not deepeval" \
-            --cov --cov-report=term-missing --cov-report=xml
+            --cov --cov-report=term-missing --cov-report=xml --cov-report=json
+
+      - name: Enforce per-package coverage gates
+        run: uv run python tools/check_coverage_gates.py
 
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.12'
