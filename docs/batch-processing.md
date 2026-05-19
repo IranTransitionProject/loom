@@ -182,13 +182,39 @@ asyncio.run(main())
 - Once the chain stabilizes, port it to a YAML pipeline config and use
   Pattern C for production scaling.
 
-> **Note on full pipeline execution without NATS:** Heddle currently does
-> not ship an in-memory `PipelineOrchestrator` that consumes a YAML
-> pipeline config without a message bus. The Workshop runs *individual
-> workers*, not multi-stage pipelines. If you need to test a complete
-> YAML pipeline end-to-end before deploying it to NATS, either chain the
-> workers manually as shown above, or stand up the full Pattern C mesh
-> on a single machine (NATS in Docker is one command).
+### Pattern B+: in-memory pipeline test runner
+
+For the common case of "I have a YAML pipeline; let me test it end-to-end
+without NATS", use `PipelineTestRunner`. It spins up an `InMemoryBus`,
+instantiates the worker actors the pipeline references, runs a real
+`PipelineOrchestrator` over them, and returns a structured
+`PipelineTestResult` with per-stage timing and token usage.
+
+```python
+from heddle.worker.backends import build_backends_from_env
+from heddle.workshop.pipeline_runner import PipelineTestRunner
+
+runner = PipelineTestRunner(backends=build_backends_from_env())
+try:
+    result = await runner.run(
+        "configs/orchestrators/my_pipeline.yaml",
+        context={"file_ref": "input.pdf"},
+    )
+    for stage in result.stage_results:
+        print(f"  {stage.stage_name}: {stage.status} ({stage.latency_ms}ms)")
+finally:
+    await runner.aclose()
+```
+
+The manual chain example above stays as the teaching variant — explicit
+wiring is pedagogically useful when you're learning Heddle's model — but
+once you have a YAML pipeline, `PipelineTestRunner` is the recommended
+path. A CLI surface is available too:
+
+```bash
+heddle pipeline test configs/orchestrators/my_pipeline.yaml \
+    --context file_ref=test.pdf
+```
 
 ---
 

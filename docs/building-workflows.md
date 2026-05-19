@@ -386,6 +386,21 @@ heddle workshop
 The Workshop Pipeline Editor also lets you visualize the dependency graph
 and edit stages interactively.
 
+### Step 3.5: Run the whole pipeline end-to-end (no NATS)
+
+Between testing individual workers and deploying to NATS, you can drive
+the whole pipeline against an in-memory bus:
+
+```bash
+heddle pipeline test configs/orchestrators/analysis_pipeline.yaml \
+    --context file_ref=sample.pdf
+```
+
+Or from Python via `PipelineTestRunner` — see
+[batch-processing.md](batch-processing.md) (Pattern B+) for the API
+shape. Backends come from `build_backends_from_env()`; pass mocks
+instead when you're writing pytest cases.
+
 ### Conditional stages
 
 Stages can be skipped based on earlier stage outputs:
