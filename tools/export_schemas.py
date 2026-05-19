@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from heddle.contrib.events.envelopes import CommandMessage, EventEnvelope
+from heddle.contrib.events.rejection_log import RejectionEnvelope
 from heddle.core.messages import (
     CheckpointState,
     OrchestratorGoal,
@@ -48,6 +49,7 @@ _EXPORTS: list[tuple[str, type]] = [
     ("checkpoint_state", CheckpointState),
     ("event_envelope", EventEnvelope),
     ("command_message", CommandMessage),
+    ("rejection_envelope", RejectionEnvelope),
 ]
 
 _OUTPUT_DIR = Path(__file__).resolve().parents[1] / "schemas" / "v1"
