@@ -68,15 +68,15 @@ class FinalizationHorizonProjector(Projector):
 
     def __init__(
         self,
-        kv: "KeyValueStore",
-        command_handler: "CommandHandler",
+        kv: KeyValueStore,
+        command_handler: CommandHandler,
     ) -> None:
         self._kv = kv
         self._handler = command_handler
         self._timers: dict[tuple[str, str], asyncio.Task[None]] = {}
         self._lock = asyncio.Lock()
 
-    async def project(self, envelope: "EventEnvelope") -> None:
+    async def project(self, envelope: EventEnvelope) -> None:
         """Start/cancel horizon timers based on observed events.
 
         - ``InternalFinalized``: cancel the timer (the aggregate

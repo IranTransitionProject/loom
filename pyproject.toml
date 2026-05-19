@@ -140,6 +140,14 @@ asyncio_mode = "auto"
 [tool.coverage.run]
 source = ["heddle"]
 branch = true
+# JetStream-backed implementations are exercised by tests gated on the
+# NATS_URL env var (@pytest.mark.integration). They have no in-process
+# unit coverage by design; omit them from the fail_under gate so the
+# unit-only CI path stays accurate. Drop these once CI runs the
+# integration tier against a live NATS+Valkey environment.
+omit = [
+    "src/heddle/contrib/events/jetstream/*",
+]
 
 [tool.coverage.report]
 show_missing = true

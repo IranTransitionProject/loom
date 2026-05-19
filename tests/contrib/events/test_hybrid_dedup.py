@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -34,7 +35,6 @@ from heddle.contrib.events.registry import register_aggregate
 from heddle.contrib.events.rejection_log import InMemoryRejectionLog
 from heddle.contrib.events.snapshot_store import SnapshotStore
 from heddle.core.kvstore import InMemoryKeyValueStore
-from datetime import UTC, datetime
 
 pytestmark = pytest.mark.usefixtures("registry_isolation")
 
@@ -45,7 +45,7 @@ class _FakeMsg:
 
 
 class _FakeSub:
-    def __init__(self, bus: "InMemoryNatsBus", subject: str) -> None:
+    def __init__(self, bus: InMemoryNatsBus, subject: str) -> None:
         self._bus = bus
         self._subject = subject
         self.active = True

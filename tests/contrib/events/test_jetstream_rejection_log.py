@@ -15,7 +15,6 @@ import pytest
 from heddle.contrib.events.envelopes import CommandMessage, CommandMetadata
 from heddle.contrib.events.rejection_log import RejectionEnvelope
 
-
 NATS_URL = os.environ.get("NATS_URL")
 
 pytestmark = [

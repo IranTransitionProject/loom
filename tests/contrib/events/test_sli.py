@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -26,7 +27,6 @@ from heddle.contrib.events.sli import (
     time_observation,
 )
 from heddle.core.kvstore import InMemoryKeyValueStore
-from datetime import UTC, datetime
 
 pytestmark = pytest.mark.usefixtures("registry_isolation")
 

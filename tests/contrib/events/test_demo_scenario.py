@@ -313,6 +313,7 @@ async def test_lease_prevents_double_finalization() -> None:
         )
         # Lease key remains for audit.
         held = await kv.get(lease_key("FakeInterval", "c-lease"))
-        assert held is not None and held.startswith("framework:horizon:")
+        assert held is not None
+        assert held.startswith("framework:horizon:")
     finally:
         await dispatcher.stop()

@@ -56,13 +56,14 @@ class NullDedupPublisher(DedupPublisher):
         aggregate_id: str,
         command_id: str,
     ) -> None:
+        """No-op; the dedup announcement is dropped."""
         return
 
 
 class NatsDedupPublisher(DedupPublisher):
     """Publishes ``mark_processed`` events to NATS core."""
 
-    def __init__(self, nc: "NATSClient") -> None:
+    def __init__(self, nc: NATSClient) -> None:
         self._nc = nc
 
     async def publish(
@@ -71,6 +72,7 @@ class NatsDedupPublisher(DedupPublisher):
         aggregate_id: str,
         command_id: str,
     ) -> None:
+        """Publish a JSON ``mark_processed`` message to the dedup subject."""
         payload = json.dumps(
             {
                 "command_id": command_id,

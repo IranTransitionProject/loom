@@ -33,6 +33,7 @@ R4 contract.
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING, cast
 
 import nats.errors
@@ -64,7 +65,7 @@ class JetStreamEventLog(EventLog):
     aggregate_type used in the deployment.
     """
 
-    def __init__(self, js: "JetStreamContext") -> None:
+    def __init__(self, js: JetStreamContext) -> None:
         self._js = js
 
     async def append(
@@ -95,7 +96,7 @@ class JetStreamEventLog(EventLog):
         aggregate_type: str,
         aggregate_id: str,
         from_version: int = 0,
-    ) -> "AsyncIterator[EventEnvelope]":
+    ) -> AsyncIterator[EventEnvelope]:
         """Stream events for one aggregate ordered by ``aggregate_version``.
 
         Implemented as a one-shot pull subscription with subject filter
@@ -116,7 +117,7 @@ class JetStreamEventLog(EventLog):
                     return
                 for msg in msgs:
                     await msg.ack()  # type: ignore[reportUnknownMemberType]
-                    data = cast(bytes, msg.data)  # type: ignore[reportUnknownMemberType]
+                    data = cast("bytes", msg.data)  # type: ignore[reportUnknownMemberType]
                     envelope = EventEnvelope.model_validate_json(data)
                     if envelope.aggregate_version > from_version:
                         yield envelope
@@ -125,7 +126,7 @@ class JetStreamEventLog(EventLog):
 
     async def subscribe(
         self, aggregate_type: str
-    ) -> "AsyncIterator[EventEnvelope]":
+    ) -> AsyncIterator[EventEnvelope]:
         """Return an async iterator of newly-appended events for ``aggregate_type``.
 
         The underlying push subscription is established BEFORE this
@@ -137,15 +138,13 @@ class JetStreamEventLog(EventLog):
         )
         return self._iterate_subscription(sub)
 
-    async def _iterate_subscription(self, sub: object) -> "AsyncIterator[EventEnvelope]":
+    async def _iterate_subscription(self, sub: object) -> AsyncIterator[EventEnvelope]:
         try:
             while True:
                 msg = await sub.next_msg(timeout=None)  # type: ignore[attr-defined]
                 await msg.ack()  # type: ignore[reportUnknownMemberType]
-                data = cast(bytes, msg.data)  # type: ignore[reportUnknownMemberType]
+                data = cast("bytes", msg.data)  # type: ignore[reportUnknownMemberType]
                 yield EventEnvelope.model_validate_json(data)
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 await sub.unsubscribe()  # type: ignore[attr-defined]
-            except Exception:  # noqa: BLE001 — best-effort cleanup
-                pass

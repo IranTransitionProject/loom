@@ -34,7 +34,7 @@ class DedupSubscriber(ABC):
         self,
         aggregate_type: str,
         aggregate_id: str,
-        cache: "AggregateCache",
+        cache: AggregateCache,
     ) -> None:
         """Start watching mark_processed events for one cached aggregate."""
 
@@ -50,18 +50,20 @@ class NullDedupSubscriber(DedupSubscriber):
         self,
         aggregate_type: str,
         aggregate_id: str,
-        cache: "AggregateCache",
+        cache: AggregateCache,
     ) -> None:
+        """No-op; no subscription is established."""
         return
 
     async def unsubscribe(self, aggregate_type: str, aggregate_id: str) -> None:
+        """No-op; nothing to tear down."""
         return
 
 
 class NatsDedupSubscriber(DedupSubscriber):
     """Subscribes to NATS-core ``mark_processed`` events."""
 
-    def __init__(self, nc: "NATSClient") -> None:
+    def __init__(self, nc: NATSClient) -> None:
         self._nc = nc
         self._subs: dict[tuple[str, str], Any] = {}
 
@@ -69,8 +71,9 @@ class NatsDedupSubscriber(DedupSubscriber):
         self,
         aggregate_type: str,
         aggregate_id: str,
-        cache: "AggregateCache",
+        cache: AggregateCache,
     ) -> None:
+        """Register a NATS-core subscription that updates the cached aggregate."""
         key = (aggregate_type, aggregate_id)
         if key in self._subs:
             return
@@ -89,6 +92,7 @@ class NatsDedupSubscriber(DedupSubscriber):
         self._subs[key] = sub
 
     async def unsubscribe(self, aggregate_type: str, aggregate_id: str) -> None:
+        """Drop the subscription for one aggregate (if any)."""
         sub = self._subs.pop((aggregate_type, aggregate_id), None)
         if sub is not None:
             await sub.unsubscribe()

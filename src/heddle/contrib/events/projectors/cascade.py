@@ -71,7 +71,7 @@ class CascadeProjector(Projector):
         self,
         membership: ScopeMembershipProjector,
         command_handler: CommandHandler,
-        kv: "KeyValueStore | None" = None,
+        kv: KeyValueStore | None = None,
     ) -> None:
         self._membership = membership
         self._handler = command_handler

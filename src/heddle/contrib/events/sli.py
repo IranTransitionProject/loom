@@ -52,14 +52,18 @@ class Recorder(Protocol):
         command_type: str,
         outcome: str,
         duration_seconds: float,
-    ) -> None: ...
+    ) -> None:
+        """Record a `CommandHandler.handle()` duration with outcome label."""
+        ...
 
     def observe_dispatcher_fan_out(
         self,
         *,
         aggregate_type: str,
         duration_seconds: float,
-    ) -> None: ...
+    ) -> None:
+        """Record one event's projector fan-out duration."""
+        ...
 
     def observe_lease_acquisition(
         self,
@@ -68,7 +72,9 @@ class Recorder(Protocol):
         projector_name: str,
         outcome: str,
         duration_seconds: float,
-    ) -> None: ...
+    ) -> None:
+        """Record a finalization-lease claim attempt with outcome label."""
+        ...
 
 
 class _NullRecorder:
@@ -106,7 +112,7 @@ _recorder: Recorder = _NullRecorder()
 
 def install_recorder(recorder: Recorder) -> None:
     """Install an application-provided recorder. Call once at startup."""
-    global _recorder
+    global _recorder  # noqa: PLW0603 — module-level singleton is the install API
     _recorder = recorder
 
 
@@ -116,7 +122,7 @@ def get_recorder() -> Recorder:
 
 
 @contextmanager
-def time_observation() -> "Generator[Callable[[], float], None, None]":
+def time_observation() -> Generator[Callable[[], float], None, None]:
     """Time a block; yield a callable returning elapsed seconds.
 
     Example::

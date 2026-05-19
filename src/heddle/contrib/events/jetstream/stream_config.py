@@ -53,6 +53,7 @@ def command_subject(aggregate_type: str, aggregate_id: str, command_type: str) -
 
 
 def command_subject_prefix(aggregate_type: str) -> str:
+    """Wildcard subject covering every command for one aggregate_type."""
     return f"heddle.commands.{aggregate_type}.>"
 
 
@@ -62,11 +63,12 @@ def rejection_subject(aggregate_type: str, aggregate_id: str, command_type: str)
 
 
 def rejection_subject_prefix(aggregate_type: str) -> str:
+    """Wildcard subject covering every rejection for one aggregate_type."""
     return f"heddle.rejections.{aggregate_type}.>"
 
 
 async def _ensure_stream(
-    js: "JetStreamContext",
+    js: JetStreamContext,
     *,
     name: str,
     subjects: list[str],
@@ -87,7 +89,7 @@ async def _ensure_stream(
 
 
 async def ensure_event_stream(
-    js: "JetStreamContext",
+    js: JetStreamContext,
     aggregate_type: str,
     max_age_seconds: int = DEFAULT_EVENTS_MAX_AGE_SECONDS,
     storage: StorageType = StorageType.FILE,
@@ -105,7 +107,7 @@ async def ensure_event_stream(
 
 
 async def ensure_command_stream(
-    js: "JetStreamContext",
+    js: JetStreamContext,
     aggregate_type: str,
     max_age_seconds: int = DEFAULT_COMMANDS_MAX_AGE_SECONDS,
     storage: StorageType = StorageType.FILE,
@@ -123,7 +125,7 @@ async def ensure_command_stream(
 
 
 async def ensure_rejection_stream(
-    js: "JetStreamContext",
+    js: JetStreamContext,
     aggregate_type: str,
     max_age_seconds: int = DEFAULT_REJECTIONS_MAX_AGE_SECONDS,
     storage: StorageType = StorageType.FILE,

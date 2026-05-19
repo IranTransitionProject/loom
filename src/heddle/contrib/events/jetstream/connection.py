@@ -28,7 +28,7 @@ class JetStreamConnection:
     from an existing :class:`nats.aio.client.Client`.
     """
 
-    def __init__(self, nc: "NATSClient", js: "JetStreamContext") -> None:
+    def __init__(self, nc: NATSClient, js: JetStreamContext) -> None:
         self.nc = nc
         self.js = js
 
@@ -40,7 +40,7 @@ class JetStreamConnection:
 @asynccontextmanager
 async def connect_jetstream(
     servers: str | list[str] = "nats://localhost:4222",
-) -> "AsyncGenerator[JetStreamConnection, None]":
+) -> AsyncGenerator[JetStreamConnection, None]:
     """Open a NATS connection, expose its JetStream context, then drain on exit."""
     nc = await nats.connect(servers)  # type: ignore[reportUnknownMemberType]
     try:

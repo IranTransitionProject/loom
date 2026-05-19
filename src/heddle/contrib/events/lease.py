@@ -57,12 +57,12 @@ def lease_key(aggregate_type: str, aggregate_id: str) -> str:
 
 @asynccontextmanager
 async def finalization_lease(
-    kv: "KeyValueStore",
+    kv: KeyValueStore,
     aggregate_type: str,
     aggregate_id: str,
     projector_name: str,
     ttl_seconds: int = FINALIZATION_LEASE_TTL_SECONDS,
-) -> "AsyncGenerator[bool, None]":
+) -> AsyncGenerator[bool, None]:
     """Try to claim the finalization lease for one aggregate.
 
     Yields ``True`` when the lease was claimed (caller MUST proceed to

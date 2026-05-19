@@ -13,16 +13,12 @@ from __future__ import annotations
 
 import os
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pytest
 
 from heddle.contrib.events.envelopes import EventEnvelope, EventMetadata
 from heddle.contrib.events.errors import ConcurrencyError
-
-if TYPE_CHECKING:
-    pass
-
 
 NATS_URL = os.environ.get("NATS_URL")
 

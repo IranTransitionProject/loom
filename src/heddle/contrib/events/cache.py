@@ -17,10 +17,11 @@ from __future__ import annotations
 
 import threading
 from collections import OrderedDict
-from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from heddle.contrib.events.aggregate import Aggregate
 
 
@@ -29,7 +30,7 @@ CacheKey = tuple[str, str]
 
 
 DEFAULT_CACHE_SIZE: int = 1024
-"""Default per-CommandHandler aggregate cache size. ~3× headroom over
+"""Default per-CommandHandler aggregate cache size. ~3x headroom over
 the largest realistic working set (a shift's worth of active
 Operations on a busy machine)."""
 
@@ -48,14 +49,14 @@ class AggregateCache:
     def __init__(
         self,
         max_size: int = DEFAULT_CACHE_SIZE,
-        on_evict: Callable[[CacheKey, "Aggregate"], Awaitable[None]] | None = None,
+        on_evict: Callable[[CacheKey, Aggregate], Awaitable[None]] | None = None,
     ) -> None:
         self._max_size = max_size
         self._entries: OrderedDict[CacheKey, Aggregate] = OrderedDict()
         self._lock = threading.Lock()
         self.on_evict = on_evict
 
-    def get(self, key: CacheKey) -> "Aggregate | None":
+    def get(self, key: CacheKey) -> Aggregate | None:
         """Look up an aggregate. Updates LRU order on hit."""
         with self._lock:
             agg = self._entries.get(key)
@@ -63,7 +64,7 @@ class AggregateCache:
                 self._entries.move_to_end(key)
             return agg
 
-    async def put(self, key: CacheKey, aggregate: "Aggregate") -> None:
+    async def put(self, key: CacheKey, aggregate: Aggregate) -> None:
         """Insert (or replace) an aggregate. Evicts oldest entries past max_size.
 
         With ``max_size=0`` the put is an immediate evict — the
@@ -73,15 +74,14 @@ class AggregateCache:
         with self._lock:
             if self._max_size == 0:
                 evicted.append((key, aggregate))
+            elif key in self._entries:
+                self._entries.move_to_end(key)
+                self._entries[key] = aggregate
             else:
-                if key in self._entries:
-                    self._entries.move_to_end(key)
-                    self._entries[key] = aggregate
-                else:
-                    self._entries[key] = aggregate
-                    while len(self._entries) > self._max_size:
-                        ev_key, ev_agg = self._entries.popitem(last=False)
-                        evicted.append((ev_key, ev_agg))
+                self._entries[key] = aggregate
+                while len(self._entries) > self._max_size:
+                    ev_key, ev_agg = self._entries.popitem(last=False)
+                    evicted.append((ev_key, ev_agg))
         if self.on_evict:
             for ev_key, ev_agg in evicted:
                 await self.on_evict(ev_key, ev_agg)

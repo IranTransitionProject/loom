@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 class JetStreamRejectionLog(RejectionLog):
     """Production :class:`RejectionLog` backed by NATS JetStream."""
 
-    def __init__(self, js: "JetStreamContext") -> None:
+    def __init__(self, js: JetStreamContext) -> None:
         self._js = js
 
     async def append(self, envelope: RejectionEnvelope) -> None:
@@ -42,7 +42,7 @@ class JetStreamRejectionLog(RejectionLog):
 
     async def load(
         self, aggregate_type: str, aggregate_id: str | None = None
-    ) -> "AsyncIterator[RejectionEnvelope]":
+    ) -> AsyncIterator[RejectionEnvelope]:
         """Stream rejections in append-order, optionally narrowed by ``aggregate_id``."""
         if aggregate_id is None:
             subject = f"heddle.rejections.{aggregate_type}.>"

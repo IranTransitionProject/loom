@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from heddle.contrib.events.aggregate import Aggregate, IntervalAggregate
-from heddle.contrib.events.cache import CacheKey, AggregateCache
+from heddle.contrib.events.cache import AggregateCache, CacheKey
 from heddle.contrib.events.registry import register_aggregate
 
 pytestmark = pytest.mark.usefixtures("registry_isolation")

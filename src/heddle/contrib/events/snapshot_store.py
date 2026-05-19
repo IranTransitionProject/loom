@@ -53,12 +53,12 @@ def _version_key(aggregate_type: str, aggregate_id: str) -> str:
 class SnapshotStore:
     """Aggregate snapshot persistence over a :class:`KeyValueStore`."""
 
-    def __init__(self, kv: "KeyValueStore") -> None:
+    def __init__(self, kv: KeyValueStore) -> None:
         self._kv = kv
 
     async def load(
-        self, cls: "type[Aggregate]", aggregate_id: str
-    ) -> "Aggregate | None":
+        self, cls: type[Aggregate], aggregate_id: str
+    ) -> Aggregate | None:
         """Restore an aggregate from snapshot, or ``None`` if absent."""
         raw = await self._kv.get(_snapshot_key(cls.aggregate_type, aggregate_id))
         if raw is None:
@@ -66,7 +66,7 @@ class SnapshotStore:
         data = json.loads(raw)
         return cls.from_snapshot(data)
 
-    async def save(self, aggregate: "Aggregate") -> None:
+    async def save(self, aggregate: Aggregate) -> None:
         """Persist a snapshot. Idempotent at a given aggregate_version."""
         data = aggregate.to_snapshot()
         await self._kv.set(
