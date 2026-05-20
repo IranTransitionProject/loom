@@ -19,7 +19,6 @@ from heddle.contrib.events.aggregate import (
 from heddle.contrib.events.envelopes import EventEnvelope, EventMetadata
 from heddle.contrib.events.errors import (
     AggregateInvariantError,
-    CorruptAggregateAlert,
     UnknownEventVersionError,
 )
 from heddle.contrib.events.registry import register_aggregate
@@ -170,19 +169,9 @@ def test_apply_wraps_handler_exceptions() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_internal_finalized_with_user_issuer_is_forgery() -> None:
-    cls = _make_fake_class()
-    agg = cls(aggregate_id="agg-1")
-
-    with pytest.raises(CorruptAggregateAlert, match="likely forged"):
-        agg.apply(
-            _envelope(
-                event_type="InternalFinalized",
-                issued_by="user:badge:206",
-            )
-        )
-
-
+# Forged-issuer provenance (forged -> AggregateInvariantError) lives in
+# test_finalization_issuer_provenance.py. This file keeps only the
+# happy-path acceptance check.
 def test_internal_finalized_with_framework_issuer_accepted() -> None:
     cls = _make_fake_class()
     agg = cls(aggregate_id="agg-1")
