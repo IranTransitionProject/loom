@@ -348,15 +348,20 @@ class PipelineTestRunner:
             await asyncio.wait_for(drain_task, timeout=2.0)
         if not drain_task.done():
             drain_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await drain_task
+            # gather(..., return_exceptions=True) joins the cancelled
+            # task and discards the CancelledError without the static-
+            # analyser flagging the bare ``await`` as effect-free.
+            await asyncio.gather(drain_task, return_exceptions=True)
 
         # 10. Tear down workers / router / tap.
-        for t in (*worker_tasks, router_task, tap_task):
+        teardown_tasks: tuple[asyncio.Task[Any], ...] = (
+            *worker_tasks,
+            router_task,
+            tap_task,
+        )
+        for t in teardown_tasks:
             t.cancel()
-        for t in (*worker_tasks, router_task, tap_task):
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await t
+        await asyncio.gather(*teardown_tasks, return_exceptions=True)
         with contextlib.suppress(Exception):
             await result_sub.unsubscribe()
         with contextlib.suppress(Exception):

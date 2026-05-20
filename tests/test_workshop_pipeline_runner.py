@@ -670,3 +670,151 @@ async def test_aclose_closes_bus_and_backends(workers_dir):
             await runner.run(pipeline_path, context={"q": "hi"})
     finally:
         os.unlink(pipeline_path)
+
+
+# ---------------------------------------------------------------------------
+# Edge cases — error paths and helpers
+# ---------------------------------------------------------------------------
+
+
+def test_pipeline_test_result_succeeded_stages_property():
+    """The ``succeeded_stages`` property counts only ``completed`` entries."""
+    from heddle.workshop.pipeline_runner import StageResult
+
+    result = PipelineTestResult(goal_id="g", success=False)
+    result.stage_results = [
+        StageResult(stage_name="A", worker_type="w", status="completed"),
+        StageResult(stage_name="B", worker_type="w", status="failed"),
+        StageResult(stage_name="C", worker_type="w", status="completed"),
+        StageResult(stage_name="D", worker_type="w", status="skipped"),
+    ]
+    assert result.succeeded_stages == 2
+
+
+def test_import_worker_class_rejects_bare_name():
+    """A class reference without a module path raises ValueError."""
+    from heddle.workshop.pipeline_runner import _import_worker_class
+
+    with pytest.raises(ValueError, match="dotted path"):
+        _import_worker_class("BareClass")
+
+
+def test_import_worker_class_supports_dotted_form():
+    """Both ``module:Class`` and ``module.Class`` are accepted."""
+    from heddle.workshop.pipeline_runner import _import_worker_class
+
+    cls = _import_worker_class(f"{__name__}.DoubleTypedWorker")
+    assert cls is DoubleTypedWorker
+
+
+def test_pick_representative_returns_none_for_empty():
+    """Helper short-circuits cleanly when a stage produced no results."""
+    assert PipelineTestRunner._pick_representative([]) is None
+
+
+def test_extract_stage_from_error_helper():
+    """The PipelineStageError message format is parsed for the failing stage name."""
+    assert (
+        PipelineTestRunner._extract_stage_from_error(
+            "Stage 'classify' input validation failed: [...]"
+        )
+        == "classify"
+    )
+    assert PipelineTestRunner._extract_stage_from_error("no stage name here") is None
+    assert PipelineTestRunner._extract_stage_from_error("") is None
+
+
+@pytest.mark.asyncio
+async def test_pipeline_config_not_found_returns_clean_error(workers_dir, tmp_path):
+    """A missing pipeline config path produces a clear error, no partial run."""
+    missing = tmp_path / "does-not-exist.yaml"
+    runner = PipelineTestRunner(
+        backends={"local": RoutingBackend({})},
+        workers_dir=workers_dir,
+    )
+    try:
+        result = await runner.run(str(missing), context={})
+    finally:
+        await runner.aclose()
+
+    assert result.success is False
+    assert result.error is not None
+    assert "not found" in result.error.lower()
+    assert result.stage_results == []
+
+
+@pytest.mark.asyncio
+async def test_invalid_pipeline_config_returns_validation_error(workers_dir):
+    """A pipeline config missing required keys surfaces the validator's error list."""
+    # 'pipeline_stages' is required; omit it.
+    pipeline_path = _write_yaml_tempfile({"name": "broken"})
+    runner = PipelineTestRunner(
+        backends={"local": RoutingBackend({})},
+        workers_dir=workers_dir,
+    )
+    try:
+        result = await runner.run(pipeline_path, context={})
+    finally:
+        await runner.aclose()
+        os.unlink(pipeline_path)
+
+    assert result.success is False
+    assert result.error is not None
+    assert "Invalid pipeline config" in result.error
+    assert result.stage_results == []
+
+
+@pytest.mark.asyncio
+async def test_duplicate_worker_type_resolves_once(workers_dir):
+    """Two stages with the same worker_type share a single worker actor.
+
+    Covers the worker_configs dedup branch (worker_type already loaded).
+    """
+    pipeline_cfg = _pipeline_cfg(
+        "dedup",
+        [
+            {"name": "S1", "worker_type": "shared", "input_mapping": {"q": "goal.context.q"}},
+            {"name": "S2", "worker_type": "shared", "input_mapping": {"q": "S1.output.v"}},
+        ],
+    )
+    pipeline_path = _write_yaml_tempfile(pipeline_cfg)
+
+    overrides = {"shared": _worker_cfg("shared")}
+    backend = RoutingBackend({"shared": {"v": "ok"}})
+    runner = PipelineTestRunner(
+        backends={"local": backend},
+        workers_dir=workers_dir,
+        worker_config_overrides=overrides,
+    )
+    try:
+        result = await runner.run(pipeline_path, context={"q": "x"})
+    finally:
+        await runner.aclose()
+        os.unlink(pipeline_path)
+
+    assert result.success is True
+    assert {s.stage_name for s in result.stage_results} == {"S1", "S2"}
+
+
+class _RaisingCloseBackend(LLMBackend):
+    """Raises on aclose; exercises the best-effort path in PipelineTestRunner.aclose."""
+
+    async def complete(self, *a, **kw):
+        return {"content": "{}", "model": "x", "prompt_tokens": 0, "completion_tokens": 0}
+
+    async def aclose(self):
+        raise RuntimeError("backend refused to close")
+
+
+@pytest.mark.asyncio
+async def test_aclose_swallows_backend_close_errors(workers_dir):
+    """An exception from one backend.aclose must not stop the rest of teardown."""
+    good = _ClosableBackend()
+    bad = _RaisingCloseBackend()
+    runner = PipelineTestRunner(
+        backends={"local": bad, "standard": good},
+        workers_dir=workers_dir,
+    )
+    await runner._ensure_bus()  # so the bus-close branch runs too
+    await runner.aclose()  # must not raise
+    assert good.closed is True
