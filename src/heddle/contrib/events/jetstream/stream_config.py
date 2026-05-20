@@ -9,8 +9,12 @@ Stream naming
 ``HEDDLE_COMMANDS_{TYPE_UPPER}`` / subject ``heddle.commands.{type}.>``
 ``HEDDLE_REJECTIONS_{TYPE_UPPER}`` / subject ``heddle.rejections.{type}.>``
 
-Defaults: file storage, single replica, age-based retention (7d for
-events, 30d for rejections), discard-old when storage caps are hit.
+Defaults: file storage, single replica. The **event stream is the
+source of truth**: unbounded age, ``discard=new`` (reject new writes
+when full rather than silently drop the oldest events — replay needs
+those first), and a 10m duplicate window for opportunistic dedup.
+Command and rejection streams keep age-based retention (7d / 30d) with
+``discard=old``.
 
 The helpers are **idempotent**: ``add_stream`` returns the existing
 stream config if the (name, subjects) match. Diverging existing
@@ -28,7 +32,10 @@ if TYPE_CHECKING:
     from nats.js import JetStreamContext
 
 
-DEFAULT_EVENTS_MAX_AGE_SECONDS: int = 7 * 24 * 3600
+# The event log is never aged out: it is the source of truth for replay
+# and time-travel. 0 = unbounded.
+DEFAULT_EVENTS_MAX_AGE_SECONDS: int = 0
+EVENT_STREAM_DUPLICATE_WINDOW_SECONDS: int = 10 * 60
 DEFAULT_COMMANDS_MAX_AGE_SECONDS: int = 7 * 24 * 3600
 DEFAULT_REJECTIONS_MAX_AGE_SECONDS: int = 30 * 24 * 3600
 
@@ -75,15 +82,21 @@ async def _ensure_stream(
     max_age_seconds: int,
     storage: StorageType = StorageType.FILE,
     replicas: int = 1,
+    discard: DiscardPolicy = DiscardPolicy.OLD,
+    duplicate_window_seconds: int = 0,
 ) -> None:
+    # max_msgs is intentionally left unset: nats-py's unbounded sentinel
+    # is None (the field is omitted). The contract's "max_msgs: 0" means
+    # "unbounded"; a literal 0 risks being read as "zero messages".
     config = StreamConfig(
         name=name,
         subjects=subjects,
         retention=RetentionPolicy.LIMITS,
-        max_age=max_age_seconds * 1_000_000_000,  # nanoseconds
+        max_age=max_age_seconds * 1_000_000_000,  # nanoseconds; 0 = unbounded
         storage=storage,
         num_replicas=replicas,
-        discard=DiscardPolicy.OLD,
+        discard=discard,
+        duplicate_window=duplicate_window_seconds * 1_000_000_000,  # nanoseconds
     )
     await js.add_stream(config=config)  # type: ignore[reportUnknownMemberType]
 
@@ -95,7 +108,12 @@ async def ensure_event_stream(
     storage: StorageType = StorageType.FILE,
     replicas: int = 1,
 ) -> None:
-    """Create or update the ``HEDDLE_EVENTS_{TYPE}`` stream."""
+    """Create or update the ``HEDDLE_EVENTS_{TYPE}`` stream.
+
+    The event stream is the source of truth: unbounded age and
+    ``discard=new`` so storage pressure never silently drops the oldest
+    events (which replay needs first), plus a 10m duplicate window.
+    """
     await _ensure_stream(
         js,
         name=_stream_name("EVENTS", aggregate_type),
@@ -103,6 +121,8 @@ async def ensure_event_stream(
         max_age_seconds=max_age_seconds,
         storage=storage,
         replicas=replicas,
+        discard=DiscardPolicy.NEW,
+        duplicate_window_seconds=EVENT_STREAM_DUPLICATE_WINDOW_SECONDS,
     )
 
 
