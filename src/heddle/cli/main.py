@@ -336,11 +336,47 @@ def _load_processing_backend(name: str, config: dict):
 # ---------------------------------------------------------------------------
 
 
-@cli.command()
+@cli.group("pipeline", invoke_without_command=True)
+@click.option("--config", required=False, help="Path to pipeline orchestrator config YAML")
+@click.option("--nats-url", default="nats://nats:4222", help="NATS server URL")
+@click.option("--skip-preflight", is_flag=True, default=False, help="Skip pre-flight checks")
+@click.pass_context
+def pipeline(ctx: click.Context, config: str | None, nats_url: str, skip_preflight: bool):
+    """Start a pipeline orchestrator (sequential stage execution).
+
+    Subcommands:
+        start  Start the long-running NATS pipeline orchestrator.
+        test   Run a pipeline against a context dict using an in-memory bus.
+
+    Calling ``heddle pipeline`` without a subcommand is a deprecated alias
+    for ``heddle pipeline start`` and emits a one-time warning. The alias
+    will be removed in a future release.
+    """
+    if ctx.invoked_subcommand is None:
+        # Deprecated alias: heddle pipeline ⇒ heddle pipeline start.
+        if not config:
+            raise click.UsageError(
+                "'--config' is required when running 'heddle pipeline' as the "
+                "(deprecated) alias for 'heddle pipeline start'. Prefer "
+                "'heddle pipeline start --config ...'."
+            )
+        logger.warning(
+            "pipeline.deprecated_alias",
+            hint="Use 'heddle pipeline start' instead; the bare alias will be removed.",
+        )
+        ctx.invoke(
+            pipeline_start,
+            config=config,
+            nats_url=nats_url,
+            skip_preflight=skip_preflight,
+        )
+
+
+@pipeline.command("start")
 @click.option("--config", required=True, help="Path to pipeline orchestrator config YAML")
 @click.option("--nats-url", default="nats://nats:4222", help="NATS server URL")
 @click.option("--skip-preflight", is_flag=True, default=False, help="Skip pre-flight checks")
-def pipeline(config: str, nats_url: str, skip_preflight: bool):
+def pipeline_start(config: str, nats_url: str, skip_preflight: bool):
     """Start a pipeline orchestrator (sequential stage execution).
 
     The pipeline orchestrator executes a fixed sequence of stages defined in
@@ -375,6 +411,123 @@ def pipeline(config: str, nats_url: str, skip_preflight: bool):
         nats_url=nats_url,
     )
     _run_async(orch.run("heddle.goals.incoming", queue_group="pipelines"))
+
+
+@pipeline.command("test")
+@click.argument("config_path")
+@click.option(
+    "--context",
+    "context_pairs",
+    multiple=True,
+    help="Goal context entries as k=v (repeatable).",
+)
+@click.option(
+    "--workers-dir",
+    default="configs/workers/",
+    help="Directory containing per-worker_type config YAML files.",
+)
+@click.option(
+    "--output",
+    default=None,
+    help="Path to write the PipelineTestResult JSON to (default: stdout).",
+)
+@click.option(
+    "--quiet",
+    is_flag=True,
+    default=False,
+    help="Suppress per-stage progress lines.",
+)
+@click.option(
+    "--timeout",
+    type=float,
+    default=30.0,
+    help="Per-stage timeout in seconds (default: 30).",
+)
+def pipeline_test(
+    config_path: str,
+    context_pairs: tuple[str, ...],
+    workers_dir: str,
+    output: str | None,
+    quiet: bool,
+    timeout: float,
+):
+    r"""Run a pipeline end-to-end against an in-memory bus.
+
+    Spins up an InMemoryBus, instantiates the worker actors the pipeline
+    references, drives a single goal through the real PipelineOrchestrator,
+    and prints (or writes) a structured JSON result. No NATS, no
+    long-running processes, no external infrastructure.
+
+    Example::
+
+        heddle pipeline test configs/orchestrators/doc.yaml \
+            --context file_ref=test.pdf --context lang=en
+    """
+    import json as _json
+    import sys
+
+    from heddle.worker.backends import build_backends_from_env
+    from heddle.workshop.pipeline_runner import PipelineTestRunner
+
+    # Parse --context k=v pairs into a dict.
+    ctx_dict: dict[str, str] = {}
+    for pair in context_pairs:
+        if "=" not in pair:
+            raise click.UsageError(f"--context value must be k=v, got: {pair!r}")
+        k, v = pair.split("=", 1)
+        ctx_dict[k] = v
+
+    backends = build_backends_from_env()
+    runner = PipelineTestRunner(
+        backends=backends,
+        workers_dir=workers_dir,
+        default_timeout_seconds=timeout,
+    )
+
+    async def _go():
+        try:
+            return await runner.run(config_path, context=ctx_dict)
+        finally:
+            await runner.aclose()
+
+    result = _run_async(_go())
+
+    if not quiet:
+        for stage in result.stage_results:
+            click.echo(
+                f"  {stage.stage_name}: {stage.status} ({stage.latency_ms}ms)",
+                err=True,
+            )
+
+    payload = {
+        "goal_id": result.goal_id,
+        "success": result.success,
+        "error": result.error,
+        "final_output": result.final_output,
+        "total_latency_ms": result.total_latency_ms,
+        "total_token_usage": result.total_token_usage,
+        "stage_results": [
+            {
+                "stage_name": s.stage_name,
+                "worker_type": s.worker_type,
+                "status": s.status,
+                "output": s.output,
+                "error": s.error,
+                "latency_ms": s.latency_ms,
+                "token_usage": s.token_usage,
+            }
+            for s in result.stage_results
+        ],
+    }
+    rendered = _json.dumps(payload, indent=2, default=str)
+    if output:
+        with open(output, "w") as f:
+            f.write(rendered)
+    else:
+        click.echo(rendered)
+
+    if not result.success:
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------

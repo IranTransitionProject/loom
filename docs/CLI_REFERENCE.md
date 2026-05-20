@@ -236,12 +236,18 @@ heddle processor --config PATH [OPTIONS]
 | `--tier` | `local` | Model tier |
 | `--skip-preflight` | `false` | Skip connectivity checks |
 
-### heddle pipeline
+### heddle pipeline (group)
+
+Pipeline orchestrator commands. `heddle pipeline` is a Click group with
+two subcommands; calling it without a subcommand is a **deprecated alias**
+for `heddle pipeline start` and emits a one-time warning.
+
+#### heddle pipeline start
 
 Start a pipeline orchestrator that chains workers in sequence.
 
 ```bash
-heddle pipeline --config PATH [OPTIONS]
+heddle pipeline start --config PATH [OPTIONS]
 ```
 
 | Option | Default | Description |
@@ -249,6 +255,27 @@ heddle pipeline --config PATH [OPTIONS]
 | `--config` | *(required)* | Pipeline config YAML |
 | `--nats-url` | `nats://nats:4222` | NATS server URL |
 | `--skip-preflight` | `false` | Skip connectivity checks |
+
+#### heddle pipeline test
+
+Run a pipeline end-to-end against an in-memory bus (no NATS). Spins up
+worker actors for every `worker_type` referenced in the pipeline, drives
+a single goal through the real `PipelineOrchestrator`, and prints a
+JSON `PipelineTestResult`. Backends come from `build_backends_from_env()`.
+
+```bash
+heddle pipeline test PIPELINE_CONFIG [OPTIONS]
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `--context k=v` | *(repeatable)* | Goal context entry |
+| `--workers-dir` | `configs/workers/` | Directory of per-worker YAML configs |
+| `--output` | *(stdout)* | Write the JSON result to a file |
+| `--quiet` | `false` | Suppress per-stage progress lines |
+| `--timeout` | `30` | Per-stage timeout in seconds |
+
+Exits non-zero if the pipeline did not succeed.
 
 ### heddle orchestrator
 

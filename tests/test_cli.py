@@ -461,6 +461,150 @@ def test_pipeline_loads_config_and_runs(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# pipeline test — in-memory pipeline driver subcommand
+# ---------------------------------------------------------------------------
+
+
+def _stub_test_result(success: bool = True, error: str | None = None):
+    """Build a fake PipelineTestResult for stubbing out the runner."""
+    from heddle.workshop.pipeline_runner import PipelineTestResult, StageResult
+
+    r = PipelineTestResult(goal_id="goal-1", success=success, error=error)
+    r.stage_results = [
+        StageResult(
+            stage_name="A",
+            worker_type="w",
+            status="completed",
+            output={"v": 1},
+            latency_ms=12,
+            token_usage={"prompt_tokens": 5, "completion_tokens": 3},
+        )
+    ]
+    r.final_output = {"A": {"v": 1}}
+    r.total_latency_ms = 12
+    r.total_token_usage = {"prompt_tokens": 5, "completion_tokens": 3}
+    return r
+
+
+def test_pipeline_test_success_prints_json_to_stdout(tmp_path):
+    """pipeline test runs runner, prints per-stage progress + JSON result, exits 0."""
+    config_path = _write_yaml(tmp_path / "pipe.yaml", "name: x\npipeline_stages: []\n")
+    runner = CliRunner()
+
+    fake = _stub_test_result(success=True)
+    stub_runner = MagicMock()
+    stub_runner.run = AsyncMock(return_value=fake)
+    stub_runner.aclose = AsyncMock(return_value=None)
+
+    with (
+        patch("heddle.workshop.pipeline_runner.PipelineTestRunner", return_value=stub_runner),
+        patch("heddle.worker.backends.build_backends_from_env", return_value={}),
+    ):
+        result = runner.invoke(
+            cli,
+            ["pipeline", "test", config_path, "--context", "k=v", "--context", "lang=en"],
+        )
+
+    assert result.exit_code == 0
+    # Per-stage progress goes to stderr
+    assert "A: completed" in result.stderr or "A: completed" in result.output
+    # JSON payload to stdout includes our stage
+    assert '"stage_name": "A"' in result.output
+    # Runner was called with parsed context dict
+    stub_runner.run.assert_awaited_once()
+    args, kwargs = stub_runner.run.call_args
+    assert kwargs.get("context") == {"k": "v", "lang": "en"} or (
+        len(args) >= 2 and args[1] == {"k": "v", "lang": "en"}
+    )
+    stub_runner.aclose.assert_awaited_once()
+
+
+def test_pipeline_test_failure_exits_nonzero(tmp_path):
+    """A failed pipeline causes 'heddle pipeline test' to exit 1."""
+    config_path = _write_yaml(tmp_path / "pipe.yaml", "name: x\npipeline_stages: []\n")
+    runner = CliRunner()
+
+    fake = _stub_test_result(success=False, error="boom")
+    stub_runner = MagicMock()
+    stub_runner.run = AsyncMock(return_value=fake)
+    stub_runner.aclose = AsyncMock(return_value=None)
+
+    with (
+        patch("heddle.workshop.pipeline_runner.PipelineTestRunner", return_value=stub_runner),
+        patch("heddle.worker.backends.build_backends_from_env", return_value={}),
+    ):
+        result = runner.invoke(cli, ["pipeline", "test", config_path, "--quiet"])
+
+    assert result.exit_code == 1
+
+
+def test_pipeline_test_writes_output_file(tmp_path):
+    """--output PATH writes the JSON result to a file instead of stdout."""
+    config_path = _write_yaml(tmp_path / "pipe.yaml", "name: x\npipeline_stages: []\n")
+    out_path = tmp_path / "result.json"
+    runner = CliRunner()
+
+    fake = _stub_test_result(success=True)
+    stub_runner = MagicMock()
+    stub_runner.run = AsyncMock(return_value=fake)
+    stub_runner.aclose = AsyncMock(return_value=None)
+
+    with (
+        patch("heddle.workshop.pipeline_runner.PipelineTestRunner", return_value=stub_runner),
+        patch("heddle.worker.backends.build_backends_from_env", return_value={}),
+    ):
+        result = runner.invoke(
+            cli,
+            ["pipeline", "test", config_path, "--quiet", "--output", str(out_path)],
+        )
+
+    assert result.exit_code == 0
+    assert out_path.exists()
+    assert '"goal_id": "goal-1"' in out_path.read_text()
+
+
+def test_pipeline_test_rejects_malformed_context(tmp_path):
+    """A --context value without '=' surfaces as a UsageError."""
+    config_path = _write_yaml(tmp_path / "pipe.yaml", "name: x\npipeline_stages: []\n")
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli,
+        ["pipeline", "test", config_path, "--context", "no_equals_sign"],
+    )
+
+    assert result.exit_code != 0
+    assert "k=v" in result.output
+
+
+def test_pipeline_deprecated_alias_invokes_start(tmp_path):
+    """Bare 'heddle pipeline --config X' still routes to the start subcommand."""
+    config_path = _write_yaml(
+        tmp_path / "pipeline.yaml",
+        "name: test_pipeline\npipeline_stages:\n  - name: stage1\n    worker_type: summarizer\n",
+    )
+    runner = CliRunner()
+
+    with patch("heddle.cli.main.asyncio.run") as mock_run:
+        result = runner.invoke(
+            cli,
+            ["pipeline", "--skip-preflight", "--config", config_path],
+        )
+
+    assert result.exit_code == 0
+    # The deprecated alias still routes to start, which calls asyncio.run.
+    mock_run.assert_called_once()
+
+
+def test_pipeline_deprecated_alias_without_config_errors():
+    """Bare 'heddle pipeline' (no subcommand, no --config) is a UsageError."""
+    runner = CliRunner()
+    result = runner.invoke(cli, ["pipeline"])
+    assert result.exit_code != 0
+    assert "config" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
 # orchestrator command
 # ---------------------------------------------------------------------------
 

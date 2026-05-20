@@ -103,6 +103,18 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
 - `CheckpointManager` now looks up its key prefix via
   `domain_prefix("checkpoint")` instead of hardcoding it. On-disk keys
   are **bit-exact unchanged**; existing data in Valkey is unaffected.
+- `heddle pipeline` is now a Click group with `start` (the existing
+  long-running orchestrator) and `test` (the new in-memory runner).
+  Calling `heddle pipeline` without a subcommand still works as a
+  deprecated alias for `heddle pipeline start` and emits a one-time
+  `pipeline.deprecated_alias` warning; the alias will be removed in a
+  future release. Update scripts and systemd units to use
+  `heddle pipeline start --config ...`.
+- `docs/batch-processing.md` Pattern B note "Heddle does not ship an
+  in-memory PipelineOrchestrator" replaced with a new Pattern B+
+  section documenting `PipelineTestRunner`. `docs/building-workflows.md`
+  gains a brief step pointing at the new runner between Workshop
+  worker testing and NATS deployment.
 
 ### Added
 
@@ -407,6 +419,17 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
   (version bumps, tag pushes, direct `uv publish`, force-pushes).
   Cross-referenced from `AGENTS.md` "Repo pointers" and from
   `docs/releases/README.md`; added to the MkDocs Development nav.
+- `PipelineTestRunner` (`src/heddle/workshop/pipeline_runner.py`) — the
+  multi-stage analog of `WorkerTestRunner`. Given a pipeline config and
+  a context dict, spins up an in-memory bus, instantiates the worker
+  actors the pipeline references, drives a real `PipelineOrchestrator`
+  to completion, and returns a structured `PipelineTestResult` with
+  per-stage status, output, latency, and token usage. Exercises the
+  production code path (input mappings, conditional stages, dependency
+  inference, parallelism, retry), not a parallel re-implementation.
+- `heddle pipeline test PIPELINE_CONFIG --context k=v` CLI subcommand
+  driving `PipelineTestRunner` for ad-hoc testing of a YAML pipeline
+  without standing up NATS.
 
 ## [0.9.2] — 2026-05-11
 
