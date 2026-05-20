@@ -117,7 +117,7 @@ class Aggregate(ABC):  # noqa: B024 - construction blocked via runtime check in 
         Provenance check: events in :data:`FRAMEWORK_ONLY_EVENT_TYPES`
         MUST carry an ``issued_by`` starting with ``framework:``. A
         forged event with a user/observer/bridge issuer raises
-        :class:`CorruptAggregateAlert`.
+        :class:`AggregateInvariantError`.
 
         Order of checks:
 
@@ -132,11 +132,10 @@ class Aggregate(ABC):  # noqa: B024 - construction blocked via runtime check in 
         if envelope.event_type in FRAMEWORK_ONLY_EVENT_TYPES and not is_framework_issuer(
             envelope.metadata.issued_by
         ):
-            raise CorruptAggregateAlert(
+            raise AggregateInvariantError(
                 f"event {envelope.event_id} of type {envelope.event_type!r} "
                 f"has non-framework issued_by="
-                f"{envelope.metadata.issued_by!r}; likely forged. "
-                f"See v7 §4.12 manual recovery runbook."
+                f"{envelope.metadata.issued_by!r}; likely forged."
             )
 
         if envelope.aggregate_version != self.aggregate_version + 1:

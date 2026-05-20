@@ -12,6 +12,16 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Forged-issuer provenance on framework-only events now raises
+  `AggregateInvariantError`** instead of `CorruptAggregateAlert`. An
+  `InternalFinalized` whose `issued_by` does not start with
+  `framework:` is rejected with the exception type the v7 §4.5 contract
+  mandates, so it routes as an aggregate-invariant failure rather than a
+  corrupt-aggregate alert. Adds
+  `tests/contrib/events/test_finalization_issuer_provenance.py`.
+
 ### Deprecated
 
 - `HEDDLE_TRACE` environment variable, renamed to
