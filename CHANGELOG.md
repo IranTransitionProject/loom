@@ -21,6 +21,14 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
   mandates, so it routes as an aggregate-invariant failure rather than a
   corrupt-aggregate alert. Adds
   `tests/contrib/events/test_finalization_issuer_provenance.py`.
+- **Event stream is configured as the source of truth.**
+  `heddle.contrib.events` JetStream event streams were `max_age=7d` with
+  `discard=old`, which aged out events and, under storage pressure,
+  silently dropped the oldest events — exactly the ones replay needs
+  first. Event streams are now unbounded (`max_age=0`) with
+  `discard=new` (reject new writes when full) and a 10m duplicate
+  window, per v7 §4.2. Command and rejection streams keep age-based
+  retention. Adds `tests/contrib/events/test_jetstream_stream_config.py`.
 
 ### Deprecated
 
