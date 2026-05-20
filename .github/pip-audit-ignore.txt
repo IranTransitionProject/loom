@@ -1,22 +1,27 @@
-# pip-audit baseline — known fixable CVEs as of 2026-05-10.
+# pip-audit baseline. Two categories live here, both annotated:
 #
-# Every entry here is a vulnerability that pip-audit already knows has a
-# fix released upstream. They are ignored ONLY because Dependabot (see
-# .github/dependabot.yml) has not yet PR'd the bump. Each entry MUST stay
-# annotated with the package and fix version so the next reviewer can tell
-# at a glance whether it's still pending.
+# (A) Fixable, pending bump — a fix IS released upstream; ignored only
+#     until Dependabot (.github/dependabot.yml) PRs the bump. Workflow:
+#       1. Dependabot opens a PR bumping the package.
+#       2. PR lands → uv.lock has the fix version.
+#       3. Remove the corresponding line(s) from this file.
+#       4. CI now blocks any regression below that fix version.
+#     These entries MUST name the package and fix version.
 #
-# Workflow:
-#   1. Dependabot opens a PR bumping the package.
-#   2. PR lands → uv.lock has the fix version.
-#   3. Remove the corresponding line(s) from this file.
-#   4. CI now blocks any regression below that fix version.
+# (B) No upstream fix available — accepted risk. The advisory has NO
+#     fixed version in OSV/PYSEC (pip-audit reports an empty Fix Versions
+#     column; OSV lists no fixed range). The package is already at its
+#     latest release, or no fixed release exists. These are kept until a
+#     fix is published, then removed. Each entry MUST name the package and
+#     why the residual risk is accepted.
 #
-# Never add a CVE here without a comment. Never add a CVE here to make
-# the build green without first opening a tracking issue / PR.
+# Never add a CVE here without a comment. For category (A), never add one
+# to make the build green without a tracking issue / PR.
 #
-# Format: one CVE id per line; lines starting with '#' and blank lines
-# are ignored.
+# Format: one vulnerability id (CVE-… or PYSEC-…) per line, as pip-audit
+# reports it; lines starting with '#' and blank lines are ignored.
+
+# ===== (A) Fixable, pending bump =====
 
 # aiohttp 3.13.3 → 3.13.4 (transitive via docling / fastapi-stack)
 CVE-2026-34515
@@ -76,3 +81,50 @@ CVE-2026-1839
 # urllib3 2.6.3 → 2.7.0 (transitive via requests / httpx; landed 2026-05-11)
 CVE-2026-44431
 CVE-2026-44432
+
+# ===== (B) No upstream fix available — accepted risk (reviewed 2026-05-20) =====
+# Verified 2026-05-20: pip-audit reports empty Fix Versions and OSV lists
+# no fixed range for every id below. markdown/ollama/pyjwt are already at
+# their latest PyPI release; torch/transformers have newer releases but the
+# advisories specify no fixed version (newer releases remain affected), and
+# the torch/transformers issues are the crafted-model / deserialization
+# class (triggered only by loading untrusted model files — out of scope for
+# an on-prem tool loading its own models). Re-audit and remove when upstream
+# ships a fix.
+
+# markdown 3.10.2 (latest; no fix) — Markdown rendering, docs path
+PYSEC-2026-89
+
+# ollama 0.6.2 (latest; no fix) — optional local-LLM extra
+PYSEC-2025-144
+PYSEC-2025-145
+PYSEC-2025-146
+PYSEC-2025-147
+PYSEC-2026-101
+PYSEC-2026-102
+
+# pyjwt 2.12.1 (latest; no fix) — JWT handling; revisit promptly if a fix lands
+PYSEC-2025-183
+
+# torch 2.10.0 (no fix; crafted-model / deserialization class) — optional ML extra
+PYSEC-2025-189
+PYSEC-2025-190
+PYSEC-2025-191
+PYSEC-2025-192
+PYSEC-2025-193
+PYSEC-2025-194
+PYSEC-2025-195
+PYSEC-2025-196
+PYSEC-2025-197
+PYSEC-2025-210
+PYSEC-2026-139
+
+# transformers 4.57.6 (no fix; model-deserialization class) — optional ML extra
+PYSEC-2025-211
+PYSEC-2025-212
+PYSEC-2025-213
+PYSEC-2025-214
+PYSEC-2025-215
+PYSEC-2025-216
+PYSEC-2025-217
+PYSEC-2025-218
