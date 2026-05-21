@@ -285,8 +285,10 @@ class PipelineTestRunner:
 
         async def _drain_incoming() -> None:
             async for data in incoming_tap:
-                tid = data.get("task_id")
-                meta = data.get("metadata") or {}
+                # Task fields live on the body (envelope payload), not the frame.
+                body = data.get("payload") or {}
+                tid = body.get("task_id")
+                meta = body.get("metadata") or {}
                 sname = meta.get("stage_name")
                 if tid and sname:
                     task_to_stage[tid] = sname
@@ -325,8 +327,11 @@ class PipelineTestRunner:
 
         async def _drain_results() -> None:
             async for data in result_sub:
-                collected.append(data)
-                if data.get("task_id") == goal.goal_id:
+                # Unwrap the WireEnvelope once here so downstream partitioning
+                # reads body fields (task_id/status/output/...) directly.
+                body = data.get("payload") or data
+                collected.append(body)
+                if body.get("task_id") == goal.goal_id:
                     return
 
         drain_task = asyncio.create_task(_drain_results())

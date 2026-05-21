@@ -369,8 +369,9 @@ class ResultStream:
                     )
                     break
 
-                # Filter: only accept results we dispatched.
-                task_id = data.get("task_id")
+                # Filter: only accept results we dispatched. task_id lives on
+                # the body (envelope payload), not the frame.
+                task_id = (data.get("payload") or {}).get("task_id")
                 if task_id not in self._expected_ids:
                     log.debug(
                         "result_stream.ignored",

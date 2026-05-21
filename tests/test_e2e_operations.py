@@ -78,8 +78,8 @@ async def _get_final_result(sub, goal_id: str, timeout: float = 3.0) -> dict:
         if remaining <= 0:
             raise TimeoutError(f"Final result for {goal_id} not received within {timeout}s")
         msg = await asyncio.wait_for(sub.__anext__(), timeout=remaining)
-        if msg.get("task_id") == goal_id:
-            return msg
+        if msg.get("payload", {}).get("task_id") == goal_id:
+            return msg.get("payload", msg)
 
 
 async def _worker_simulator(
@@ -104,7 +104,7 @@ async def _worker_simulator(
     count = 0
 
     async for data in sub:
-        task = TaskMessage(**data)
+        task = TaskMessage(**data["payload"])
         # Small delay to let orchestrator set up result subscription
         # (the orchestrator subscribes to heddle.results.{goal_id} AFTER dispatching)
         await asyncio.sleep(0.05)
@@ -126,7 +126,7 @@ async def _worker_simulator(
         if task.parent_task_id:
             await bus.publish(
                 f"heddle.results.{task.parent_task_id}",
-                result.model_dump(mode="json"),
+                wrap("core.TaskResult", result).model_dump(mode="json"),
             )
 
         count += 1
@@ -166,20 +166,20 @@ class TestRouterToWorkerRoundtrip:
             # Publish a task to the incoming subject
             task = TaskMessage(
                 worker_type="summarizer",
-                payload={"text": "Hello world, please summarize this."},
+                input={"text": "Hello world, please summarize this."},
                 model_tier=ModelTier.LOCAL,
             )
             await bus.publish(
                 "heddle.tasks.incoming",
-                task.model_dump(mode="json"),
+                wrap("core.TaskMessage", task).model_dump(mode="json"),
             )
 
             # Worker receives the task
             msg = await asyncio.wait_for(worker_sub.__anext__(), timeout=2.0)
-            received_task = TaskMessage(**msg)
+            received_task = TaskMessage(**msg["payload"])
 
             assert received_task.worker_type == "summarizer"
-            assert received_task.payload["text"] == "Hello world, please summarize this."
+            assert received_task.input["text"] == "Hello world, please summarize this."
             assert received_task.task_id == task.task_id
 
             process_task.cancel()
@@ -258,7 +258,7 @@ class TestOrchestratorFullGoalFlow:
                 _worker_simulator(
                     bus,
                     "heddle.tasks.incoming",
-                    response_fn=lambda t: {"summary": f"Summary of {t.payload.get('text', '')}"},
+                    response_fn=lambda t: {"summary": f"Summary of {t.input.get('text', '')}"},
                     max_messages=2,
                     sub=worker_sub,
                 )
@@ -511,7 +511,7 @@ class TestConcurrentGoalsE2E:
                 _worker_simulator(
                     bus,
                     "heddle.tasks.incoming",
-                    response_fn=lambda t: {"summary": f"Done: {t.payload.get('text', '')}"},
+                    response_fn=lambda t: {"summary": f"Done: {t.input.get('text', '')}"},
                     max_messages=3,
                     sub=worker_sub,
                 )

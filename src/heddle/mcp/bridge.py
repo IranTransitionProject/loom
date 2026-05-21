@@ -20,12 +20,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 from pydantic import ValidationError
 
-from heddle.core.envelope import wrap
+from heddle.core.envelope import parse, wrap
 from heddle.core.messages import (
     ModelTier,
     OrchestratorGoal,
@@ -103,14 +103,14 @@ class MCPBridge:
 
         task = TaskMessage(
             worker_type=worker_type,
-            payload=payload,
+            input=payload,
             model_tier=ModelTier(tier),
             parent_task_id=call_id,
         )
 
         result = await self._dispatch_and_wait(
             publish_subject="heddle.tasks.incoming",
-            message=task.model_dump(mode="json"),
+            message=wrap("core.TaskMessage", task).model_dump(mode="json"),
             result_subject=f"heddle.results.{call_id}",
             match_task_id=task.task_id,
             timeout=timeout,
@@ -187,19 +187,21 @@ class MCPBridge:
         async def _consume() -> TaskResult:
             nonlocal stage_count
             async for data in sub:
-                task_id = data.get("task_id", "")
+                task_id = (data.get("payload") or {}).get("task_id", "")
 
                 if task_id == goal_id:
                     # This is the final pipeline result.
                     try:
-                        return TaskResult(**data)
-                    except ValidationError as exc:
+                        _envelope, body = parse(data)
+                        return cast("TaskResult", body)
+                    except (ValidationError, ValueError, KeyError) as exc:
                         raise BridgeError(
                             f"Malformed pipeline result for goal {goal_id}: {exc}"
                         ) from exc
 
-                # Intermediate stage result — report progress.
-                worker_type = data.get("worker_type", "unknown")
+                # Intermediate stage result — report progress. worker_type is
+                # on the body (envelope payload), not the frame.
+                worker_type = (data.get("payload") or {}).get("worker_type", "unknown")
                 stage_count += 1
                 logger.debug(
                     "bridge.intermediate_result",
@@ -209,7 +211,9 @@ class MCPBridge:
                     stage_count=stage_count,
                 )
                 if progress_callback is not None:
-                    stage_name = data.get("worker_type", f"stage_{stage_count}")
+                    stage_name = (data.get("payload") or {}).get(
+                        "worker_type", f"stage_{stage_count}"
+                    )
                     try:
                         cb_result = progress_callback(stage_name, stage_count, 0)
                         if asyncio.iscoroutine(cb_result):
@@ -273,10 +277,11 @@ class MCPBridge:
 
         async def _consume() -> None:
             async for data in sub:
-                if data.get("task_id") == match_task_id:
+                if (data.get("payload") or {}).get("task_id") == match_task_id:
                     try:
-                        result = TaskResult(**data)
-                    except ValidationError as exc:
+                        _envelope, body = parse(data)
+                        result = cast("TaskResult", body)
+                    except (ValidationError, ValueError, KeyError) as exc:
                         with contextlib.suppress(asyncio.InvalidStateError):
                             result_future.set_exception(
                                 BridgeError(f"Malformed result for task {match_task_id}: {exc}")

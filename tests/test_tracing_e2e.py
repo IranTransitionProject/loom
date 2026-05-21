@@ -37,6 +37,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
 
+from heddle.core.envelope import wrap
 from heddle.core.messages import ModelTier, TaskMessage
 from heddle.tracing.otel import extract_trace_context, inject_trace_context
 from heddle.worker.base import TaskWorker
@@ -218,11 +219,14 @@ class TestPublishResultRealWorker:
         worker.publish = AsyncMock()
 
         tracer = trace.get_tracer("test")
-        task_dict = TaskMessage(
-            worker_type="echo_worker",
-            payload={"text": "hello"},
-            model_tier=ModelTier.LOCAL,
-            parent_task_id="goal-trace",
+        task_dict = wrap(
+            "core.TaskMessage",
+            TaskMessage(
+                worker_type="echo_worker",
+                input={"text": "hello"},
+                model_tier=ModelTier.LOCAL,
+                parent_task_id="goal-trace",
+            ),
         ).model_dump(mode="json")
 
         # Active span at the time handle_message runs is what

@@ -9,6 +9,7 @@ import pytest
 import yaml
 
 from heddle.bus.memory import InMemoryBus
+from heddle.core.envelope import wrap
 from heddle.core.messages import TaskResult, TaskStatus
 from heddle.mcp.bridge import BridgeError, BridgeTimeoutError, MCPBridge
 from heddle.mcp.server import (
@@ -241,15 +242,16 @@ class TestDispatchTool:
             sub = await bus.subscribe("heddle.tasks.incoming")
             ready.set()
             async for data in sub:
+                payload = data.get("payload", data)
                 result = TaskResult(
-                    task_id=data["task_id"],
+                    task_id=payload["task_id"],
                     worker_type="summarizer",
                     status=TaskStatus.COMPLETED,
                     output={"summary": "done"},
                 )
                 await bus.publish(
-                    f"heddle.results.{data['parent_task_id']}",
-                    result.model_dump(mode="json"),
+                    f"heddle.results.{payload['parent_task_id']}",
+                    wrap("core.TaskResult", result).model_dump(mode="json"),
                 )
                 await sub.unsubscribe()
                 break
@@ -288,16 +290,17 @@ class TestDispatchTool:
             sub = await bus.subscribe("heddle.tasks.incoming")
             ready.set()
             async for data in sub:
-                assert data["payload"]["action"] == "search"
+                payload = data.get("payload", data)
+                assert payload["input"]["action"] == "search"
                 result = TaskResult(
-                    task_id=data["task_id"],
+                    task_id=payload["task_id"],
                     worker_type="docs_query",
                     status=TaskStatus.COMPLETED,
                     output={"results": [{"id": "1"}]},
                 )
                 await bus.publish(
-                    f"heddle.results.{data['parent_task_id']}",
-                    result.model_dump(mode="json"),
+                    f"heddle.results.{payload['parent_task_id']}",
+                    wrap("core.TaskResult", result).model_dump(mode="json"),
                 )
                 await sub.unsubscribe()
                 break
@@ -364,7 +367,7 @@ class TestDispatchTool:
                 )
                 await bus.publish(
                     f"heddle.results.{goal_id}",
-                    result.model_dump(mode="json"),
+                    wrap("core.TaskResult", result).model_dump(mode="json"),
                 )
                 await sub.unsubscribe()
                 break
@@ -433,7 +436,7 @@ class TestProgressCallback:
                 )
                 await bus.publish(
                     f"heddle.results.{goal_id}",
-                    stage_result.model_dump(mode="json"),
+                    wrap("core.TaskResult", stage_result).model_dump(mode="json"),
                 )
                 # Small delay to let consumer process.
                 await asyncio.sleep(0.01)
@@ -447,7 +450,7 @@ class TestProgressCallback:
                 )
                 await bus.publish(
                     f"heddle.results.{goal_id}",
-                    final.model_dump(mode="json"),
+                    wrap("core.TaskResult", final).model_dump(mode="json"),
                 )
                 await sub.unsubscribe()
                 break
@@ -494,15 +497,16 @@ class TestProgressCallback:
             sub = await bus.subscribe("heddle.tasks.incoming")
             ready.set()
             async for data in sub:
+                payload = data.get("payload", data)
                 result = TaskResult(
-                    task_id=data["task_id"],
+                    task_id=payload["task_id"],
                     worker_type="summarizer",
                     status=TaskStatus.COMPLETED,
                     output={"summary": "done"},
                 )
                 await bus.publish(
-                    f"heddle.results.{data['parent_task_id']}",
-                    result.model_dump(mode="json"),
+                    f"heddle.results.{payload['parent_task_id']}",
+                    wrap("core.TaskResult", result).model_dump(mode="json"),
                 )
                 await sub.unsubscribe()
                 break
@@ -554,7 +558,7 @@ class TestProgressCallback:
                 )
                 await bus.publish(
                     f"heddle.results.{goal_id}",
-                    final.model_dump(mode="json"),
+                    wrap("core.TaskResult", final).model_dump(mode="json"),
                 )
                 await sub.unsubscribe()
                 break

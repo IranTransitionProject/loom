@@ -24,10 +24,10 @@
   },
   "description": "Message sent TO a worker actor.\n\nThe payload dict must conform to the worker's input_schema (JSON Schema).\nContract validation happens in TaskWorker.handle_message(), not here.\n\nRetry semantics live OUTSIDE the message envelope by design (see\nADR-012): stage-level ``max_retries`` is in the pipeline YAML, and\nbus-level redelivery on actor disconnect is handled by NATS queue\ngroups.  No retry fields appear on TaskMessage.",
   "properties": {
-    "created_at": {
-      "format": "date-time",
-      "title": "Created At",
-      "type": "string"
+    "input": {
+      "additionalProperties": true,
+      "title": "Input",
+      "type": "object"
     },
     "metadata": {
       "additionalProperties": true,
@@ -49,11 +49,6 @@
       ],
       "default": null,
       "title": "Parent Task Id"
-    },
-    "payload": {
-      "additionalProperties": true,
-      "title": "Payload",
-      "type": "object"
     },
     "priority": {
       "$ref": "#/$defs/TaskPriority",
@@ -82,7 +77,7 @@
   },
   "required": [
     "worker_type",
-    "payload"
+    "input"
   ],
   "title": "TaskMessage",
   "type": "object"

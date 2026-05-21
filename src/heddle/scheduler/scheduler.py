@@ -440,14 +440,14 @@ class SchedulerActor(BaseActor):
         payload = {**cfg.get("payload", {}), **(extra_payload or {})}
         task = TaskMessage(
             worker_type=cfg["worker_type"],
-            payload=payload,
+            input=payload,
             model_tier=ModelTier(cfg.get("model_tier", "local")),
             priority=TaskPriority(cfg.get("priority", "normal")),
             metadata={"scheduled_by": entry.name},
         )
         await self.publish(
             "heddle.tasks.incoming",
-            task.model_dump(mode="json"),
+            wrap("core.TaskMessage", task).model_dump(mode="json"),
         )
         logger.info(
             "scheduler.task_dispatched",

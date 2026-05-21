@@ -29,12 +29,12 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
 import structlog
 from pydantic import BaseModel, Field
 
-from heddle.core.envelope import register_payload_type
+from heddle.core.envelope import parse, register_payload_type
 
 logger = structlog.get_logger()
 
@@ -102,12 +102,15 @@ class TaskMessage(BaseModel):
     task_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     parent_task_id: str | None = None  # Links subtask to orchestrator's goal
     worker_type: str  # Which worker config to use (e.g., "summarizer", "doc_extractor")
-    payload: dict[str, Any]  # Structured input — must match worker's input_schema
+    input: dict[str, Any]  # Structured input — must match worker's input_schema
     model_tier: ModelTier = ModelTier.STANDARD
     priority: TaskPriority = TaskPriority.NORMAL
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     request_id: str | None = None  # Correlates all tasks from the same goal (set by pipeline)
     metadata: dict[str, Any] = Field(default_factory=dict)  # Routing hints, pipeline context
+    # No timestamp here: the WireEnvelope carries occurred_at/recorded_at.
+
+
+register_payload_type("core.TaskMessage", TaskMessage)
 
 
 class TaskResult(BaseModel):
@@ -138,8 +141,11 @@ class TaskResult(BaseModel):
     # skipped at load time (F1).  Empty by default; orchestrators can
     # check it to detect "ran without resource X" without scraping logs.
     metadata: dict[str, Any] = Field(default_factory=dict)
-    processing_time_ms: int = 0
-    completed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    processing_time_ms: int = 0  # work DURATION (kept; distinct from envelope recorded_at)
+    # No completed_at: the WireEnvelope carries occurred_at/recorded_at.
+
+
+register_payload_type("core.TaskResult", TaskResult)
 
 
 def parse_task_result(
@@ -172,7 +178,8 @@ def parse_task_result(
     subject and expected count it had bound on its logger).
     """
     try:
-        return TaskResult(**data)
+        _envelope, body = parse(data)
+        return cast("TaskResult", body)
     except Exception as e:
         logger.warning(
             log_event,

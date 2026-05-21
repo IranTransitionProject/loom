@@ -5,6 +5,7 @@ import asyncio
 import pytest
 
 from heddle.bus.memory import InMemoryBus
+from heddle.core.envelope import wrap
 from heddle.core.messages import TaskResult, TaskStatus
 from heddle.mcp.bridge import BridgeError, BridgeTimeoutError, MCPBridge
 
@@ -34,16 +35,18 @@ def _mock_worker_responder(bus, subject, status, output=None, error=None):
         sub = await bus.subscribe(subject)
         ready.set()
         async for data in sub:
-            task_id = data["task_id"]
-            parent_id = data["parent_task_id"]
+            payload = data.get("payload", data)
+            task_id = payload["task_id"]
+            parent_id = payload["parent_task_id"]
             result = TaskResult(
                 task_id=task_id,
-                worker_type=data.get("worker_type", "mock"),
+                worker_type=payload.get("worker_type", "mock"),
                 status=status,
                 output=output,
                 error=error,
             )
-            await bus.publish(f"heddle.results.{parent_id}", result.model_dump(mode="json"))
+            wrapped = wrap("core.TaskResult", result).model_dump(mode="json")
+            await bus.publish(f"heddle.results.{parent_id}", wrapped)
             await sub.unsubscribe()
             break
 
@@ -124,15 +127,19 @@ class TestCallQuery:
             ready.set()
             async for data in sub:
                 received.update(data)
-                task_id = data["task_id"]
-                parent_id = data["parent_task_id"]
+                payload = data.get("payload", data)
+                task_id = payload["task_id"]
+                parent_id = payload["parent_task_id"]
                 result = TaskResult(
                     task_id=task_id,
-                    worker_type=data["worker_type"],
+                    worker_type=payload["worker_type"],
                     status=TaskStatus.COMPLETED,
                     output={"results": []},
                 )
-                await bus.publish(f"heddle.results.{parent_id}", result.model_dump(mode="json"))
+                await bus.publish(
+                    f"heddle.results.{parent_id}",
+                    wrap("core.TaskResult", result).model_dump(mode="json"),
+                )
                 await sub.unsubscribe()
                 break
 
@@ -148,8 +155,8 @@ class TestCallQuery:
 
         assert result == {"results": []}
         # Verify the payload was wrapped with action.
-        assert received["payload"]["action"] == "search"
-        assert received["payload"]["query"] == "test"
+        assert received["payload"]["input"]["action"] == "search"
+        assert received["payload"]["input"]["query"] == "test"
         await worker_task
 
 
@@ -175,7 +182,10 @@ class TestCallPipeline:
                     status=TaskStatus.COMPLETED,
                     output={"text": "extracted"},
                 )
-                await bus.publish(f"heddle.results.{goal_id}", stage_result.model_dump(mode="json"))
+                await bus.publish(
+                    f"heddle.results.{goal_id}",
+                    wrap("core.TaskResult", stage_result).model_dump(mode="json"),
+                )
 
                 await asyncio.sleep(0.01)
 
@@ -186,7 +196,10 @@ class TestCallPipeline:
                     status=TaskStatus.COMPLETED,
                     output={"final": "done"},
                 )
-                await bus.publish(f"heddle.results.{goal_id}", final_result.model_dump(mode="json"))
+                await bus.publish(
+                    f"heddle.results.{goal_id}",
+                    wrap("core.TaskResult", final_result).model_dump(mode="json"),
+                )
                 await sub.unsubscribe()
                 break
 
@@ -220,7 +233,8 @@ class TestCallPipeline:
                         output={"stage": i},
                     )
                     await bus.publish(
-                        f"heddle.results.{goal_id}", stage_result.model_dump(mode="json")
+                        f"heddle.results.{goal_id}",
+                        wrap("core.TaskResult", stage_result).model_dump(mode="json"),
                     )
                     await asyncio.sleep(0.01)
 
@@ -230,7 +244,10 @@ class TestCallPipeline:
                     status=TaskStatus.COMPLETED,
                     output={"final": True},
                 )
-                await bus.publish(f"heddle.results.{goal_id}", final_result.model_dump(mode="json"))
+                await bus.publish(
+                    f"heddle.results.{goal_id}",
+                    wrap("core.TaskResult", final_result).model_dump(mode="json"),
+                )
                 await sub.unsubscribe()
                 break
 
@@ -292,11 +309,16 @@ class TestBridgeErrorHandling:
             sub = await bus.subscribe("heddle.tasks.incoming")
             ready.set()
             async for data in sub:
-                parent_id = data["parent_task_id"]
+                payload = data.get("payload", data)
+                parent_id = payload["parent_task_id"]
                 # Send malformed result — missing required 'status' and 'worker_type'.
+                # Wrap minimally so bridge can match task_id but then fail on parse().
                 await bus.publish(
                     f"heddle.results.{parent_id}",
-                    {"task_id": data["task_id"], "bad_field": "oops"},
+                    {
+                        "payload_type": "core.TaskResult",
+                        "payload": {"task_id": payload["task_id"], "bad_field": "oops"},
+                    },
                 )
                 await sub.unsubscribe()
                 break
@@ -324,9 +346,14 @@ class TestBridgeErrorHandling:
             async for data in sub:
                 goal_id = data["payload"]["goal_id"]
                 # Send malformed final result (task_id == goal_id but missing fields).
+                # Wrap minimally so bridge can find task_id == goal_id and enter
+                # the final-result path, then fail on validation.
                 await bus.publish(
                     f"heddle.results.{goal_id}",
-                    {"task_id": goal_id, "not_a_valid_field": True},
+                    {
+                        "payload_type": "core.TaskResult",
+                        "payload": {"task_id": goal_id, "not_a_valid_field": True},
+                    },
                 )
                 await sub.unsubscribe()
                 break
@@ -358,7 +385,10 @@ class TestBridgeErrorHandling:
                     status=TaskStatus.COMPLETED,
                     output={"text": "extracted"},
                 )
-                await bus.publish(f"heddle.results.{goal_id}", stage_result.model_dump(mode="json"))
+                await bus.publish(
+                    f"heddle.results.{goal_id}",
+                    wrap("core.TaskResult", stage_result).model_dump(mode="json"),
+                )
                 await asyncio.sleep(0.01)
                 # Final result.
                 final_result = TaskResult(
@@ -367,7 +397,10 @@ class TestBridgeErrorHandling:
                     status=TaskStatus.COMPLETED,
                     output={"final": "done"},
                 )
-                await bus.publish(f"heddle.results.{goal_id}", final_result.model_dump(mode="json"))
+                await bus.publish(
+                    f"heddle.results.{goal_id}",
+                    wrap("core.TaskResult", final_result).model_dump(mode="json"),
+                )
                 await sub.unsubscribe()
                 break
 

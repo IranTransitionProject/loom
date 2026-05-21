@@ -68,7 +68,7 @@ import yaml
 
 from heddle.core.actor import BaseActor
 from heddle.core.contracts import validate_input, validate_output
-from heddle.core.envelope import parse
+from heddle.core.envelope import parse, wrap
 from heddle.core.mapping import is_mapping_literal, resolve_mapping_value
 from heddle.core.messages import (
     ModelTier,
@@ -396,7 +396,7 @@ class PipelineOrchestrator(BaseActor):
 
             task = TaskMessage(
                 worker_type=stage["worker_type"],
-                payload=payload,
+                input=payload,
                 model_tier=ModelTier(stage.get("tier", "local")),
                 parent_task_id=goal.goal_id,
                 request_id=goal.goal_id,
@@ -407,7 +407,7 @@ class PipelineOrchestrator(BaseActor):
             )
 
             stage_log.info("pipeline.stage_dispatching", worker_type=stage["worker_type"])
-            task_data = task.model_dump(mode="json")
+            task_data = wrap("core.TaskMessage", task).model_dump(mode="json")
             inject_trace_context(task_data)
             stage_timeout = stage.get("timeout_seconds", timeout)
             # Subscribe BEFORE publishing.  NATS is at-most-once — if a
@@ -835,4 +835,4 @@ class PipelineOrchestrator(BaseActor):
             processing_time_ms=elapsed,
         )
         subject = f"heddle.results.{goal.goal_id}"
-        await self.publish(subject, result.model_dump(mode="json"))
+        await self.publish(subject, wrap("core.TaskResult", result).model_dump(mode="json"))

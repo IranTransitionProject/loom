@@ -509,7 +509,7 @@ class GoalDecomposer:
             task_id=str(uuid.uuid4()),
             parent_task_id=parent_task_id,
             worker_type=worker_type,
-            payload=payload,
+            input=payload,
             model_tier=model_tier,
             priority=priority,
             metadata=metadata,

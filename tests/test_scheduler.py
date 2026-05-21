@@ -364,9 +364,9 @@ class TestDispatch:
         await actor._dispatch_task(entry)
 
         msg = await sub.__anext__()
-        task = TaskMessage(**msg)
+        task = TaskMessage(**msg["payload"])
         assert task.worker_type == "summarizer"
-        assert task.payload == {"text": "hello"}
+        assert task.input == {"text": "hello"}
         assert task.model_tier == ModelTier.LOCAL
 
     @pytest.mark.asyncio
@@ -384,7 +384,7 @@ class TestDispatch:
         await actor._dispatch_task(entry)
 
         msg = await sub.__anext__()
-        assert msg["metadata"]["scheduled_by"] == "meta_test"
+        assert msg["payload"]["metadata"]["scheduled_by"] == "meta_test"
 
     @pytest.mark.asyncio
     async def test_dispatch_task_with_priority_and_tier(self, actor):
@@ -406,7 +406,7 @@ class TestDispatch:
         await actor._dispatch_task(entry)
 
         msg = await sub.__anext__()
-        task = TaskMessage(**msg)
+        task = TaskMessage(**msg["payload"])
         assert task.model_tier == ModelTier.STANDARD
         assert task.priority == TaskPriority.CRITICAL
 
@@ -442,7 +442,7 @@ class TestDispatch:
         await actor._fire_schedule(entry)
 
         msg = await sub.__anext__()
-        assert msg["worker_type"] == "w"
+        assert msg["payload"]["worker_type"] == "w"
 
     @pytest.mark.asyncio
     async def test_fire_schedule_error_does_not_crash(self, actor):
@@ -620,7 +620,7 @@ class TestTimerAndFireTimes:
 
         # Should have fired at least once
         msg = await sub.__anext__()
-        task_msg = TaskMessage(**msg)
+        task_msg = TaskMessage(**msg["payload"])
         assert task_msg.worker_type == "summarizer"
 
     @pytest.mark.asyncio

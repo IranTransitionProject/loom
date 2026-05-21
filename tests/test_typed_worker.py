@@ -20,6 +20,7 @@ import pytest
 import yaml
 from pydantic import BaseModel
 
+from heddle.core.envelope import wrap
 from heddle.core.messages import ModelTier, TaskMessage, TaskResult, TaskStatus
 from heddle.worker.typed import TypedTaskWorker
 
@@ -58,12 +59,13 @@ _CONFIG = {
 
 
 def _make_task(payload: dict) -> dict:
-    return TaskMessage(
+    task = TaskMessage(
         worker_type="typed_echo",
-        payload=payload,
+        input=payload,
         model_tier=ModelTier.LOCAL,
         parent_task_id="goal-1",
-    ).model_dump(mode="json")
+    )
+    return wrap("core.TaskMessage", task).model_dump(mode="json")
 
 
 @pytest.fixture
@@ -82,7 +84,7 @@ async def test_typed_worker_roundtrips_pydantic_models(config_file):
     await worker.handle_message(_make_task({"text": "hi", "repeat": 3}))
 
     worker.publish.assert_called_once()
-    result = TaskResult(**worker.publish.call_args[0][1])
+    result = TaskResult(**worker.publish.call_args[0][1]["payload"])
     assert result.status == TaskStatus.COMPLETED
     assert result.output == {"echoed": "hihihi", "count": 3}
 
@@ -102,7 +104,7 @@ async def test_typed_worker_rejects_bad_payload_via_json_schema(config_file):
 
     await worker.handle_message(_make_task({"repeat": 2}))  # missing "text"
 
-    result = TaskResult(**worker.publish.call_args[0][1])
+    result = TaskResult(**worker.publish.call_args[0][1]["payload"])
     assert result.status == TaskStatus.FAILED
     assert "Input validation" in (result.error or "")
 

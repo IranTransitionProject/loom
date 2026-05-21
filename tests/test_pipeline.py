@@ -434,8 +434,8 @@ async def _wait_for_pipeline_result(result_sub, goal_id, timeout=3):
     """
     deadline = asyncio.get_event_loop().time() + timeout
     async for data in result_sub:
-        if data.get("task_id") == goal_id:
-            return data
+        if data.get("payload", {}).get("task_id") == goal_id:
+            return data.get("payload", data)
         if asyncio.get_event_loop().time() > deadline:
             raise TimeoutError("Timed out waiting for pipeline result")
     raise TimeoutError("Subscription ended without pipeline result")
@@ -487,7 +487,7 @@ class TestParallelExecution:
         dispatched = {}
         for _ in range(2):
             data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
-            dispatched[data["metadata"]["stage_name"]] = data
+            dispatched[data["payload"]["metadata"]["stage_name"]] = data
 
         assert "A" in dispatched
         assert "B" in dispatched
@@ -496,32 +496,32 @@ class TestParallelExecution:
         for stage_name in ["A", "B"]:
             task_data = dispatched[stage_name]
             result = TaskResult(
-                task_id=task_data["task_id"],
-                worker_type=task_data["worker_type"],
+                task_id=task_data["payload"]["task_id"],
+                worker_type=task_data["payload"]["worker_type"],
                 status=TaskStatus.COMPLETED,
                 output={"result": f"{stage_name}_done"},
                 processing_time_ms=10,
             )
             await bus.publish(
                 f"heddle.results.{goal.goal_id}",
-                result.model_dump(mode="json"),
+                wrap("core.TaskResult", result).model_dump(mode="json"),
             )
 
         # Now stage C should be dispatched.
         c_data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
-        assert c_data["metadata"]["stage_name"] == "C"
+        assert c_data["payload"]["metadata"]["stage_name"] == "C"
 
         # Send result for C.
         c_result = TaskResult(
-            task_id=c_data["task_id"],
-            worker_type=c_data["worker_type"],
+            task_id=c_data["payload"]["task_id"],
+            worker_type=c_data["payload"]["worker_type"],
             status=TaskStatus.COMPLETED,
             output={"result": "C_done"},
             processing_time_ms=10,
         )
         await bus.publish(
             f"heddle.results.{goal.goal_id}",
-            c_result.model_dump(mode="json"),
+            wrap("core.TaskResult", c_result).model_dump(mode="json"),
         )
 
         # Pipeline should complete.
@@ -573,11 +573,11 @@ class TestParallelExecution:
         dispatched = {}
         for _ in range(2):
             data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
-            dispatched[data["metadata"]["stage_name"]] = data
+            dispatched[data["payload"]["metadata"]["stage_name"]] = data
 
         # A succeeds, B fails.
         a_result = TaskResult(
-            task_id=dispatched["A"]["task_id"],
+            task_id=dispatched["A"]["payload"]["task_id"],
             worker_type="workerA",
             status=TaskStatus.COMPLETED,
             output={"result": "ok"},
@@ -585,11 +585,11 @@ class TestParallelExecution:
         )
         await bus.publish(
             f"heddle.results.{goal.goal_id}",
-            a_result.model_dump(mode="json"),
+            wrap("core.TaskResult", a_result).model_dump(mode="json"),
         )
 
         b_result = TaskResult(
-            task_id=dispatched["B"]["task_id"],
+            task_id=dispatched["B"]["payload"]["task_id"],
             worker_type="workerB",
             status=TaskStatus.FAILED,
             error="something went wrong",
@@ -597,7 +597,7 @@ class TestParallelExecution:
         )
         await bus.publish(
             f"heddle.results.{goal.goal_id}",
-            b_result.model_dump(mode="json"),
+            wrap("core.TaskResult", b_result).model_dump(mode="json"),
         )
 
         await asyncio.wait_for(pipeline_task, timeout=3)
@@ -659,11 +659,11 @@ class TestParallelExecution:
         dispatched = {}
         for _ in range(2):
             data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
-            dispatched[data["metadata"]["stage_name"]] = data
+            dispatched[data["payload"]["metadata"]["stage_name"]] = data
 
         # B fails immediately; A is intentionally NEVER given a result.
         b_result = TaskResult(
-            task_id=dispatched["B"]["task_id"],
+            task_id=dispatched["B"]["payload"]["task_id"],
             worker_type="workerB",
             status=TaskStatus.FAILED,
             error="B blew up",
@@ -671,7 +671,7 @@ class TestParallelExecution:
         )
         await bus.publish(
             f"heddle.results.{goal.goal_id}",
-            b_result.model_dump(mode="json"),
+            wrap("core.TaskResult", b_result).model_dump(mode="json"),
         )
 
         # The pipeline must abort well before A's 4s per-stage timeout.
@@ -720,11 +720,11 @@ class TestParallelExecution:
 
         # First stage dispatched.
         first_data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
-        assert first_data["metadata"]["stage_name"] == "first"
+        assert first_data["payload"]["metadata"]["stage_name"] == "first"
 
         # Send result for first.
         first_result = TaskResult(
-            task_id=first_data["task_id"],
+            task_id=first_data["payload"]["task_id"],
             worker_type="w1",
             status=TaskStatus.COMPLETED,
             output={"result": "first_done"},
@@ -732,16 +732,16 @@ class TestParallelExecution:
         )
         await bus.publish(
             f"heddle.results.{goal.goal_id}",
-            first_result.model_dump(mode="json"),
+            wrap("core.TaskResult", first_result).model_dump(mode="json"),
         )
 
         # Second stage dispatched.
         second_data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
-        assert second_data["metadata"]["stage_name"] == "second"
+        assert second_data["payload"]["metadata"]["stage_name"] == "second"
 
         # Send result for second.
         second_result = TaskResult(
-            task_id=second_data["task_id"],
+            task_id=second_data["payload"]["task_id"],
             worker_type="w2",
             status=TaskStatus.COMPLETED,
             output={"result": "second_done"},
@@ -749,7 +749,7 @@ class TestParallelExecution:
         )
         await bus.publish(
             f"heddle.results.{goal.goal_id}",
-            second_result.model_dump(mode="json"),
+            wrap("core.TaskResult", second_result).model_dump(mode="json"),
         )
 
         await asyncio.wait_for(pipeline_task, timeout=3)
@@ -819,7 +819,7 @@ class TestInterStageValidation:
         # Extract stage dispatched — send result (no page_count).
         first_data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
         first_result = TaskResult(
-            task_id=first_data["task_id"],
+            task_id=first_data["payload"]["task_id"],
             worker_type="extractor",
             status=TaskStatus.COMPLETED,
             output={"text_preview": "hello world"},
@@ -827,7 +827,7 @@ class TestInterStageValidation:
         )
         await bus.publish(
             f"heddle.results.{goal.goal_id}",
-            first_result.model_dump(mode="json"),
+            wrap("core.TaskResult", first_result).model_dump(mode="json"),
         )
 
         await asyncio.wait_for(pipeline_task, timeout=3)
@@ -878,7 +878,7 @@ class TestInterStageValidation:
         # Extract stage returns output missing 'page_count'.
         data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
         result = TaskResult(
-            task_id=data["task_id"],
+            task_id=data["payload"]["task_id"],
             worker_type="extractor",
             status=TaskStatus.COMPLETED,
             output={"text_preview": "hello"},  # Missing page_count
@@ -886,7 +886,7 @@ class TestInterStageValidation:
         )
         await bus.publish(
             f"heddle.results.{goal.goal_id}",
-            result.model_dump(mode="json"),
+            wrap("core.TaskResult", result).model_dump(mode="json"),
         )
 
         await asyncio.wait_for(pipeline_task, timeout=3)
@@ -950,12 +950,15 @@ class TestInterStageValidation:
         data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
         await bus.publish(
             f"heddle.results.{goal.goal_id}",
-            TaskResult(
-                task_id=data["task_id"],
-                worker_type="extractor",
-                status=TaskStatus.COMPLETED,
-                output={"text": "document content"},
-                processing_time_ms=10,
+            wrap(
+                "core.TaskResult",
+                TaskResult(
+                    task_id=data["payload"]["task_id"],
+                    worker_type="extractor",
+                    status=TaskStatus.COMPLETED,
+                    output={"text": "document content"},
+                    processing_time_ms=10,
+                ),
             ).model_dump(mode="json"),
         )
 
@@ -963,12 +966,15 @@ class TestInterStageValidation:
         data2 = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
         await bus.publish(
             f"heddle.results.{goal.goal_id}",
-            TaskResult(
-                task_id=data2["task_id"],
-                worker_type="classifier",
-                status=TaskStatus.COMPLETED,
-                output={"category": "report"},
-                processing_time_ms=10,
+            wrap(
+                "core.TaskResult",
+                TaskResult(
+                    task_id=data2["payload"]["task_id"],
+                    worker_type="classifier",
+                    status=TaskStatus.COMPLETED,
+                    output={"category": "report"},
+                    processing_time_ms=10,
+                ),
             ).model_dump(mode="json"),
         )
 
@@ -1007,12 +1013,15 @@ class TestInterStageValidation:
         data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
         await bus.publish(
             f"heddle.results.{goal.goal_id}",
-            TaskResult(
-                task_id=data["task_id"],
-                worker_type="w1",
-                status=TaskStatus.COMPLETED,
-                output={"anything": "goes"},
-                processing_time_ms=10,
+            wrap(
+                "core.TaskResult",
+                TaskResult(
+                    task_id=data["payload"]["task_id"],
+                    worker_type="w1",
+                    status=TaskStatus.COMPLETED,
+                    output={"anything": "goes"},
+                    processing_time_ms=10,
+                ),
             ).model_dump(mode="json"),
         )
 
@@ -1224,7 +1233,7 @@ class TestTypedPipelineErrors:
 
         data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
         fail_result = TaskResult(
-            task_id=data["task_id"],
+            task_id=data["payload"]["task_id"],
             worker_type="w1",
             status=TaskStatus.FAILED,
             error="worker crashed",
@@ -1232,7 +1241,7 @@ class TestTypedPipelineErrors:
         )
         await bus.publish(
             f"heddle.results.{goal.goal_id}",
-            fail_result.model_dump(mode="json"),
+            wrap("core.TaskResult", fail_result).model_dump(mode="json"),
         )
 
         await asyncio.wait_for(pipeline_task, timeout=3)
@@ -1276,7 +1285,7 @@ class TestTypedPipelineErrors:
         data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
         # Return output missing 'count'.
         ok_result = TaskResult(
-            task_id=data["task_id"],
+            task_id=data["payload"]["task_id"],
             worker_type="w1",
             status=TaskStatus.COMPLETED,
             output={"result": "ok"},  # Missing 'count'.
@@ -1284,7 +1293,7 @@ class TestTypedPipelineErrors:
         )
         await bus.publish(
             f"heddle.results.{goal.goal_id}",
-            ok_result.model_dump(mode="json"),
+            wrap("core.TaskResult", ok_result).model_dump(mode="json"),
         )
 
         await asyncio.wait_for(pipeline_task, timeout=3)
@@ -1325,7 +1334,7 @@ class TestStageRetry:
         # First attempt — worker fails.
         data1 = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
         fail_result = TaskResult(
-            task_id=data1["task_id"],
+            task_id=data1["payload"]["task_id"],
             worker_type="w1",
             status=TaskStatus.FAILED,
             error="transient error",
@@ -1333,13 +1342,13 @@ class TestStageRetry:
         )
         await bus.publish(
             f"heddle.results.{goal.goal_id}",
-            fail_result.model_dump(mode="json"),
+            wrap("core.TaskResult", fail_result).model_dump(mode="json"),
         )
 
         # Second attempt (retry) — worker succeeds.
         data2 = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
         ok_result = TaskResult(
-            task_id=data2["task_id"],
+            task_id=data2["payload"]["task_id"],
             worker_type="w1",
             status=TaskStatus.COMPLETED,
             output={"result": "success"},
@@ -1347,7 +1356,7 @@ class TestStageRetry:
         )
         await bus.publish(
             f"heddle.results.{goal.goal_id}",
-            ok_result.model_dump(mode="json"),
+            wrap("core.TaskResult", ok_result).model_dump(mode="json"),
         )
 
         await asyncio.wait_for(pipeline_task, timeout=3)
@@ -1385,7 +1394,7 @@ class TestStageRetry:
         for _ in range(2):
             data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
             fail_result = TaskResult(
-                task_id=data["task_id"],
+                task_id=data["payload"]["task_id"],
                 worker_type="w1",
                 status=TaskStatus.FAILED,
                 error="persistent error",
@@ -1393,7 +1402,7 @@ class TestStageRetry:
             )
             await bus.publish(
                 f"heddle.results.{goal.goal_id}",
-                fail_result.model_dump(mode="json"),
+                wrap("core.TaskResult", fail_result).model_dump(mode="json"),
             )
 
         await asyncio.wait_for(pipeline_task, timeout=3)
@@ -1554,7 +1563,7 @@ class TestStageRetry:
         # Second attempt (retry) — respond successfully.
         data2 = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
         ok_result = TaskResult(
-            task_id=data2["task_id"],
+            task_id=data2["payload"]["task_id"],
             worker_type="w1",
             status=TaskStatus.COMPLETED,
             output={"result": "recovered"},
@@ -1562,7 +1571,7 @@ class TestStageRetry:
         )
         await bus.publish(
             f"heddle.results.{goal.goal_id}",
-            ok_result.model_dump(mode="json"),
+            wrap("core.TaskResult", ok_result).model_dump(mode="json"),
         )
 
         await asyncio.wait_for(pipeline_task, timeout=5)
@@ -1601,11 +1610,11 @@ class TestRequestIdPropagation:
 
         # Read the dispatched task and verify request_id.
         data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
-        assert data["request_id"] == goal.goal_id
+        assert data["payload"]["request_id"] == goal.goal_id
 
         # Complete the pipeline so it doesn't hang.
         result = TaskResult(
-            task_id=data["task_id"],
+            task_id=data["payload"]["task_id"],
             worker_type="workerA",
             status=TaskStatus.COMPLETED,
             output={"result": "done"},
@@ -1613,7 +1622,7 @@ class TestRequestIdPropagation:
         )
         await bus.publish(
             f"heddle.results.{goal.goal_id}",
-            result.model_dump(mode="json"),
+            wrap("core.TaskResult", result).model_dump(mode="json"),
         )
         await asyncio.wait_for(pipeline_task, timeout=3)
 
@@ -1652,20 +1661,20 @@ class TestRequestIdPropagation:
             dispatched.append(data)
 
         for data in dispatched:
-            assert data["request_id"] == goal.goal_id
+            assert data["payload"]["request_id"] == goal.goal_id
 
         # Complete both stages.
         for data in dispatched:
             result = TaskResult(
-                task_id=data["task_id"],
-                worker_type=data["worker_type"],
+                task_id=data["payload"]["task_id"],
+                worker_type=data["payload"]["worker_type"],
                 status=TaskStatus.COMPLETED,
                 output={"result": "done"},
                 processing_time_ms=10,
             )
             await bus.publish(
                 f"heddle.results.{goal.goal_id}",
-                result.model_dump(mode="json"),
+                wrap("core.TaskResult", result).model_dump(mode="json"),
             )
         await asyncio.wait_for(pipeline_task, timeout=3)
 
@@ -1701,12 +1710,15 @@ class TestPipelineTimeline:
         data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
         await bus.publish(
             f"heddle.results.{goal.goal_id}",
-            TaskResult(
-                task_id=data["task_id"],
-                worker_type="extractor",
-                status=TaskStatus.COMPLETED,
-                output={"text": "hello"},
-                processing_time_ms=42,
+            wrap(
+                "core.TaskResult",
+                TaskResult(
+                    task_id=data["payload"]["task_id"],
+                    worker_type="extractor",
+                    status=TaskStatus.COMPLETED,
+                    output={"text": "hello"},
+                    processing_time_ms=42,
+                ),
             ).model_dump(mode="json"),
         )
 
@@ -1759,12 +1771,15 @@ class TestPipelineTimeline:
         data_a = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
         await bus.publish(
             f"heddle.results.{goal.goal_id}",
-            TaskResult(
-                task_id=data_a["task_id"],
-                worker_type="w1",
-                status=TaskStatus.COMPLETED,
-                output={"y": "from_a"},
-                processing_time_ms=10,
+            wrap(
+                "core.TaskResult",
+                TaskResult(
+                    task_id=data_a["payload"]["task_id"],
+                    worker_type="w1",
+                    status=TaskStatus.COMPLETED,
+                    output={"y": "from_a"},
+                    processing_time_ms=10,
+                ),
             ).model_dump(mode="json"),
         )
 
@@ -1772,12 +1787,15 @@ class TestPipelineTimeline:
         data_b = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
         await bus.publish(
             f"heddle.results.{goal.goal_id}",
-            TaskResult(
-                task_id=data_b["task_id"],
-                worker_type="w2",
-                status=TaskStatus.COMPLETED,
-                output={"z": "from_b"},
-                processing_time_ms=20,
+            wrap(
+                "core.TaskResult",
+                TaskResult(
+                    task_id=data_b["payload"]["task_id"],
+                    worker_type="w2",
+                    status=TaskStatus.COMPLETED,
+                    output={"z": "from_b"},
+                    processing_time_ms=20,
+                ),
             ).model_dump(mode="json"),
         )
 
@@ -1822,12 +1840,15 @@ class TestPipelineTimeline:
         data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
         await bus.publish(
             f"heddle.results.{goal.goal_id}",
-            TaskResult(
-                task_id=data["task_id"],
-                worker_type="w1",
-                status=TaskStatus.FAILED,
-                error="boom",
-                processing_time_ms=10,
+            wrap(
+                "core.TaskResult",
+                TaskResult(
+                    task_id=data["payload"]["task_id"],
+                    worker_type="w1",
+                    status=TaskStatus.FAILED,
+                    error="boom",
+                    processing_time_ms=10,
+                ),
             ).model_dump(mode="json"),
         )
 

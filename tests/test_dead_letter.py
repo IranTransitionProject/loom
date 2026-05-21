@@ -37,14 +37,16 @@ def _make_dead_letter_msg(
     task_id: str | None = None,
 ) -> dict[str, Any]:
     """Create a dead-letter envelope as the router would publish it."""
+    from heddle.core.envelope import wrap
+
     task = TaskMessage(
         worker_type=worker_type,
-        payload={"text": "hello"},
+        input={"text": "hello"},
         model_tier=ModelTier.LOCAL,
     )
-    data = task.model_dump(mode="json")
+    data = wrap("core.TaskMessage", task).model_dump(mode="json")
     if task_id is None:
-        task_id = data["task_id"]
+        task_id = data["payload"]["task_id"]
     return {
         "reason": reason,
         "original_task": data,
@@ -255,8 +257,8 @@ class TestHandleMessage:
         await consumer.handle_message(msg)
 
         entries = consumer.list_entries()
-        assert "worker_type" in entries[0]["original_task"]
-        assert entries[0]["original_task"]["worker_type"] == "summarizer"
+        assert "payload" in entries[0]["original_task"]
+        assert entries[0]["original_task"]["payload"]["worker_type"] == "summarizer"
 
     @pytest.mark.asyncio
     async def test_message_without_reason_defaults_to_unknown(self):
@@ -537,7 +539,7 @@ class TestFullFlow:
         assert consumer.count() == 2
 
         replayed = await asyncio.wait_for(incoming_sub.__anext__(), timeout=2.0)
-        assert replayed["worker_type"] == "worker_1"
+        assert replayed["payload"]["worker_type"] == "worker_1"
 
         # Verify replay was logged
         assert consumer.replay_count() == 1

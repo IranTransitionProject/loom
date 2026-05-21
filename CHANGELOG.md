@@ -136,6 +136,20 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
 
 ### Added
 
+- **`TaskMessage` and `TaskResult` now ride the `WireEnvelope`** (`clean-slate`,
+  wire-envelope S2b). The task/result subjects (`heddle.tasks.*`,
+  `heddle.results.*`) carry `core.TaskMessage`/`core.TaskResult` bodies; the
+  router, worker, orchestrators, scheduler, council, and MCP bridge `wrap` on
+  publish and two-step `parse` on consume. **`TaskMessage.payload` is renamed to
+  `input`** (avoids `envelope.payload.payload`); `TaskMessage.created_at` and
+  `TaskResult.completed_at` are dropped (the envelope carries the timestamps;
+  `TaskResult.processing_time_ms` stays as work duration). `parse_task_result`
+  unwraps the envelope, preserving its malformed-body skip-path. With S2a's
+  goal migration, **all core message types now ride one frame**; events/commands
+  /rejections follow in S3. `schemas/v1/task_message`+`task_result` regenerate;
+  the schema reorg + `heddle-sdk` re-vendor stay S4. Justification: removes the
+  last parallel-envelope redundancy in core and the `payload.payload` collision;
+  family-atomic, no shim; reviewer-verifiable by grepping `TaskMessage`/`TaskResult`.
 - **`OrchestratorGoal` now rides the `WireEnvelope`** (`clean-slate`, wire-envelope
   S2a). Goals on `heddle.goals.incoming` are wrapped as `core.OrchestratorGoal`
   bodies; producers (`cli`, `scheduler`, `mcp.bridge`, workshop runner) `wrap`

@@ -26,7 +26,7 @@ from heddle.tracing.otel import extract_trace_context, inject_trace_context
 def _make_task() -> TaskMessage:
     return TaskMessage(
         worker_type="echo",
-        payload={"text": "hello"},
+        input={"text": "hello"},
         model_tier=ModelTier.LOCAL,
     )
 

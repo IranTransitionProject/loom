@@ -64,7 +64,7 @@ import structlog
 import yaml
 
 from heddle.core.actor import BaseActor
-from heddle.core.envelope import parse
+from heddle.core.envelope import parse, wrap
 from heddle.core.messages import (
     OrchestratorGoal,
     TaskMessage,
@@ -532,7 +532,7 @@ class OrchestratorActor(BaseActor):
             goal_state.dispatched_tasks[task.task_id] = task
             await self.publish(
                 "heddle.tasks.incoming",
-                task.model_dump(mode="json"),
+                wrap("core.TaskMessage", task).model_dump(mode="json"),
             )
             # ``decomposer_rationale`` is set by the decomposer when
             # the LLM explained why this subtask was emitted.  Logging
@@ -736,7 +736,7 @@ class OrchestratorActor(BaseActor):
             processing_time_ms=elapsed,
         )
         subject = f"heddle.results.{goal.goal_id}"
-        await self.publish(subject, result.model_dump(mode="json"))
+        await self.publish(subject, wrap("core.TaskResult", result).model_dump(mode="json"))
 
     # ------------------------------------------------------------------
     # Step 7: Conversation history and checkpointing

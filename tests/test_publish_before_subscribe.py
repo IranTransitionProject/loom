@@ -94,10 +94,11 @@ class WorkerSimBus(BusRecorder):
             # Inline reply.  This recursion is bounded — the synthetic
             # publish targets ``heddle.results.*`` which doesn't match
             # ``heddle.tasks.incoming`` so it does not recurse again.
+            payload = data.get("payload", data)
             result = TaskResult(
-                task_id=data["task_id"],
-                parent_task_id=data.get("parent_task_id"),
-                worker_type=data["worker_type"],
+                task_id=payload["task_id"],
+                parent_task_id=payload.get("parent_task_id"),
+                worker_type=payload["worker_type"],
                 status=TaskStatus.COMPLETED,
                 output=self._output,
                 processing_time_ms=1,
@@ -105,7 +106,7 @@ class WorkerSimBus(BusRecorder):
             )
             await self.publish(
                 f"heddle.results.{self._goal_id}",
-                result.model_dump(mode="json"),
+                wrap("core.TaskResult", result).model_dump(mode="json"),
             )
 
 
@@ -129,20 +130,21 @@ class MalformedThenValidWorkerSimBus(BusRecorder):
     async def publish(self, subject: str, data: dict[str, Any]) -> None:
         await super().publish(subject, data)
         if subject == "heddle.tasks.incoming":
+            payload = data.get("payload", data)
             # First: malformed result with matching task_id but
             # missing required fields and an invalid status enum.
             await self.publish(
                 f"heddle.results.{self._goal_id}",
-                {"task_id": data["task_id"], "status": "bogus"},
+                {"task_id": payload["task_id"], "status": "bogus"},
             )
             # Second: valid result with the same task_id.  Inline so
             # the timeout window doesn't matter — both publishes complete
             # before dispatch_and_wait_for_result gets to ``await
             # wait_for(result_future, ...)``.
             valid = TaskResult(
-                task_id=data["task_id"],
-                parent_task_id=data.get("parent_task_id"),
-                worker_type=data["worker_type"],
+                task_id=payload["task_id"],
+                parent_task_id=payload.get("parent_task_id"),
+                worker_type=payload["worker_type"],
                 status=TaskStatus.COMPLETED,
                 output=self._output,
                 processing_time_ms=1,
@@ -150,7 +152,7 @@ class MalformedThenValidWorkerSimBus(BusRecorder):
             )
             await self.publish(
                 f"heddle.results.{self._goal_id}",
-                valid.model_dump(mode="json"),
+                wrap("core.TaskResult", valid).model_dump(mode="json"),
             )
 
 
@@ -202,12 +204,12 @@ class TestPipelineOrchestratorOrdering:
         bus = BusRecorder()
         await bus.connect()
 
-        task = TaskMessage(worker_type="summarizer", payload={"text": "hi"})
+        task = TaskMessage(worker_type="summarizer", input={"text": "hi"})
         # Time out fast — we don't actually wait for a real reply.
         await dispatch_and_wait_for_result(
             bus=bus,
             task=task,
-            task_data=task.model_dump(mode="json"),
+            task_data=wrap("core.TaskMessage", task).model_dump(mode="json"),
             goal_id="goal-pipe",
             timeout=0.05,
         )
@@ -227,11 +229,11 @@ class TestPipelineOrchestratorOrdering:
         bus = WorkerSimBus(goal_id="goal-pipe-race", output={"summary": "fast"})
         await bus.connect()
 
-        task = TaskMessage(worker_type="summarizer", payload={"text": "hi"})
+        task = TaskMessage(worker_type="summarizer", input={"text": "hi"})
         result = await dispatch_and_wait_for_result(
             bus=bus,
             task=task,
-            task_data=task.model_dump(mode="json"),
+            task_data=wrap("core.TaskMessage", task).model_dump(mode="json"),
             goal_id="goal-pipe-race",
             timeout=2.0,
         )
@@ -258,11 +260,11 @@ class TestPipelineOrchestratorOrdering:
         )
         await bus.connect()
 
-        task = TaskMessage(worker_type="summarizer", payload={"text": "hi"})
+        task = TaskMessage(worker_type="summarizer", input={"text": "hi"})
         result = await dispatch_and_wait_for_result(
             bus=bus,
             task=task,
-            task_data=task.model_dump(mode="json"),
+            task_data=wrap("core.TaskMessage", task).model_dump(mode="json"),
             goal_id="goal-pipe-malformed",
             timeout=2.0,
         )
@@ -388,10 +390,11 @@ class TestOrchestratorActorOrdering:
                 async def publish(self, subject, data):
                     await BusRecorder.publish(self, subject, data)
                     if subject == "heddle.tasks.incoming":
+                        payload = data.get("payload", data)
                         result = TaskResult(
-                            task_id=data["task_id"],
-                            parent_task_id=data.get("parent_task_id"),
-                            worker_type=data["worker_type"],
+                            task_id=payload["task_id"],
+                            parent_task_id=payload.get("parent_task_id"),
+                            worker_type=payload["worker_type"],
                             status=TaskStatus.COMPLETED,
                             output={"summary": "ok"},
                             processing_time_ms=1,
@@ -399,8 +402,8 @@ class TestOrchestratorActorOrdering:
                         # parent_task_id IS goal_id for orchestrator-dispatched
                         # subtasks.
                         await self.publish(
-                            f"heddle.results.{data['parent_task_id']}",
-                            result.model_dump(mode="json"),
+                            f"heddle.results.{payload['parent_task_id']}",
+                            wrap("core.TaskResult", result).model_dump(mode="json"),
                         )
 
             bus = AnyGoalWorkerBus()
@@ -448,7 +451,7 @@ class TestOrchestratorActorOrdering:
 
         task = TaskMessage(
             worker_type="summarizer",
-            payload={"text": "hi"},
+            input={"text": "hi"},
             parent_task_id=goal_id,
         )
 
@@ -460,7 +463,9 @@ class TestOrchestratorActorOrdering:
         )
 
         async with stream:
-            await bus.publish("heddle.tasks.incoming", task.model_dump(mode="json"))
+            await bus.publish(
+                "heddle.tasks.incoming", wrap("core.TaskMessage", task).model_dump(mode="json")
+            )
             results = await stream.collect_all()
 
         assert len(results) == 1, "fast worker reply was lost — race not fixed"
@@ -490,11 +495,11 @@ class TestCouncilOrchestratorOrdering:
         bus = BusRecorder()
         await bus.connect()
 
-        task = TaskMessage(worker_type="reviewer", payload={"prompt": "hi"})
+        task = TaskMessage(worker_type="reviewer", input={"prompt": "hi"})
         await dispatch_and_wait_for_result(
             bus=bus,
             task=task,
-            task_data=task.model_dump(mode="json"),
+            task_data=wrap("core.TaskMessage", task).model_dump(mode="json"),
             goal_id="goal-council",
             timeout=0.05,
         )
@@ -508,11 +513,11 @@ class TestCouncilOrchestratorOrdering:
         bus = WorkerSimBus(goal_id="goal-council-race", output={"content": "ok"})
         await bus.connect()
 
-        task = TaskMessage(worker_type="reviewer", payload={"prompt": "hi"})
+        task = TaskMessage(worker_type="reviewer", input={"prompt": "hi"})
         result = await dispatch_and_wait_for_result(
             bus=bus,
             task=task,
-            task_data=task.model_dump(mode="json"),
+            task_data=wrap("core.TaskMessage", task).model_dump(mode="json"),
             goal_id="goal-council-race",
             timeout=2.0,
         )
