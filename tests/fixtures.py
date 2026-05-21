@@ -16,7 +16,7 @@ import pytest_asyncio
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator
 
-    from heddle.core.messages import OrchestratorGoal
+    from heddle.core.messages import OrchestratorGoal, TaskMessage, TaskResult
 
 from heddle.contrib.events.command_handler import CommandHandler
 from heddle.contrib.events.dispatcher import EventDispatcher
@@ -39,6 +39,23 @@ def wrap_goal(goal: OrchestratorGoal) -> dict[str, Any]:
     docs/CODING_GUIDE.md.
     """
     return wrap("core.OrchestratorGoal", goal).model_dump(mode="json")
+
+
+def wrap_task(task: TaskMessage) -> dict[str, Any]:
+    """Wire dict for a TaskMessage — wrapped in its WireEnvelope.
+
+    The body field is ``input`` (renamed from ``payload``). Use when feeding a
+    task to a worker/router or publishing to ``heddle.tasks.*``.
+    """
+    return wrap("core.TaskMessage", task).model_dump(mode="json")
+
+
+def wrap_result(result: TaskResult) -> dict[str, Any]:
+    """Wire dict for a TaskResult — wrapped in its WireEnvelope.
+
+    Use when simulating a worker publishing to ``heddle.results.*``.
+    """
+    return wrap("core.TaskResult", result).model_dump(mode="json")
 
 
 @pytest.fixture

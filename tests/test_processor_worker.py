@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 import yaml
 
+from heddle.core.envelope import wrap
 from heddle.core.messages import ModelTier, TaskMessage, TaskResult, TaskStatus
 from heddle.worker.processor import ProcessingBackend, ProcessorWorker, SyncProcessingBackend
 
@@ -51,12 +52,13 @@ PROCESSOR_CONFIG = {
 
 
 def _make_task(payload=None):
-    return TaskMessage(
+    task = TaskMessage(
         worker_type="test_processor",
-        payload=payload or {"file_ref": "doc.pdf"},
+        input=payload or {"file_ref": "doc.pdf"},
         model_tier=ModelTier.LOCAL,
         parent_task_id="goal-456",
-    ).model_dump(mode="json")
+    )
+    return wrap("core.TaskMessage", task).model_dump(mode="json")
 
 
 # --- Tests ---
@@ -74,7 +76,7 @@ async def test_processor_worker_delegates_to_backend(tmp_path):
 
     await worker.handle_message(_make_task({"file_ref": "report.pdf"}))
 
-    result = TaskResult(**worker.publish.call_args[0][1])
+    result = TaskResult(**worker.publish.call_args[0][1]["payload"])
     assert result.status == TaskStatus.COMPLETED
     assert result.output == {"result": "done"}
     assert result.model_used == "docling-v2"
@@ -94,7 +96,7 @@ async def test_processor_worker_input_validation(tmp_path):
     # Missing required "file_ref"
     await worker.handle_message(_make_task({"wrong": "field"}))
 
-    result = TaskResult(**worker.publish.call_args[0][1])
+    result = TaskResult(**worker.publish.call_args[0][1]["payload"])
     assert result.status == TaskStatus.FAILED
     assert "Input validation" in result.error
 
@@ -111,7 +113,7 @@ async def test_processor_worker_backend_exception(tmp_path):
 
     await worker.handle_message(_make_task({"file_ref": "doc.pdf"}))
 
-    result = TaskResult(**worker.publish.call_args[0][1])
+    result = TaskResult(**worker.publish.call_args[0][1]["payload"])
     assert result.status == TaskStatus.FAILED
     assert "backend exploded" in result.error
 
@@ -129,7 +131,7 @@ async def test_processor_worker_output_validation(tmp_path):
 
     await worker.handle_message(_make_task({"file_ref": "doc.pdf"}))
 
-    result = TaskResult(**worker.publish.call_args[0][1])
+    result = TaskResult(**worker.publish.call_args[0][1]["payload"])
     assert result.status == TaskStatus.FAILED
     assert "Output validation" in result.error
 

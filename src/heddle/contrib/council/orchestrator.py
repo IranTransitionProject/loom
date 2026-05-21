@@ -30,7 +30,7 @@ from heddle.contrib.council.protocol import get_protocol
 from heddle.contrib.council.schemas import TranscriptEntry
 from heddle.contrib.council.transcript import TranscriptStore
 from heddle.core.actor import BaseActor
-from heddle.core.envelope import parse
+from heddle.core.envelope import parse, wrap
 from heddle.core.messages import (
     OrchestratorGoal,
     TaskMessage,
@@ -268,7 +268,7 @@ class CouncilOrchestrator(BaseActor):
         """Dispatch a single agent turn via NATS and wait for the result."""
         task = TaskMessage(
             worker_type=worker_type,
-            payload=context,
+            input=context,
             model_tier=tier,
             parent_task_id=goal.goal_id,
             request_id=goal.request_id or goal.goal_id,
@@ -280,7 +280,7 @@ class CouncilOrchestrator(BaseActor):
         )
 
         # Inject trace context for distributed tracing.
-        msg = task.model_dump(mode="json")
+        msg = wrap("core.TaskMessage", task).model_dump(mode="json")
         inject_trace_context(msg)
 
         log.debug(
@@ -407,4 +407,4 @@ class CouncilOrchestrator(BaseActor):
             processing_time_ms=elapsed,
         )
         subject = f"heddle.results.{goal.goal_id}"
-        await self.publish(subject, result.model_dump(mode="json"))
+        await self.publish(subject, wrap("core.TaskResult", result).model_dump(mode="json"))

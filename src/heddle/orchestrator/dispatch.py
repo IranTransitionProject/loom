@@ -66,7 +66,8 @@ async def dispatch_and_wait_for_result(
 
     async def _consume() -> None:
         async for data in sub:
-            if data.get("task_id") != task.task_id:
+            # task_id lives on the body (envelope payload), not the frame.
+            if (data.get("payload") or {}).get("task_id") != task.task_id:
                 continue
             # Parse-error resilience: a malformed matching result must
             # NOT take down the consumer task.  ``parse_task_result``

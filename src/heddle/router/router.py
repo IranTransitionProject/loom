@@ -42,11 +42,12 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 import yaml
 
+from heddle.core.envelope import parse, wrap
 from heddle.core.messages import ModelTier, TaskMessage
 from heddle.tracing import extract_trace_context, get_tracer, inject_trace_context
 
@@ -277,16 +278,19 @@ class TaskRouter:
         """
         ctx = extract_trace_context(data)
         with _tracer.start_as_current_span("router.route", context=ctx) as span:
-            # Step 1: Deserialize and validate the incoming message.
+            # Step 1: Deserialize and validate the incoming message (two-step:
+            # unwrap the WireEnvelope, then the TaskMessage body).
             try:
-                task = TaskMessage(**data)
+                _envelope, body = parse(data)
+                task = cast("TaskMessage", body)
             except Exception as exc:
                 span.record_exception(exc)
+                _body = data.get("payload") or {}
                 await self._dead_letter(
                     data,
                     reason=f"invalid_task_message: {exc}",
-                    task_id=data.get("task_id"),
-                    worker_type=data.get("worker_type"),
+                    task_id=_body.get("task_id"),
+                    worker_type=_body.get("worker_type"),
                 )
                 return
 
@@ -326,7 +330,7 @@ class TaskRouter:
                 tier=tier.value,
                 subject=subject,
             )
-            outgoing = task.model_dump(mode="json")
+            outgoing = wrap("core.TaskMessage", task).model_dump(mode="json")
             inject_trace_context(outgoing)
             await self.bus.publish(subject, outgoing)
 

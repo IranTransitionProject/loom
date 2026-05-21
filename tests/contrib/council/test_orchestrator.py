@@ -106,10 +106,11 @@ async def _simulate_worker(
         ready.set()
     count = 0
     async for data in sub:
-        parent_id = data.get("parent_task_id", "default")
-        task_id = data.get("task_id")
-        worker_type = data.get("worker_type", "unknown")
-        agent = data.get("metadata", {}).get("agent", "unknown")
+        payload = data.get("payload", data)
+        parent_id = payload.get("parent_task_id", "default")
+        task_id = payload.get("task_id")
+        worker_type = payload.get("worker_type", "unknown")
+        agent = payload.get("metadata", {}).get("agent", "unknown")
 
         result = TaskResult(
             task_id=task_id,
@@ -123,7 +124,7 @@ async def _simulate_worker(
         )
         await bus.publish(
             f"heddle.results.{parent_id}",
-            result.model_dump(mode="json"),
+            wrap("core.TaskResult", result).model_dump(mode="json"),
         )
 
         count += 1
@@ -140,8 +141,8 @@ async def _get_final_result(sub, goal_id: str, timeout: float = 5.0) -> dict:
             msg = f"Final result for {goal_id} not received within {timeout}s"
             raise TimeoutError(msg)
         data = await asyncio.wait_for(sub.__anext__(), timeout=remaining)
-        if data.get("task_id") == goal_id:
-            return data
+        if data.get("payload", {}).get("task_id") == goal_id:
+            return data.get("payload", data)
 
 
 # ---------------------------------------------------------------------------
@@ -366,12 +367,13 @@ class TestCouncilOrchestrator:
             worker_ready.set()
             count = 0
             async for data in sub:
-                parent_id = data.get("parent_task_id", "default")
-                task_id = data.get("task_id")
+                payload = data.get("payload", data)
+                parent_id = payload.get("parent_task_id", "default")
+                task_id = payload.get("task_id")
                 result = TaskResult(
                     task_id=task_id,
                     parent_task_id=parent_id,
-                    worker_type=data.get("worker_type", "unknown"),
+                    worker_type=payload.get("worker_type", "unknown"),
                     status=TaskStatus.FAILED,
                     output=None,
                     error="Worker crashed",
@@ -380,7 +382,7 @@ class TestCouncilOrchestrator:
                 )
                 await bus.publish(
                     f"heddle.results.{parent_id}",
-                    result.model_dump(mode="json"),
+                    wrap("core.TaskResult", result).model_dump(mode="json"),
                 )
                 count += 1
                 if count >= 2:

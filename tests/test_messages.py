@@ -1,5 +1,6 @@
 """Test message schema validation and serialization."""
 
+from heddle.core.envelope import wrap
 from heddle.core.messages import (
     ModelTier,
     OrchestratorGoal,
@@ -11,7 +12,7 @@ from heddle.core.messages import (
 
 
 def test_task_message_defaults():
-    msg = TaskMessage(worker_type="summarizer", payload={"text": "hello"})
+    msg = TaskMessage(worker_type="summarizer", input={"text": "hello"})
     assert msg.task_id  # Auto-generated
     assert msg.model_tier == ModelTier.STANDARD
     assert msg.priority == "normal"
@@ -20,7 +21,7 @@ def test_task_message_defaults():
 def test_task_message_custom_fields():
     msg = TaskMessage(
         worker_type="classifier",
-        payload={"text": "test", "categories": ["a", "b"]},
+        input={"text": "test", "categories": ["a", "b"]},
         model_tier=ModelTier.LOCAL,
         priority="high",
     )
@@ -56,7 +57,7 @@ def test_task_result_failed():
 def test_task_message_roundtrip():
     msg = TaskMessage(
         worker_type="summarizer",
-        payload={"text": "hello world"},
+        input={"text": "hello world"},
         model_tier=ModelTier.FRONTIER,
     )
     data = msg.model_dump(mode="json")
@@ -64,7 +65,7 @@ def test_task_message_roundtrip():
     assert restored.task_id == msg.task_id
     assert restored.worker_type == msg.worker_type
     assert restored.model_tier == ModelTier.FRONTIER
-    assert restored.payload == {"text": "hello world"}
+    assert restored.input == {"text": "hello world"}
 
 
 # --- request_id field tests ---
@@ -72,7 +73,7 @@ def test_task_message_roundtrip():
 
 def test_task_message_request_id_default_none():
     """request_id defaults to None for backward compatibility."""
-    msg = TaskMessage(worker_type="summarizer", payload={"text": "hello"})
+    msg = TaskMessage(worker_type="summarizer", input={"text": "hello"})
     assert msg.request_id is None
 
 
@@ -80,7 +81,7 @@ def test_task_message_request_id_set():
     """request_id can be explicitly set."""
     msg = TaskMessage(
         worker_type="summarizer",
-        payload={"text": "hello"},
+        input={"text": "hello"},
         request_id="req-123",
     )
     assert msg.request_id == "req-123"
@@ -90,7 +91,7 @@ def test_task_message_request_id_roundtrip():
     """request_id survives serialization/deserialization."""
     msg = TaskMessage(
         worker_type="summarizer",
-        payload={"text": "hello"},
+        input={"text": "hello"},
         request_id="req-abc",
     )
     data = msg.model_dump(mode="json")
@@ -102,7 +103,7 @@ def test_task_message_request_id_absent_in_dict():
     """Omitting request_id from a dict still creates a valid TaskMessage."""
     data = {
         "worker_type": "summarizer",
-        "payload": {"text": "hello"},
+        "input": {"text": "hello"},
     }
     msg = TaskMessage(**data)
     assert msg.request_id is None
@@ -133,12 +134,13 @@ def test_orchestrator_goal_request_id_roundtrip():
 
 def test_parse_task_result_valid_returns_model():
     """A well-formed payload parses without warnings."""
-    data = {
-        "task_id": "abc",
-        "worker_type": "summarizer",
-        "status": "completed",
-        "output": {"summary": "ok"},
-    }
+    result = TaskResult(
+        task_id="abc",
+        worker_type="summarizer",
+        status=TaskStatus.COMPLETED,
+        output={"summary": "ok"},
+    )
+    data = wrap("core.TaskResult", result).model_dump(mode="json")
     parsed = parse_task_result(data, log_event="test.parse_error")
     assert parsed is not None
     assert parsed.task_id == "abc"

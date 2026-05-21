@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from heddle.core.envelope import wrap
 from heddle.core.messages import ModelTier, TaskMessage, TaskResult, TaskStatus
 from heddle.worker.base import TaskWorker
 
@@ -78,12 +79,13 @@ ECHO_CONFIG = {
 
 
 def _make_task(payload=None, worker_type="echo_worker"):
-    return TaskMessage(
+    task = TaskMessage(
         worker_type=worker_type,
-        payload=payload or {"text": "hello"},
+        input=payload or {"text": "hello"},
         model_tier=ModelTier.LOCAL,
         parent_task_id="goal-123",
-    ).model_dump(mode="json")
+    )
+    return wrap("core.TaskMessage", task).model_dump(mode="json")
 
 
 # --- Tests ---
@@ -106,7 +108,7 @@ async def test_task_worker_valid_input_output(tmp_path):
     result_data = call_args[0][1]
 
     assert subject == "heddle.results.goal-123"
-    result = TaskResult(**result_data)
+    result = TaskResult(**result_data["payload"])
     assert result.status == TaskStatus.COMPLETED
     assert result.output == {"echo": "hello"}
     assert result.model_used == "echo-v1"
@@ -126,7 +128,7 @@ async def test_task_worker_input_validation_failure(tmp_path):
     await worker.handle_message(_make_task({"wrong": "field"}))
 
     worker.publish.assert_called_once()
-    result = TaskResult(**worker.publish.call_args[0][1])
+    result = TaskResult(**worker.publish.call_args[0][1]["payload"])
     assert result.status == TaskStatus.FAILED
     assert "Input validation" in result.error
 
@@ -142,7 +144,7 @@ async def test_task_worker_output_validation_failure(tmp_path):
 
     await worker.handle_message(_make_task({"text": "hello"}))
 
-    result = TaskResult(**worker.publish.call_args[0][1])
+    result = TaskResult(**worker.publish.call_args[0][1]["payload"])
     assert result.status == TaskStatus.FAILED
     assert "Output validation" in result.error
 
@@ -158,7 +160,7 @@ async def test_task_worker_process_exception(tmp_path):
 
     await worker.handle_message(_make_task({"text": "hello"}))
 
-    result = TaskResult(**worker.publish.call_args[0][1])
+    result = TaskResult(**worker.publish.call_args[0][1]["payload"])
     assert result.status == TaskStatus.FAILED
     assert "intentional failure" in result.error
 
@@ -238,7 +240,7 @@ async def test_task_worker_resets_after_invalid_output(tmp_path):
     await worker.handle_message(_make_task({"text": "hello"}))
 
     # process() ran and mutated state; output failed validation; reset must still run.
-    result = TaskResult(**worker.publish.call_args[0][1])
+    result = TaskResult(**worker.publish.call_args[0][1]["payload"])
     assert result.status == TaskStatus.FAILED
     assert "Output validation" in result.error
     assert worker.reset_count == 1
@@ -257,7 +259,7 @@ async def test_task_worker_empty_schema(tmp_path):
 
     await worker.handle_message(_make_task({"anything": "goes"}))
 
-    result = TaskResult(**worker.publish.call_args[0][1])
+    result = TaskResult(**worker.publish.call_args[0][1]["payload"])
     assert result.status == TaskStatus.COMPLETED
 
 
@@ -270,10 +272,13 @@ async def test_task_worker_result_subject_default(tmp_path):
     worker = EchoWorker("test-worker", str(config_file))
     worker.publish = AsyncMock()
 
-    task = TaskMessage(
-        worker_type="test",
-        payload={"text": "hello"},
-        parent_task_id=None,
+    task = wrap(
+        "core.TaskMessage",
+        TaskMessage(
+            worker_type="test",
+            input={"text": "hello"},
+            parent_task_id=None,
+        ),
     ).model_dump(mode="json")
     await worker.handle_message(task)
 

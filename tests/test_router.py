@@ -18,6 +18,7 @@ import pytest
 import yaml
 
 from heddle.bus.memory import InMemoryBus
+from heddle.core.envelope import wrap
 from heddle.core.messages import ModelTier, TaskMessage
 from heddle.router.router import DEAD_LETTER_SUBJECT, TaskRouter, TokenBucketRateLimiter
 
@@ -39,13 +40,13 @@ def _make_task_data(
     tier: str = "local",
     **overrides: Any,
 ) -> dict[str, Any]:
-    """Create a minimal valid TaskMessage dict."""
+    """Create a minimal valid TaskMessage wire-envelope dict."""
     task = TaskMessage(
         worker_type=worker_type,
-        payload={"text": "hello"},
+        input={"text": "hello"},
         model_tier=ModelTier(tier),
     )
-    data = task.model_dump(mode="json")
+    data = wrap("core.TaskMessage", task).model_dump(mode="json")
     data.update(overrides)
     return data
 
@@ -115,7 +116,7 @@ class TestResolveTier:
         rules_path = _write_rules({"tier_overrides": {}})
         try:
             router = TaskRouter(rules_path, InMemoryBus())
-            task = TaskMessage(worker_type="summarizer", payload={}, model_tier=ModelTier.LOCAL)
+            task = TaskMessage(worker_type="summarizer", input={}, model_tier=ModelTier.LOCAL)
             assert router.resolve_tier(task) == ModelTier.LOCAL
         finally:
             os.unlink(rules_path)
@@ -124,7 +125,7 @@ class TestResolveTier:
         rules_path = _write_rules({"tier_overrides": {"summarizer": "frontier"}})
         try:
             router = TaskRouter(rules_path, InMemoryBus())
-            task = TaskMessage(worker_type="summarizer", payload={}, model_tier=ModelTier.LOCAL)
+            task = TaskMessage(worker_type="summarizer", input={}, model_tier=ModelTier.LOCAL)
             assert router.resolve_tier(task) == ModelTier.FRONTIER
         finally:
             os.unlink(rules_path)
@@ -133,7 +134,7 @@ class TestResolveTier:
         rules_path = _write_rules({"tier_overrides": {"summarizer": "invalid_tier"}})
         try:
             router = TaskRouter(rules_path, InMemoryBus())
-            task = TaskMessage(worker_type="summarizer", payload={}, model_tier=ModelTier.LOCAL)
+            task = TaskMessage(worker_type="summarizer", input={}, model_tier=ModelTier.LOCAL)
             with pytest.raises(ValueError):
                 router.resolve_tier(task)
         finally:
@@ -177,7 +178,7 @@ class TestRoute:
         await router.route(data)
 
         msg = await sub.__anext__()
-        assert msg["worker_type"] == "summarizer"
+        assert msg["payload"]["worker_type"] == "summarizer"
 
     @pytest.mark.asyncio
     async def test_route_malformed_message_dead_letters(self, bus, rules_path):
@@ -214,7 +215,7 @@ class TestRoute:
             # First should succeed
             await router.route(data1)
             msg1 = await dest_sub.__anext__()
-            assert msg1["worker_type"] == "summarizer"
+            assert msg1["payload"]["worker_type"] == "summarizer"
 
             # Second should be rate limited
             await router.route(data2)
@@ -242,8 +243,8 @@ class TestRoute:
             await router.route(data)
 
             msg = await sub.__anext__()
-            assert msg["worker_type"] == "summarizer"
-            assert msg["model_tier"] == "local"  # Original tier preserved in message
+            assert msg["payload"]["worker_type"] == "summarizer"
+            assert msg["payload"]["model_tier"] == "local"  # Original tier preserved in message
         finally:
             os.unlink(rules_path)
 
@@ -308,8 +309,8 @@ class TestRunAndProcessMessages:
             msg1 = await asyncio.wait_for(dest_sub.__anext__(), timeout=2.0)
             msg2 = await asyncio.wait_for(dest_sub2.__anext__(), timeout=2.0)
 
-            assert msg1["worker_type"] == "summarizer"
-            assert msg2["worker_type"] == "classifier"
+            assert msg1["payload"]["worker_type"] == "summarizer"
+            assert msg2["payload"]["worker_type"] == "classifier"
 
             # Clean up
             process_task.cancel()
@@ -431,7 +432,7 @@ class TestRouterQueueGroup:
 
             # First dispatched message must arrive — collect it.
             first = await asyncio.wait_for(dest_sub.__anext__(), timeout=2.0)
-            assert first["worker_type"] == "summarizer"
+            assert first["payload"]["worker_type"] == "summarizer"
 
             # No SECOND dispatch — assert by waiting briefly for another
             # message and confirming none arrives (timeout).

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 import yaml
 
+from heddle.core.envelope import wrap
 from heddle.core.messages import ModelTier, TaskMessage, TaskResult, TaskStatus
 from heddle.worker.runner import LLMWorker
 from heddle.worker.tools import SyncToolProvider
@@ -167,11 +168,14 @@ NO_TOOL_CONFIG = {
 
 
 def _make_task(payload=None):
-    return TaskMessage(
-        worker_type="test_tool_worker",
-        payload=payload or {"text": "hello"},
-        model_tier=ModelTier.LOCAL,
-        parent_task_id="goal-123",
+    return wrap(
+        "core.TaskMessage",
+        TaskMessage(
+            worker_type="test_tool_worker",
+            input=payload or {"text": "hello"},
+            model_tier=ModelTier.LOCAL,
+            parent_task_id="goal-123",
+        ),
     ).model_dump(mode="json")
 
 
@@ -221,7 +225,7 @@ class TestToolUseLoop:
 
         await worker.handle_message(_make_task())
 
-        result = TaskResult(**worker.publish.call_args[0][1])
+        result = TaskResult(**worker.publish.call_args[0][1]["payload"])
         assert result.status == TaskStatus.COMPLETED
         assert result.output["summary"] == "found it"
         assert backend._call_count == 2  # One tool call + one final answer
@@ -238,7 +242,7 @@ class TestToolUseLoop:
 
         await worker.handle_message(_make_task())
 
-        result = TaskResult(**worker.publish.call_args[0][1])
+        result = TaskResult(**worker.publish.call_args[0][1]["payload"])
         # Round 1: 100 prompt + 20 completion, Round 2: 150 prompt + 50 completion
         assert result.token_usage["prompt_tokens"] == 250
         assert result.token_usage["completion_tokens"] == 70
@@ -255,7 +259,7 @@ class TestToolUseLoop:
 
         await worker.handle_message(_make_task())
 
-        result = TaskResult(**worker.publish.call_args[0][1])
+        result = TaskResult(**worker.publish.call_args[0][1]["payload"])
         assert result.status == TaskStatus.COMPLETED
         assert result.output["summary"] == "done"
         assert backend._call_count == 4  # 3 tool rounds + 1 final
@@ -272,7 +276,7 @@ class TestToolUseLoop:
 
         await worker.handle_message(_make_task())
 
-        result = TaskResult(**worker.publish.call_args[0][1])
+        result = TaskResult(**worker.publish.call_args[0][1]["payload"])
         assert result.status == TaskStatus.COMPLETED
         assert result.output["summary"] == "direct answer"
 
@@ -293,7 +297,7 @@ class TestToolUseLoop:
         await worker.handle_message(_make_task())
 
         # Should still complete (the LLM gets error feedback and produces final answer)
-        result = TaskResult(**worker.publish.call_args[0][1])
+        result = TaskResult(**worker.publish.call_args[0][1]["payload"])
         assert result.status == TaskStatus.COMPLETED
 
 
@@ -340,7 +344,7 @@ class TestToolUseWithSiloUpdates:
 
         await worker.handle_message(_make_task())
 
-        result = TaskResult(**worker.publish.call_args[0][1])
+        result = TaskResult(**worker.publish.call_args[0][1]["payload"])
         assert result.status == TaskStatus.COMPLETED
         assert "silo_updates" not in result.output
         assert result.output["summary"] == "test"
@@ -373,7 +377,7 @@ class TestBackwardCompatibility:
 
         await worker.handle_message(_make_task())
 
-        result = TaskResult(**worker.publish.call_args[0][1])
+        result = TaskResult(**worker.publish.call_args[0][1]["payload"])
         assert result.status == TaskStatus.COMPLETED
 
 
@@ -447,7 +451,7 @@ class TestToolExecutionTimeout:
         # The worker completed (the timeout-on-tool became an error
         # in the tool_result; the LLM then produced the final
         # answer from the second backend call).
-        result = TaskResult(**worker.publish.call_args[0][1])
+        result = TaskResult(**worker.publish.call_args[0][1]["payload"])
         assert result.status == TaskStatus.COMPLETED
         # The backend was called twice: once with the tool_call,
         # once after the tool-result (the timeout error) was fed
@@ -483,6 +487,6 @@ class TestToolExecutionTimeout:
         finally:
             _runner_mod.logger.warning = original_warning
 
-        result = TaskResult(**worker.publish.call_args[0][1])
+        result = TaskResult(**worker.publish.call_args[0][1]["payload"])
         assert result.status == TaskStatus.COMPLETED
         assert any(w["event"] == "worker.tool_timeout_disabled" for w in warnings)

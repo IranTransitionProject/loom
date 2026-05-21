@@ -75,8 +75,8 @@ async def _get_result(sub, goal_id: str, timeout: float = 3.0) -> dict:
         if remaining <= 0:
             raise TimeoutError(f"Result for {goal_id} not received in {timeout}s")
         msg = await asyncio.wait_for(sub.__anext__(), timeout=remaining)
-        if msg.get("task_id") == goal_id:
-            return msg
+        if msg.get("payload", {}).get("task_id") == goal_id:
+            return msg.get("payload", msg)
 
 
 async def _failing_worker(
@@ -93,7 +93,7 @@ async def _failing_worker(
     count = 0
 
     async for data in sub:
-        task = TaskMessage(**data)
+        task = TaskMessage(**data["payload"])
         await asyncio.sleep(0.05)
 
         should_fail = fail_worker_types and task.worker_type in fail_worker_types
@@ -115,7 +115,7 @@ async def _failing_worker(
         if task.parent_task_id:
             await bus.publish(
                 f"heddle.results.{task.parent_task_id}",
-                result.model_dump(mode="json"),
+                wrap("core.TaskResult", result).model_dump(mode="json"),
             )
 
         count += 1
@@ -138,7 +138,7 @@ async def _delayed_worker(
     count = 0
 
     async for data in sub:
-        task = TaskMessage(**data)
+        task = TaskMessage(**data["payload"])
         await asyncio.sleep(delay_seconds)
 
         result = TaskResult(
@@ -154,7 +154,7 @@ async def _delayed_worker(
         if task.parent_task_id:
             await bus.publish(
                 f"heddle.results.{task.parent_task_id}",
-                result.model_dump(mode="json"),
+                wrap("core.TaskResult", result).model_dump(mode="json"),
             )
 
         count += 1
@@ -218,7 +218,7 @@ class TestPipelineFailurePropagation:
             async def _worker():
                 count = 0
                 async for data in worker_sub:
-                    task = TaskMessage(**data)
+                    task = TaskMessage(**data["payload"])
                     await asyncio.sleep(0.05)
                     if task.worker_type == "extractor":
                         result = TaskResult(
@@ -242,7 +242,7 @@ class TestPipelineFailurePropagation:
                         )
                     await bus.publish(
                         f"heddle.results.{task.parent_task_id}",
-                        result.model_dump(mode="json"),
+                        wrap("core.TaskResult", result).model_dump(mode="json"),
                     )
                     count += 1
                     if count >= 2:
@@ -390,12 +390,12 @@ class TestRouterDeadLetter:
             for i in range(5):
                 task = TaskMessage(
                     worker_type="summarizer",
-                    payload={"text": f"task {i}"},
+                    input={"text": f"task {i}"},
                     model_tier=ModelTier.LOCAL,
                 )
                 await bus.publish(
                     "heddle.tasks.incoming",
-                    task.model_dump(mode="json"),
+                    wrap("core.TaskMessage", task).model_dump(mode="json"),
                 )
 
             # Give router time to process
@@ -478,7 +478,7 @@ class TestPipelineConditionalStages:
 
             async def _worker():
                 async for data in worker_sub:
-                    task = TaskMessage(**data)
+                    task = TaskMessage(**data["payload"])
                     await asyncio.sleep(0.05)
                     result = TaskResult(
                         task_id=task.task_id,
@@ -491,7 +491,7 @@ class TestPipelineConditionalStages:
                     )
                     await bus.publish(
                         f"heddle.results.{task.parent_task_id}",
-                        result.model_dump(mode="json"),
+                        wrap("core.TaskResult", result).model_dump(mode="json"),
                     )
                     break
                 await worker_sub.unsubscribe()
@@ -547,13 +547,15 @@ class TestRouterTierOverride:
             # Publish with LOCAL tier — should be overridden to FRONTIER
             task = TaskMessage(
                 worker_type="classifier",
-                payload={"text": "test"},
+                input={"text": "test"},
                 model_tier=ModelTier.LOCAL,
             )
-            await bus.publish("heddle.tasks.incoming", task.model_dump(mode="json"))
+            await bus.publish(
+                "heddle.tasks.incoming", wrap("core.TaskMessage", task).model_dump(mode="json")
+            )
 
             msg = await asyncio.wait_for(frontier_sub.__anext__(), timeout=2.0)
-            received = TaskMessage(**msg)
+            received = TaskMessage(**msg["payload"])
             assert received.worker_type == "classifier"
             assert received.task_id == task.task_id
 
@@ -687,7 +689,7 @@ class TestPipelineThreeLevelChain:
             async def _worker():
                 count = 0
                 async for data in worker_sub:
-                    task = TaskMessage(**data)
+                    task = TaskMessage(**data["payload"])
                     await asyncio.sleep(0.05)
                     execution_order.append(task.worker_type)
 
@@ -709,7 +711,7 @@ class TestPipelineThreeLevelChain:
                     )
                     await bus.publish(
                         f"heddle.results.{task.parent_task_id}",
-                        result.model_dump(mode="json"),
+                        wrap("core.TaskResult", result).model_dump(mode="json"),
                     )
                     count += 1
                     if count >= 3:
@@ -809,7 +811,7 @@ class TestPipelineDiamondDependency:
             async def _worker():
                 count = 0
                 async for data in worker_sub:
-                    task = TaskMessage(**data)
+                    task = TaskMessage(**data["payload"])
                     await asyncio.sleep(0.05)
 
                     output_map = {
@@ -831,7 +833,7 @@ class TestPipelineDiamondDependency:
                     )
                     await bus.publish(
                         f"heddle.results.{task.parent_task_id}",
-                        result.model_dump(mode="json"),
+                        wrap("core.TaskResult", result).model_dump(mode="json"),
                     )
                     count += 1
                     if count >= 4:

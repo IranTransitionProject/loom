@@ -23,6 +23,7 @@ from typing import Any
 import pytest
 
 from heddle.bus.memory import InMemoryBus
+from heddle.core.envelope import wrap
 from heddle.core.messages import TaskMessage, TaskResult, TaskStatus
 from heddle.orchestrator.stream import ResultStream
 
@@ -33,7 +34,7 @@ from heddle.orchestrator.stream import ResultStream
 
 def _make_task(worker_type: str = "summarizer") -> TaskMessage:
     """Create a TaskMessage with a unique task_id."""
-    return TaskMessage(worker_type=worker_type, payload={"text": "test"})
+    return TaskMessage(worker_type=worker_type, input={"text": "test"})
 
 
 def _make_result(
@@ -52,7 +53,7 @@ def _make_result(
         processing_time_ms=50,
         token_usage={"prompt_tokens": 10, "completion_tokens": 5},
     )
-    return result.model_dump(mode="json")
+    return wrap("core.TaskResult", result).model_dump(mode="json")
 
 
 async def _bg_publish(bus: InMemoryBus, subject: str, payloads: list[dict]) -> None:
@@ -597,7 +598,7 @@ class TestFailedResults:
                 error="Worker crashed",
                 processing_time_ms=0,
             )
-            await bus.publish(subject, result.model_dump(mode="json"))
+            await bus.publish(subject, wrap("core.TaskResult", result).model_dump(mode="json"))
 
         _bg = asyncio.create_task(publish())
 

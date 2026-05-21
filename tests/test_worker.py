@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 import yaml
 
+from heddle.core.envelope import wrap
 from heddle.core.messages import ModelTier, TaskMessage, TaskResult, TaskStatus
 from heddle.worker.runner import LLMWorker
 
@@ -72,12 +73,13 @@ LLM_CONFIG = {
 
 
 def _make_task(payload=None):
-    return TaskMessage(
+    task = TaskMessage(
         worker_type="test_llm_worker",
-        payload=payload or {"text": "hello world"},
+        input=payload or {"text": "hello world"},
         model_tier=ModelTier.LOCAL,
         parent_task_id="goal-789",
-    ).model_dump(mode="json")
+    )
+    return wrap("core.TaskMessage", task).model_dump(mode="json")
 
 
 # --- Tests ---
@@ -95,7 +97,7 @@ async def test_llm_worker_processes_task(tmp_path):
 
     await worker.handle_message(_make_task())
 
-    result = TaskResult(**worker.publish.call_args[0][1])
+    result = TaskResult(**worker.publish.call_args[0][1]["payload"])
     assert result.status == TaskStatus.COMPLETED
     assert result.output == {"summary": "test summary", "key_points": ["a"]}
     assert result.model_used == "mock-llm"
@@ -115,7 +117,7 @@ async def test_llm_worker_no_backend_for_tier(tmp_path):
 
     await worker.handle_message(_make_task())
 
-    result = TaskResult(**worker.publish.call_args[0][1])
+    result = TaskResult(**worker.publish.call_args[0][1]["payload"])
     assert result.status == TaskStatus.FAILED
     assert "No backend for tier" in result.error
 
@@ -132,7 +134,7 @@ async def test_llm_worker_non_json_response(tmp_path):
 
     await worker.handle_message(_make_task())
 
-    result = TaskResult(**worker.publish.call_args[0][1])
+    result = TaskResult(**worker.publish.call_args[0][1]["payload"])
     assert result.status == TaskStatus.FAILED
     assert "non-JSON" in result.error
 
@@ -149,7 +151,7 @@ async def test_llm_worker_input_validation(tmp_path):
 
     await worker.handle_message(_make_task({"wrong": "field"}))
 
-    result = TaskResult(**worker.publish.call_args[0][1])
+    result = TaskResult(**worker.publish.call_args[0][1]["payload"])
     assert result.status == TaskStatus.FAILED
     assert "Input validation" in result.error
 
@@ -167,7 +169,7 @@ async def test_llm_worker_output_validation(tmp_path):
 
     await worker.handle_message(_make_task())
 
-    result = TaskResult(**worker.publish.call_args[0][1])
+    result = TaskResult(**worker.publish.call_args[0][1]["payload"])
     assert result.status == TaskStatus.FAILED
     assert "Output validation" in result.error
 
@@ -230,11 +232,14 @@ async def test_llm_worker_resolves_file_refs(tmp_path):
     worker = LLMWorker("llm-1", str(config_file), backends)
     worker.publish = AsyncMock()
 
-    task = TaskMessage(
-        worker_type="test_llm_worker",
-        payload={"file_ref": "doc_extracted.json"},
-        model_tier=ModelTier.LOCAL,
-        parent_task_id="goal-789",
+    task = wrap(
+        "core.TaskMessage",
+        TaskMessage(
+            worker_type="test_llm_worker",
+            input={"file_ref": "doc_extracted.json"},
+            model_tier=ModelTier.LOCAL,
+            parent_task_id="goal-789",
+        ),
     ).model_dump(mode="json")
 
     await worker.handle_message(task)
@@ -302,11 +307,14 @@ async def test_llm_worker_fails_task_when_file_ref_missing(tmp_path):
 
     worker.publish = capture
 
-    task = TaskMessage(
-        worker_type="test_llm_worker",
-        payload={"file_ref": "missing_file.json"},
-        model_tier=ModelTier.LOCAL,
-        parent_task_id="goal-456",
+    task = wrap(
+        "core.TaskMessage",
+        TaskMessage(
+            worker_type="test_llm_worker",
+            input={"file_ref": "missing_file.json"},
+            model_tier=ModelTier.LOCAL,
+            parent_task_id="goal-456",
+        ),
     ).model_dump(mode="json")
 
     await worker.handle_message(task)
@@ -315,7 +323,7 @@ async def test_llm_worker_fails_task_when_file_ref_missing(tmp_path):
     # and it is FAILED with the missing filename surfaced in ``error``.
     assert len(published) == 1
     assert published[0]["subject"] == "heddle.results.goal-456"
-    result = TaskResult(**published[0]["data"])
+    result = TaskResult(**published[0]["data"]["payload"])
     assert result.status == TaskStatus.FAILED
     assert "missing_file.json" in (result.error or "")
     assert "file_ref" in (result.error or "")  # field name mentioned

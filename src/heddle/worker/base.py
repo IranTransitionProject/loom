@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import time
 from abc import abstractmethod
-from typing import Any
+from typing import Any, cast
 
 import structlog
 import yaml
@@ -18,6 +18,7 @@ import yaml
 from heddle.core.actor import BaseActor
 from heddle.core.config import resolve_schema_refs
 from heddle.core.contracts import validate_input, validate_output
+from heddle.core.envelope import parse, wrap
 from heddle.core.messages import TaskMessage, TaskResult, TaskStatus
 from heddle.tracing.metrics import (
     record_task_completed,
@@ -64,7 +65,8 @@ class TaskWorker(BaseActor):
 
     async def handle_message(self, data: dict[str, Any]) -> None:
         """Handle an incoming task message through the full worker lifecycle."""
-        task = TaskMessage(**data)
+        _envelope, body = parse(data)
+        task = cast("TaskMessage", body)
         start = time.monotonic()
 
         # Record the task arrival metric immediately after parse. Pairs with
@@ -89,7 +91,7 @@ class TaskWorker(BaseActor):
 
         try:
             # 1. Validate input
-            errors = validate_input(task.payload, self.config.get("input_schema", {}))
+            errors = validate_input(task.input, self.config.get("input_schema", {}))
             if errors:
                 await self._publish_result(
                     task,
@@ -102,7 +104,7 @@ class TaskWorker(BaseActor):
             # 2. Delegate to subclass — inject model_tier into metadata
             #    so process() can resolve the correct LLM backend.
             enriched_metadata = {**task.metadata, "model_tier": task.model_tier.value}
-            result = await self.process(task.payload, enriched_metadata)
+            result = await self.process(task.input, enriched_metadata)
 
             # 3. Validate output
             output = result["output"]
@@ -225,7 +227,7 @@ class TaskWorker(BaseActor):
         # Results route back to the orchestrator that dispatched this task.
         # If parent_task_id is None (no orchestrator), results go to "heddle.results.default".
         subject = f"heddle.results.{task.parent_task_id or 'default'}"
-        result_dict = result.model_dump(mode="json")
+        result_dict = wrap("core.TaskResult", result).model_dump(mode="json")
         # Inject _trace_context for return-path propagation symmetry with
         # the outbound TaskMessage. No consumer reads this today; it
         # exists so any future consumer-side span (in dispatch.py or

@@ -111,7 +111,7 @@ def _make_result_data(
         processing_time_ms=100,
         token_usage={"prompt_tokens": 50, "completion_tokens": 30},
     )
-    return result.model_dump(mode="json")
+    return wrap("core.TaskResult", result).model_dump(mode="json")
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +128,7 @@ class TestGoalState:
     def test_all_collected_false_when_partial(self):
         goal = OrchestratorGoal(instruction="test")
         state = GoalState(goal=goal)
-        task = TaskMessage(worker_type="summarizer", payload={})
+        task = TaskMessage(worker_type="summarizer", input={})
         state.dispatched_tasks[task.task_id] = task
         assert state.all_collected is False
 
@@ -136,7 +136,7 @@ class TestGoalState:
         goal = OrchestratorGoal(instruction="test")
         state = GoalState(goal=goal)
 
-        task = TaskMessage(worker_type="summarizer", payload={})
+        task = TaskMessage(worker_type="summarizer", input={})
         state.dispatched_tasks[task.task_id] = task
 
         result = TaskResult(
@@ -154,7 +154,7 @@ class TestGoalState:
         state = GoalState(goal=goal)
 
         for i in range(3):
-            task = TaskMessage(worker_type="summarizer", payload={})
+            task = TaskMessage(worker_type="summarizer", input={})
             state.dispatched_tasks[task.task_id] = task
 
         assert state.pending_count == 3
@@ -226,8 +226,8 @@ class TestHandleMessage:
             await actor.handle_message(goal_data)
 
             result = await sub.__anext__()
-            assert result["status"] == TaskStatus.FAILED.value
-            assert "no subtasks" in result["error"].lower()
+            assert result["payload"]["status"] == TaskStatus.FAILED.value
+            assert "no subtasks" in result["payload"]["error"].lower()
         finally:
             os.unlink(config_path)
 
@@ -475,7 +475,7 @@ class TestConcurrentGoals:
 
             async def flapping_publish(subject: str, data: dict) -> None:
                 if subject == "heddle.tasks.incoming":
-                    parent_id = data.get("parent_task_id") or ""
+                    parent_id = data.get("payload", {}).get("parent_task_id") or ""
                     n = flap_counter.get(parent_id, 0)
                     flap_counter[parent_id] = n + 1
                     if n == 0:
@@ -519,7 +519,7 @@ class TestConcurrentGoals:
                 try:
                     while len(seen_task_ids) < 3:
                         data = await asyncio.wait_for(worker_sub.__anext__(), timeout=4)
-                        task = TaskMessage(**data)
+                        task = TaskMessage(**data["payload"])
                         if task.task_id in seen_task_ids:
                             continue  # duplicate from a retry path; ignore
                         seen_task_ids.add(task.task_id)
@@ -534,7 +534,7 @@ class TestConcurrentGoals:
                         )
                         await bus.publish(
                             f"heddle.results.{task.parent_task_id}",
-                            result.model_dump(mode="json"),
+                            wrap("core.TaskResult", result).model_dump(mode="json"),
                         )
                 except TimeoutError:
                     pass
@@ -561,12 +561,12 @@ class TestConcurrentGoals:
             for gid, sub in result_subs_by_id.items():
                 for _ in range(5):
                     msg = await asyncio.wait_for(sub.__anext__(), timeout=3)
-                    if msg.get("worker_type") == "test-orchestrator":
+                    if msg.get("payload", {}).get("worker_type") == "test-orchestrator":
                         seen_finals[gid] = msg
                         break
                 assert gid in seen_finals, f"goal {gid} never reached terminal state"
                 final = seen_finals[gid]
-                assert final["status"] == TaskStatus.COMPLETED.value, final
+                assert final["payload"]["status"] == TaskStatus.COMPLETED.value, final
 
             assert len(seen_finals) == 3
             assert len(actor._active_goals) == 0, (
@@ -589,7 +589,7 @@ class TestConcurrentGoals:
             )
             await bus.publish(
                 f"heddle.results.{late_target_gid}",
-                late.model_dump(mode="json"),
+                wrap("core.TaskResult", late).model_dump(mode="json"),
             )
 
             # The subscriber receives the late publish (InMemoryBus has
@@ -604,7 +604,7 @@ class TestConcurrentGoals:
                 async with asyncio.timeout(0.5):
                     while True:
                         msg = await result_subs_by_id[late_target_gid].__anext__()
-                        if msg.get("worker_type") == "test-orchestrator":
+                        if msg.get("payload", {}).get("worker_type") == "test-orchestrator":
                             raise AssertionError(
                                 "Orchestrator republished after _active_goals emptied"
                             )
@@ -741,7 +741,7 @@ class TestFullLifecycle:
             async def worker_simulator():
                 ready.set()
                 async for data in worker_sub:
-                    task = TaskMessage(**data)
+                    task = TaskMessage(**data["payload"])
                     # Small delay to let orchestrator set up result subscription
                     await asyncio.sleep(0.05)
                     result = TaskResult(
@@ -756,7 +756,7 @@ class TestFullLifecycle:
                     )
                     await bus.publish(
                         f"heddle.results.{task.parent_task_id}",
-                        result.model_dump(mode="json"),
+                        wrap("core.TaskResult", result).model_dump(mode="json"),
                     )
                     await worker_sub.unsubscribe()
                     break
@@ -772,13 +772,13 @@ class TestFullLifecycle:
             final = None
             for _ in range(5):
                 msg = await asyncio.wait_for(result_sub.__anext__(), timeout=2.0)
-                if msg["task_id"] == goal_id:
+                if msg["payload"]["task_id"] == goal_id:
                     final = msg
                     break
 
             assert final is not None, "Final orchestrator result not found"
-            assert final["status"] == TaskStatus.COMPLETED.value
-            assert final["output"] is not None
+            assert final["payload"]["status"] == TaskStatus.COMPLETED.value
+            assert final["payload"]["output"] is not None
         finally:
             os.unlink(config_path)
 
@@ -830,7 +830,7 @@ class TestFullLifecycle:
 
             # The final result must be FAILED with both counts named.
             final = await asyncio.wait_for(result_sub.__anext__(), timeout=0.5)
-            result = TaskResult(**final)
+            result = TaskResult(**final["payload"])
             assert result.status == TaskStatus.FAILED
             assert "10 subtasks" in result.error
             assert "max_concurrent_tasks=5" in result.error
@@ -866,10 +866,10 @@ class TestFullLifecycle:
             await actor.handle_message(goal_data)
 
             result = await asyncio.wait_for(result_sub.__anext__(), timeout=2.0)
-            assert result["status"] == TaskStatus.FAILED.value
+            assert result["payload"]["status"] == TaskStatus.FAILED.value
             # Either an error message about decomposition/orchestrator failure,
             # or "no subtasks" if decomposer caught the error and returned empty
-            assert result["error"] is not None
+            assert result["payload"]["error"] is not None
         finally:
             os.unlink(config_path)
 
@@ -904,7 +904,7 @@ class TestFullLifecycle:
             # Worker only responds to first task
             async def partial_worker():
                 data = await worker_sub.__anext__()
-                task = TaskMessage(**data)
+                task = TaskMessage(**data["payload"])
                 # Small delay to let orchestrator set up result subscription
                 await asyncio.sleep(0.05)
                 result = TaskResult(
@@ -917,7 +917,7 @@ class TestFullLifecycle:
                 )
                 await bus.publish(
                     f"heddle.results.{task.parent_task_id}",
-                    result.model_dump(mode="json"),
+                    wrap("core.TaskResult", result).model_dump(mode="json"),
                 )
                 # Don't respond to remaining tasks — let timeout fire
                 await worker_sub.unsubscribe()
@@ -928,7 +928,7 @@ class TestFullLifecycle:
 
             # Should still get a final result (synthesized from partial)
             final = await asyncio.wait_for(result_sub.__anext__(), timeout=3.0)
-            assert final["status"] == TaskStatus.COMPLETED.value
+            assert final["payload"]["status"] == TaskStatus.COMPLETED.value
         finally:
             os.unlink(config_path)
 
@@ -972,7 +972,7 @@ class TestFullLifecycle:
 
             async def one_responder():
                 data = await worker_sub.__anext__()
-                task = TaskMessage(**data)
+                task = TaskMessage(**data["payload"])
                 responded_id["task_id"] = task.task_id
                 await asyncio.sleep(0.05)
                 result = TaskResult(
@@ -985,7 +985,7 @@ class TestFullLifecycle:
                 )
                 await bus.publish(
                     f"heddle.results.{task.parent_task_id}",
-                    result.model_dump(mode="json"),
+                    wrap("core.TaskResult", result).model_dump(mode="json"),
                 )
                 await worker_sub.unsubscribe()
 
@@ -1000,13 +1000,13 @@ class TestFullLifecycle:
             final = None
             for _ in range(5):
                 msg = await asyncio.wait_for(result_sub.__anext__(), timeout=3.0)
-                if msg.get("worker_type") == "test-orchestrator":
+                if msg.get("payload", {}).get("worker_type") == "test-orchestrator":
                     final = msg
                     break
             assert final is not None, "orchestrator never published its final synthesis"
-            assert final["status"] == TaskStatus.COMPLETED.value
+            assert final["payload"]["status"] == TaskStatus.COMPLETED.value
 
-            output = final["output"]
+            output = final["payload"]["output"]
             # The two unresponded tasks became synthetic FAILED entries.
             failed = output["failed"]
             assert len(failed) == 2, (
@@ -1070,38 +1070,44 @@ class TestFullLifecycle:
             async def staggered_worker() -> None:
                 # Task 1 — respond before timeout (~50 ms after dispatch).
                 data1 = await worker_sub.__anext__()
-                t1 = TaskMessage(**data1)
+                t1 = TaskMessage(**data1["payload"])
                 on_time_id["task_id"] = t1.task_id
                 await asyncio.sleep(0.05)
                 await bus.publish(
                     f"heddle.results.{t1.parent_task_id}",
-                    TaskResult(
-                        task_id=t1.task_id,
-                        parent_task_id=t1.parent_task_id,
-                        worker_type=t1.worker_type,
-                        status=TaskStatus.COMPLETED,
-                        output={"summary": "on time"},
-                        processing_time_ms=10,
+                    wrap(
+                        "core.TaskResult",
+                        TaskResult(
+                            task_id=t1.task_id,
+                            parent_task_id=t1.parent_task_id,
+                            worker_type=t1.worker_type,
+                            status=TaskStatus.COMPLETED,
+                            output={"summary": "on time"},
+                            processing_time_ms=10,
+                        ),
                     ).model_dump(mode="json"),
                 )
 
                 # Task 2 — accept dispatch, but publish ~200 ms AFTER the
                 # 1 s collection timeout has fired.
                 data2 = await worker_sub.__anext__()
-                t2 = TaskMessage(**data2)
+                t2 = TaskMessage(**data2["payload"])
                 late_id["task_id"] = t2.task_id
                 await asyncio.sleep(1.2)
                 await bus.publish(
                     f"heddle.results.{t2.parent_task_id}",
-                    TaskResult(
-                        task_id=t2.task_id,
-                        parent_task_id=t2.parent_task_id,
-                        worker_type=t2.worker_type,
-                        status=TaskStatus.COMPLETED,
-                        # A distinctive output: if this ever leaks into the
-                        # synthesis, the assertion below will surface it.
-                        output={"summary": "TOO_LATE_SHOULD_BE_IGNORED"},
-                        processing_time_ms=10,
+                    wrap(
+                        "core.TaskResult",
+                        TaskResult(
+                            task_id=t2.task_id,
+                            parent_task_id=t2.parent_task_id,
+                            worker_type=t2.worker_type,
+                            status=TaskStatus.COMPLETED,
+                            # A distinctive output: if this ever leaks into the
+                            # synthesis, the assertion below will surface it.
+                            output={"summary": "TOO_LATE_SHOULD_BE_IGNORED"},
+                            processing_time_ms=10,
+                        ),
                     ).model_dump(mode="json"),
                 )
 
@@ -1129,7 +1135,7 @@ class TestFullLifecycle:
                     msg = await asyncio.wait_for(result_sub.__anext__(), timeout=remaining)
                 except TimeoutError:
                     break
-                if msg.get("worker_type") == "test-orchestrator":
+                if msg.get("payload", {}).get("worker_type") == "test-orchestrator":
                     orch_publishes.append(msg)
 
             assert len(orch_publishes) == 1, (
@@ -1138,7 +1144,7 @@ class TestFullLifecycle:
             )
 
             final = orch_publishes[0]
-            output = final["output"]
+            output = final["payload"]["output"]
             failed = output["failed"]
 
             # Both unresponded-by-timeout tasks (the late one and the
@@ -1396,9 +1402,9 @@ class TestHandleMessageExceptionPath:
             await actor.handle_message(goal_data)
 
             result = await asyncio.wait_for(result_sub.__anext__(), timeout=2.0)
-            assert result["status"] == TaskStatus.FAILED.value
-            assert "Orchestrator error" in result["error"]
-            assert "unexpected crash" in result["error"]
+            assert result["payload"]["status"] == TaskStatus.FAILED.value
+            assert "Orchestrator error" in result["payload"]["error"]
+            assert "unexpected crash" in result["payload"]["error"]
             # Goal state must be cleaned up.
             assert goal_id not in actor._active_goals
         finally:
@@ -1427,7 +1433,7 @@ class TestCollectResultsEarlyExit:
             )
 
             goal = OrchestratorGoal(instruction="Early exit test")
-            task = TaskMessage(worker_type="summarizer", payload={"text": "hi"})
+            task = TaskMessage(worker_type="summarizer", input={"text": "hi"})
             goal_state = GoalState(goal=goal)
             goal_state.dispatched_tasks[task.task_id] = task
 
@@ -1451,7 +1457,7 @@ class TestCollectResultsEarlyExit:
                 )
                 await bus.publish(
                     f"heddle.results.{goal.goal_id}",
-                    result.model_dump(mode="json"),
+                    wrap("core.TaskResult", result).model_dump(mode="json"),
                 )
 
             # _collect_results now requires a started ResultStream

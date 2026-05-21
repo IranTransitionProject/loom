@@ -141,11 +141,11 @@ class TestSchedulerExpansion:
         msg1 = await asyncio.wait_for(sub._queue.get(), timeout=1.0)
         msg2 = await asyncio.wait_for(sub._queue.get(), timeout=1.0)
 
-        assert msg1["worker_type"] == "sa_session_advisor"
-        assert msg2["worker_type"] == "sa_session_advisor"
-        # Expansion context merged into payload
-        assert msg1["payload"]["session_monitor_request"]["session_id"] == "s1"
-        assert msg2["payload"]["session_monitor_request"]["session_id"] == "s2"
+        assert msg1["payload"]["worker_type"] == "sa_session_advisor"
+        assert msg2["payload"]["worker_type"] == "sa_session_advisor"
+        # Expansion context merged into input
+        assert msg1["payload"]["input"]["session_monitor_request"]["session_id"] == "s1"
+        assert msg2["payload"]["input"]["session_monitor_request"]["session_id"] == "s2"
 
         await bus.close()
 
