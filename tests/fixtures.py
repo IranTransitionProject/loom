@@ -8,13 +8,15 @@ runtime against the public fixtures-friendly entry points.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import pytest_asyncio
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator
+
+    from heddle.core.messages import OrchestratorGoal
 
 from heddle.contrib.events.command_handler import CommandHandler
 from heddle.contrib.events.dispatcher import EventDispatcher
@@ -25,6 +27,18 @@ from heddle.contrib.events.projectors import (
 )
 from heddle.contrib.events.registry import AGGREGATE_REGISTRY
 from heddle.contrib.events.rejection_log import InMemoryRejectionLog
+from heddle.core.envelope import wrap
+
+
+def wrap_goal(goal: OrchestratorGoal) -> dict[str, Any]:
+    """Wire dict for an OrchestratorGoal — wrapped in its WireEnvelope.
+
+    Use when feeding a goal to a consumer's ``handle_message`` or publishing to
+    ``heddle.goals.incoming``; a bare ``goal.model_dump()`` is rejected by the
+    envelope-parsing consumer. See the "Wire-envelope test pattern" in
+    docs/CODING_GUIDE.md.
+    """
+    return wrap("core.OrchestratorGoal", goal).model_dump(mode="json")
 
 
 @pytest.fixture

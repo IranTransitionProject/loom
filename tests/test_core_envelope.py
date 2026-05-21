@@ -148,3 +148,34 @@ def test_misspelled_top_level_field_is_rejected() -> None:
         WireEnvelope.model_validate(
             {"payload_type": "test.Dummy", "payload": {}, "correlaton_id": "oops"}
         )
+
+
+def test_timestamp_mirror_when_only_occurred_given() -> None:
+    """occurred_at supplied, recorded_at omitted → recorded_at mirrors occurred_at."""
+    occurred = datetime(2026, 5, 20, 9, 0, tzinfo=UTC)
+    env = WireEnvelope(payload_type="test.Dummy", payload={}, occurred_at=occurred)
+    assert env.recorded_at == occurred
+
+
+def test_timestamp_mirror_when_only_recorded_given() -> None:
+    """recorded_at supplied, occurred_at omitted → occurred_at mirrors recorded_at."""
+    recorded = datetime(2026, 5, 20, 9, 0, tzinfo=UTC)
+    env = WireEnvelope(payload_type="test.Dummy", payload={}, recorded_at=recorded)
+    assert env.occurred_at == recorded
+
+
+def test_distinct_timestamps_preserved() -> None:
+    """Both supplied (the event case) → neither is overwritten."""
+    occurred = datetime(2026, 5, 20, 9, 0, tzinfo=UTC)
+    recorded = datetime(2026, 5, 20, 9, 5, tzinfo=UTC)
+    env = WireEnvelope(
+        payload_type="test.Dummy", payload={}, occurred_at=occurred, recorded_at=recorded
+    )
+    assert env.occurred_at == occurred
+    assert env.recorded_at == recorded
+
+
+def test_non_dict_input_rejected_cleanly() -> None:
+    """The before-validator passes non-dict input through to normal validation."""
+    with pytest.raises(ValueError):
+        WireEnvelope.model_validate("not a dict")
