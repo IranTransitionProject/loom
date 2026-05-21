@@ -19,11 +19,6 @@
       "title": "Context",
       "type": "object"
     },
-    "created_at": {
-      "format": "date-time",
-      "title": "Created At",
-      "type": "string"
-    },
     "goal_id": {
       "title": "Goal Id",
       "type": "string"

@@ -37,6 +37,7 @@ from typing import Any
 import pytest
 
 from heddle.bus.memory import InMemoryBus, InMemorySubscription
+from heddle.core.envelope import wrap
 from heddle.core.messages import (
     OrchestratorGoal,
     TaskMessage,
@@ -349,7 +350,7 @@ class TestOrchestratorActorOrdering:
             actor._bus = bus
 
             goal = OrchestratorGoal(instruction="Summarise this")
-            await actor.handle_message(goal.model_dump(mode="json"))
+            await actor.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
 
             _assert_subscribe_before_publish(
                 bus.calls, result_subject=f"heddle.results.{goal.goal_id}"
@@ -425,7 +426,7 @@ class TestOrchestratorActorOrdering:
             actor._synthesize_results = capture_synth  # type: ignore[method-assign]
 
             goal = OrchestratorGoal(instruction="Summarise this")
-            await actor.handle_message(goal.model_dump(mode="json"))
+            await actor.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
 
             assert len(seen_results) == 1, (
                 f"synthesizer received {len(seen_results)} results — "

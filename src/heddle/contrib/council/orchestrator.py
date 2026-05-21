@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import time
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import structlog
 import yaml
@@ -30,6 +30,7 @@ from heddle.contrib.council.protocol import get_protocol
 from heddle.contrib.council.schemas import TranscriptEntry
 from heddle.contrib.council.transcript import TranscriptStore
 from heddle.core.actor import BaseActor
+from heddle.core.envelope import parse
 from heddle.core.messages import (
     OrchestratorGoal,
     TaskMessage,
@@ -90,7 +91,8 @@ class CouncilOrchestrator(BaseActor):
 
     async def handle_message(self, data: dict[str, Any]) -> None:  # noqa: PLR0915
         """Execute a council discussion for an incoming goal."""
-        goal = OrchestratorGoal(**data)
+        _envelope, body = parse(data)
+        goal = cast("OrchestratorGoal", body)
         cfg = self.config
         topic = goal.instruction
         start = time.monotonic()

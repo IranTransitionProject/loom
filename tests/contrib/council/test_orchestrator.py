@@ -15,6 +15,7 @@ import yaml
 
 from heddle.bus.memory import InMemoryBus
 from heddle.contrib.council.orchestrator import CouncilOrchestrator
+from heddle.core.envelope import wrap
 from heddle.core.messages import (
     OrchestratorGoal,
     TaskResult,
@@ -165,7 +166,7 @@ class TestCouncilOrchestrator:
         )
 
         goal = OrchestratorGoal(instruction="Should we adopt microservices?")
-        goal_data = goal.model_dump(mode="json")
+        goal_data = wrap("core.OrchestratorGoal", goal).model_dump(mode="json")
 
         # Subscribe to result subject before starting.
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
@@ -219,7 +220,7 @@ class TestCouncilOrchestrator:
         worker_task = asyncio.create_task(_simulate_worker(bus, respond_to_n=10, ready=ready))
         await ready.wait()
 
-        await orch.handle_message(goal.model_dump(mode="json"))
+        await orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
 
         final = await _get_final_result(result_sub, goal.goal_id)
 
@@ -272,7 +273,7 @@ class TestCouncilOrchestrator:
         goal = OrchestratorGoal(instruction="Test timeout")
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        await orch.handle_message(goal.model_dump(mode="json"))
+        await orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
 
         final = await _get_final_result(result_sub, goal.goal_id)
 
@@ -323,7 +324,7 @@ class TestCouncilOrchestrator:
         goal = OrchestratorGoal(instruction="Test per-turn timeout")
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        await orch.handle_message(goal.model_dump(mode="json"))
+        await orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
 
         final = await _get_final_result(result_sub, goal.goal_id)
 
@@ -387,7 +388,7 @@ class TestCouncilOrchestrator:
 
         worker_task = asyncio.create_task(_failing_worker())
         await worker_ready.wait()
-        await orch.handle_message(goal.model_dump(mode="json"))
+        await orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
 
         final = await _get_final_result(result_sub, goal.goal_id)
         assert final["status"] == "completed"
@@ -416,7 +417,7 @@ class TestCouncilOrchestrator:
         worker_task = asyncio.create_task(_simulate_worker(bus, respond_to_n=2, ready=ready))
         await ready.wait()
 
-        await orch.handle_message(goal.model_dump(mode="json"))
+        await orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
 
         final = await _get_final_result(result_sub, goal.goal_id)
         assert final["task_id"] == goal.goal_id

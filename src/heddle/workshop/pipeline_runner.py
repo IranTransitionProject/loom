@@ -49,6 +49,7 @@ import yaml
 
 from heddle.bus.memory import InMemoryBus
 from heddle.core.config import load_config, validate_pipeline_config
+from heddle.core.envelope import wrap
 from heddle.core.messages import OrchestratorGoal, TaskStatus
 from heddle.orchestrator.pipeline import PipelineOrchestrator
 from heddle.router.router import TaskRouter
@@ -337,7 +338,7 @@ class PipelineTestRunner:
             bus=bus,
         )
         upper = self.default_timeout_seconds * max(len(stages), 1)
-        goal_data = goal.model_dump(mode="json")
+        goal_data = wrap("core.OrchestratorGoal", goal).model_dump(mode="json")
         try:
             await asyncio.wait_for(pipeline.handle_message(goal_data), timeout=upper)
         except TimeoutError:

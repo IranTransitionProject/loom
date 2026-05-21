@@ -80,6 +80,30 @@ class WireEnvelope(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
+    def _default_timestamps(cls, data: Any) -> Any:
+        """Collapse the two timestamps to one instant unless set explicitly.
+
+        Neither supplied → both take one shared `_now()` (so a task/result has
+        `occurred_at == recorded_at`). Only `occurred_at` supplied → `recorded_at`
+        mirrors it. Only `recorded_at` supplied → `occurred_at` mirrors it. Both
+        supplied → unchanged (events set both: domain time vs ordering time).
+        """
+        if not isinstance(data, dict):
+            return data
+        d = cast("dict[str, Any]", data)
+        occurred = d.get("occurred_at")
+        recorded = d.get("recorded_at")
+        if occurred is None and recorded is None:
+            now = _now()
+            return {**d, "occurred_at": now, "recorded_at": now}
+        if recorded is None:
+            return {**d, "recorded_at": occurred}
+        if occurred is None:
+            return {**d, "occurred_at": recorded}
+        return data
+
+    @model_validator(mode="before")
+    @classmethod
     def _reject_unknown_non_underscore_keys(cls, data: Any) -> Any:
         """Allow `_`-prefixed Middleware-Lane keys, reject misspelled fields.
 

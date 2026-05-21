@@ -61,13 +61,14 @@ import asyncio
 import os
 import time
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import structlog
 import yaml
 
 from heddle.core.actor import BaseActor
 from heddle.core.contracts import validate_input, validate_output
+from heddle.core.envelope import parse
 from heddle.core.mapping import is_mapping_literal, resolve_mapping_value
 from heddle.core.messages import (
     ModelTier,
@@ -561,7 +562,8 @@ class PipelineOrchestrator(BaseActor):
 
     async def handle_message(self, data: dict[str, Any]) -> None:
         """Execute the pipeline for an incoming orchestrator goal."""
-        goal = OrchestratorGoal(**data)
+        _envelope, body = parse(data)
+        goal = cast("OrchestratorGoal", body)
         record_orchestrator_goal_received(self.actor_id)
         stages = self.config["pipeline_stages"]
         timeout = self.config.get("timeout_seconds", 300)

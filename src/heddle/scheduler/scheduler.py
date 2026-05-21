@@ -34,6 +34,7 @@ import structlog
 import yaml
 
 from heddle.core.actor import BaseActor
+from heddle.core.envelope import wrap
 from heddle.core.messages import (
     ModelTier,
     OrchestratorGoal,
@@ -421,7 +422,7 @@ class SchedulerActor(BaseActor):
         )
         await self.publish(
             "heddle.goals.incoming",
-            goal.model_dump(mode="json"),
+            wrap("core.OrchestratorGoal", goal).model_dump(mode="json"),
         )
         logger.info(
             "scheduler.goal_dispatched",
