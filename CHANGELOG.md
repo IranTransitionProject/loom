@@ -151,7 +151,6 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
   subclassing because `heddle-sdk`'s schema sync has no `$ref`/`allOf`
   resolution; (iii) additive — no message type is reshaped and no call site
   changes this sprint. Adds `tests/test_core_envelope.py`.
-
 - **Generic JetStream primitives in `heddle.bus.jetstream`** (`clean-slate`).
   A new core module owns the *generic* JetStream mechanics — idempotent
   `ensure_stream`, a `publish` helper with `Nats-Msg-Id` dedup and
@@ -164,7 +163,6 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
   reviewer-verifiable in one session. `heddle.contrib.events` specializes over
   these in a later sprint; this commit does not touch contrib. Adds
   `tests/test_bus_jetstream.py`.
-
 - **`heddle.contrib.events` Sprint 3 — production runtime.** Replaces
   the Sprint 2 in-memory machinery with JetStream + Valkey backings
   and the coordination mechanisms the in-memory paths didn't need.
