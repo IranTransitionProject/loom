@@ -354,7 +354,7 @@ class TestDispatchTool:
             sub = await bus.subscribe("heddle.goals.incoming")
             ready.set()
             async for data in sub:
-                goal_id = data.get("goal_id")
+                goal_id = data["payload"]["goal_id"]
                 result = TaskResult(
                     task_id=goal_id,
                     parent_task_id=None,
@@ -421,7 +421,7 @@ class TestProgressCallback:
             sub = await bus.subscribe("heddle.goals.incoming")
             ready.set()
             async for data in sub:
-                goal_id = data.get("goal_id")
+                goal_id = data["payload"]["goal_id"]
                 # Emit an intermediate stage result first.
                 stage_result = TaskResult(
                     task_id="stage-1-id",
@@ -545,7 +545,7 @@ class TestProgressCallback:
             sub = await bus.subscribe("heddle.goals.incoming")
             ready.set()
             async for data in sub:
-                goal_id = data.get("goal_id")
+                goal_id = data["payload"]["goal_id"]
                 final = TaskResult(
                     task_id=goal_id,
                     worker_type="pipeline",

@@ -58,12 +58,13 @@ import asyncio
 import json
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 import yaml
 
 from heddle.core.actor import BaseActor
+from heddle.core.envelope import parse
 from heddle.core.messages import (
     OrchestratorGoal,
     TaskMessage,
@@ -301,9 +302,10 @@ class OrchestratorActor(BaseActor):
             Raw message dict, expected to conform to
             :class:`OrchestratorGoal` schema.
         """
-        # -- 1. Parse --
+        # -- 1. Parse -- (two-step: unwrap the WireEnvelope, then the goal body)
         try:
-            goal = OrchestratorGoal(**data)
+            _envelope, body = parse(data)
+            goal = cast("OrchestratorGoal", body)
         except Exception as e:
             logger.error(
                 "orchestrator.parse_error",

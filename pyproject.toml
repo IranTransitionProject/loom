@@ -109,6 +109,7 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.1.0",
+    "pytest-timeout>=2.3.0",   # Per-test timeout backstop (see [tool.pytest.ini_options])
     "ruff>=0.3.0",
     "duckdb>=1.0.0",
     "redis>=7.4.0",            # Needed for contrib/redis tests
@@ -137,6 +138,12 @@ markers = [
     "deepeval: LLM output quality evaluation tests (requires Ollama or LLM API)",
 ]
 asyncio_mode = "auto"
+# Per-test timeout backstop. A hung test — e.g. one awaiting a result that
+# never arrives because a message failed to parse — fails fast with a stack
+# dump instead of stalling the whole run (which buffered `-q` output makes
+# look like a deadlock). Generous against the ~50s full-suite wall time;
+# override a legitimately long test with @pytest.mark.timeout(N).
+timeout = 60
 
 [tool.coverage.run]
 source = ["heddle"]

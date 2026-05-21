@@ -20,6 +20,7 @@ import pytest
 import yaml
 
 from heddle.bus.memory import InMemoryBus
+from heddle.core.envelope import wrap
 from heddle.core.messages import (
     ModelTier,
     OrchestratorGoal,
@@ -246,7 +247,7 @@ class TestOrchestratorFullGoalFlow:
                 instruction="Summarize both document chunks",
                 context={"source": "test"},
             )
-            goal_data = goal.model_dump(mode="json")
+            goal_data = wrap("core.OrchestratorGoal", goal).model_dump(mode="json")
 
             # Subscribe for the final result
             result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
@@ -325,7 +326,7 @@ class TestPipelineMultiStage:
                 instruction="Process document",
                 context={"file_ref": "test.pdf"},
             )
-            goal_data = goal.model_dump(mode="json")
+            goal_data = wrap("core.OrchestratorGoal", goal).model_dump(mode="json")
 
             # Subscribe for final result
             result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
@@ -419,7 +420,7 @@ class TestPipelineParallelStages:
                 instruction="Extract both text and images",
                 context={"file_ref": "doc.pdf"},
             )
-            goal_data = goal.model_dump(mode="json")
+            goal_data = wrap("core.OrchestratorGoal", goal).model_dump(mode="json")
             result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
             def make_response(task: TaskMessage) -> dict:
@@ -517,7 +518,12 @@ class TestConcurrentGoalsE2E:
             )
 
             # Process all goals concurrently
-            await asyncio.gather(*(actor.handle_message(g.model_dump(mode="json")) for g in goals))
+            await asyncio.gather(
+                *(
+                    actor.handle_message(wrap("core.OrchestratorGoal", g).model_dump(mode="json"))
+                    for g in goals
+                )
+            )
             await worker_task
 
             # Verify all 3 got results
@@ -608,7 +614,7 @@ class TestRouterOrchestratorWired:
                 )
             )
 
-            await actor.handle_message(goal.model_dump(mode="json"))
+            await actor.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
             await worker_task
 
             final = await _get_final_result(result_sub, goal.goal_id)

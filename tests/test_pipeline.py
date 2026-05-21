@@ -5,6 +5,7 @@ import asyncio
 import pytest
 
 from heddle.bus.memory import InMemoryBus
+from heddle.core.envelope import wrap
 from heddle.core.messages import (
     OrchestratorGoal,
     TaskResult,
@@ -477,7 +478,9 @@ class TestParallelExecution:
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
         # Run the pipeline in a background task.
-        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        pipeline_task = asyncio.create_task(
+            orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
+        )
 
         # Collect the dispatched tasks — A and B should both arrive
         # before we send any results.
@@ -562,7 +565,9 @@ class TestParallelExecution:
         task_sub = await bus.subscribe("heddle.tasks.incoming")
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        pipeline_task = asyncio.create_task(
+            orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
+        )
 
         # Both A and B dispatched concurrently.
         dispatched = {}
@@ -646,7 +651,9 @@ class TestParallelExecution:
         task_sub = await bus.subscribe("heddle.tasks.incoming")
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        pipeline_task = asyncio.create_task(
+            orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
+        )
 
         # Both A and B dispatched concurrently.
         dispatched = {}
@@ -707,7 +714,9 @@ class TestParallelExecution:
         task_sub = await bus.subscribe("heddle.tasks.incoming")
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        pipeline_task = asyncio.create_task(
+            orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
+        )
 
         # First stage dispatched.
         first_data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
@@ -803,7 +812,9 @@ class TestInterStageValidation:
         task_sub = await bus.subscribe("heddle.tasks.incoming")
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        pipeline_task = asyncio.create_task(
+            orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
+        )
 
         # Extract stage dispatched — send result (no page_count).
         first_data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
@@ -860,7 +871,9 @@ class TestInterStageValidation:
         task_sub = await bus.subscribe("heddle.tasks.incoming")
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        pipeline_task = asyncio.create_task(
+            orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
+        )
 
         # Extract stage returns output missing 'page_count'.
         data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
@@ -929,7 +942,9 @@ class TestInterStageValidation:
         task_sub = await bus.subscribe("heddle.tasks.incoming")
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        pipeline_task = asyncio.create_task(
+            orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
+        )
 
         # Extract stage.
         data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
@@ -985,7 +1000,9 @@ class TestInterStageValidation:
         task_sub = await bus.subscribe("heddle.tasks.incoming")
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        pipeline_task = asyncio.create_task(
+            orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
+        )
 
         data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
         await bus.publish(
@@ -1031,7 +1048,9 @@ class TestInterStageValidation:
 
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        pipeline_task = asyncio.create_task(
+            orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
+        )
 
         await asyncio.wait_for(pipeline_task, timeout=3)
 
@@ -1106,7 +1125,9 @@ class TestTypedPipelineErrors:
         goal = OrchestratorGoal(instruction="test", context={"y": "val"})
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        pipeline_task = asyncio.create_task(
+            orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
+        )
         await asyncio.wait_for(pipeline_task, timeout=3)
 
         final = await asyncio.wait_for(
@@ -1138,7 +1159,9 @@ class TestTypedPipelineErrors:
         goal = OrchestratorGoal(instruction="test", context={"x": 42})
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        pipeline_task = asyncio.create_task(
+            orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
+        )
         await asyncio.wait_for(pipeline_task, timeout=3)
 
         final = await asyncio.wait_for(
@@ -1166,7 +1189,9 @@ class TestTypedPipelineErrors:
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
         # Don't send any result — let it time out.
-        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        pipeline_task = asyncio.create_task(
+            orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
+        )
         await asyncio.wait_for(pipeline_task, timeout=3)
 
         final = await asyncio.wait_for(
@@ -1193,7 +1218,9 @@ class TestTypedPipelineErrors:
         task_sub = await bus.subscribe("heddle.tasks.incoming")
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        pipeline_task = asyncio.create_task(
+            orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
+        )
 
         data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
         fail_result = TaskResult(
@@ -1242,7 +1269,9 @@ class TestTypedPipelineErrors:
         task_sub = await bus.subscribe("heddle.tasks.incoming")
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        pipeline_task = asyncio.create_task(
+            orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
+        )
 
         data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
         # Return output missing 'count'.
@@ -1289,7 +1318,9 @@ class TestStageRetry:
         task_sub = await bus.subscribe("heddle.tasks.incoming")
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        pipeline_task = asyncio.create_task(
+            orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
+        )
 
         # First attempt — worker fails.
         data1 = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
@@ -1346,7 +1377,9 @@ class TestStageRetry:
         task_sub = await bus.subscribe("heddle.tasks.incoming")
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        pipeline_task = asyncio.create_task(
+            orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
+        )
 
         # Both attempts fail.
         for _ in range(2):
@@ -1395,7 +1428,9 @@ class TestStageRetry:
         goal = OrchestratorGoal(instruction="test", context={"x": 42})
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        pipeline_task = asyncio.create_task(
+            orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
+        )
         await asyncio.wait_for(pipeline_task, timeout=3)
 
         # No tasks should have been dispatched (validation fails before dispatch).
@@ -1424,7 +1459,9 @@ class TestStageRetry:
         goal = OrchestratorGoal(instruction="test", context={"y": "val"})
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        pipeline_task = asyncio.create_task(
+            orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
+        )
         await asyncio.wait_for(pipeline_task, timeout=3)
 
         final = await asyncio.wait_for(
@@ -1462,7 +1499,9 @@ class TestStageRetry:
         goal = OrchestratorGoal(instruction="test", context={"x": "val"})
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        pipeline_task = asyncio.create_task(
+            orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
+        )
         await asyncio.wait_for(pipeline_task, timeout=3)
 
         final = await asyncio.wait_for(
@@ -1504,7 +1543,9 @@ class TestStageRetry:
         task_sub = await bus.subscribe("heddle.tasks.incoming")
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        pipeline_task = asyncio.create_task(
+            orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
+        )
 
         # First attempt — don't respond (let it time out).
         await asyncio.wait_for(task_sub.__anext__(), timeout=2)
@@ -1554,7 +1595,9 @@ class TestRequestIdPropagation:
         task_sub = await bus.subscribe("heddle.tasks.incoming")
         await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        pipeline_task = asyncio.create_task(
+            orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
+        )
 
         # Read the dispatched task and verify request_id.
         data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
@@ -1598,7 +1641,9 @@ class TestRequestIdPropagation:
         task_sub = await bus.subscribe("heddle.tasks.incoming")
         await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        pipeline_task = asyncio.create_task(
+            orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
+        )
 
         # Both independent stages dispatched — collect and verify request_id.
         dispatched = []
@@ -1649,7 +1694,9 @@ class TestPipelineTimeline:
         task_sub = await bus.subscribe("heddle.tasks.incoming")
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        pipeline_task = asyncio.create_task(
+            orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
+        )
 
         data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
         await bus.publish(
@@ -1704,7 +1751,9 @@ class TestPipelineTimeline:
         task_sub = await bus.subscribe("heddle.tasks.incoming")
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        pipeline_task = asyncio.create_task(
+            orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
+        )
 
         # Stage A
         data_a = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
@@ -1766,7 +1815,9 @@ class TestPipelineTimeline:
         task_sub = await bus.subscribe("heddle.tasks.incoming")
         result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-        pipeline_task = asyncio.create_task(orch.handle_message(goal.model_dump(mode="json")))
+        pipeline_task = asyncio.create_task(
+            orch.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
+        )
 
         data = await asyncio.wait_for(task_sub.__anext__(), timeout=2)
         await bus.publish(

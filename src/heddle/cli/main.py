@@ -761,6 +761,7 @@ def submit(goal: str, nats_url: str, context: tuple[str, ...]):
     """
     import nats as nats_lib
 
+    from heddle.core.envelope import wrap
     from heddle.core.messages import OrchestratorGoal
 
     # Parse context key=value pairs into a dict.
@@ -775,7 +776,8 @@ def submit(goal: str, nats_url: str, context: tuple[str, ...]):
         """Connect to NATS, publish the goal, and drain the connection."""
         nc = await nats_lib.connect(nats_url)
         g = OrchestratorGoal(instruction=goal, context=ctx)
-        await nc.publish("heddle.goals.incoming", g.model_dump_json().encode())
+        envelope = wrap("core.OrchestratorGoal", g)
+        await nc.publish("heddle.goals.incoming", envelope.model_dump_json().encode())
         await nc.drain()
         click.echo(f"Submitted goal: {g.goal_id}")
 

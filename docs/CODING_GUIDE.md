@@ -540,6 +540,34 @@ class TestExecuteStage:
   used (same file or `conftest.py`).
 - `asyncio_mode = "auto"` is configured — async test functions work without the
   `@pytest.mark.asyncio` decorator.
+- A **per-test timeout of 60s** (`pytest-timeout`, set in
+  `[tool.pytest.ini_options]`) is the backstop against hangs. A test that
+  awaits something that never arrives fails fast with a stack dump instead of
+  stalling the run — buffered `-q` output otherwise makes a hung test look like
+  a deadlock. Override a legitimately long test with `@pytest.mark.timeout(N)`;
+  never raise the global default to paper over a hang.
+
+### Wire-envelope test pattern
+
+All bus messages ride a `WireEnvelope` (`heddle.core.envelope`): the body
+(`TaskMessage`, `OrchestratorGoal`, …) sits inside `payload`, keyed by
+`payload_type`. Tests that cross the bus must use the envelope shape, or a
+consumer will reject the bare body and the test will hang on a never-arriving
+result.
+
+- **Producing / feeding a consumer:** wrap the body.
+  `wrap("core.OrchestratorGoal", goal).model_dump(mode="json")` — or the
+  `wrap_goal(goal)` helper in `tests/fixtures.py`. Never feed a bare
+  `goal.model_dump(...)` to `handle_message`.
+- **Reading a published message:** the body fields live under `payload`, e.g.
+  `msg["payload"]["goal_id"]`, not `msg["goal_id"]`.
+- A process that *parses* envelopes must `import heddle.bootstrap` (or a module
+  that registers the body type) first, or `get_payload_model` raises a loud
+  `KeyError`. Test processes get this transitively by importing the body class.
+
+> Migration status: as of the wire-envelope rollout, `OrchestratorGoal` rides
+> the envelope; `TaskMessage`/`TaskResult` still travel bare until their sprint.
+> Wrap the families that have migrated; leave the rest bare.
 
 ### Coverage gates and the ratchet rule
 

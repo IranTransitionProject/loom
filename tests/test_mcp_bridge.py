@@ -167,7 +167,7 @@ class TestCallPipeline:
             sub = await bus.subscribe("heddle.goals.incoming")
             ready.set()
             async for data in sub:
-                goal_id = data["goal_id"]
+                goal_id = data["payload"]["goal_id"]
                 # Simulate intermediate stage result.
                 stage_result = TaskResult(
                     task_id="stage-1-id",
@@ -210,7 +210,7 @@ class TestCallPipeline:
             sub = await bus.subscribe("heddle.goals.incoming")
             ready.set()
             async for data in sub:
-                goal_id = data["goal_id"]
+                goal_id = data["payload"]["goal_id"]
                 # Two intermediate stages.
                 for i, wtype in enumerate(["extractor", "classifier"]):
                     stage_result = TaskResult(
@@ -322,7 +322,7 @@ class TestBridgeErrorHandling:
             sub = await bus.subscribe("heddle.goals.incoming")
             ready.set()
             async for data in sub:
-                goal_id = data["goal_id"]
+                goal_id = data["payload"]["goal_id"]
                 # Send malformed final result (task_id == goal_id but missing fields).
                 await bus.publish(
                     f"heddle.results.{goal_id}",
@@ -350,7 +350,7 @@ class TestBridgeErrorHandling:
             sub = await bus.subscribe("heddle.goals.incoming")
             ready.set()
             async for data in sub:
-                goal_id = data["goal_id"]
+                goal_id = data["payload"]["goal_id"]
                 # Intermediate stage result.
                 stage_result = TaskResult(
                     task_id="stage-1-id",

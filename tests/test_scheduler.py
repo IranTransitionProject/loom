@@ -303,7 +303,7 @@ class TestDispatch:
         await actor._dispatch_goal(entry)
 
         msg = await sub.__anext__()
-        goal = OrchestratorGoal(**msg)
+        goal = OrchestratorGoal(**msg["payload"])
         assert goal.instruction == "Test goal"
         assert goal.context == {"a": 1}
         assert goal.priority == TaskPriority.NORMAL
@@ -323,7 +323,7 @@ class TestDispatch:
         await actor._dispatch_goal(entry)
 
         msg = await sub.__anext__()
-        goal = OrchestratorGoal(**msg)
+        goal = OrchestratorGoal(**msg["payload"])
         assert goal.priority == TaskPriority.HIGH
 
     @pytest.mark.asyncio
@@ -343,7 +343,7 @@ class TestDispatch:
 
         msg1 = await sub.__anext__()
         msg2 = await sub.__anext__()
-        assert msg1["goal_id"] != msg2["goal_id"]
+        assert msg1["payload"]["goal_id"] != msg2["payload"]["goal_id"]
 
     @pytest.mark.asyncio
     async def test_dispatch_task_publishes_to_tasks_incoming(self, actor):
@@ -425,7 +425,7 @@ class TestDispatch:
         await actor._fire_schedule(entry)
 
         msg = await sub.__anext__()
-        assert msg["instruction"] == "routed"
+        assert msg["payload"]["instruction"] == "routed"
 
     @pytest.mark.asyncio
     async def test_fire_schedule_routes_task(self, actor):
@@ -774,7 +774,7 @@ class TestDispatchEdgeCases:
         await actor._dispatch_goal(entry)
 
         msg = await sub.__anext__()
-        goal = OrchestratorGoal(**msg)
+        goal = OrchestratorGoal(**msg["payload"])
         assert goal.instruction == ""
         assert goal.context == {}
 

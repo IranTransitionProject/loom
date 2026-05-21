@@ -136,6 +136,19 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
 
 ### Added
 
+- **`OrchestratorGoal` now rides the `WireEnvelope`** (`clean-slate`, wire-envelope
+  S2a). Goals on `heddle.goals.incoming` are wrapped as `core.OrchestratorGoal`
+  bodies; producers (`cli`, `scheduler`, `mcp.bridge`, workshop runner) `wrap`
+  and consumers (`orchestrator.runner`/`pipeline`, `contrib.council`) two-step
+  `parse`. The goal body drops `created_at` (the envelope's `occurred_at`/
+  `recorded_at` replace it; a new `WireEnvelope` validator defaults them to one
+  shared instant). Adds `heddle.bootstrap`, the composition-root module that
+  registers built-in payload types (imported by goal-consuming processes).
+  `TaskMessage`/`TaskResult` still ride bare (S2b). Justification: (i) the goal
+  carried message-frame concerns (`created_at`, ad-hoc dict) parallel to the new
+  frame; (ii) with `WireEnvelope` shipped, the goal subject migrates whole with
+  no shim; (iii) one subject family, reviewer-verifiable by grepping
+  `OrchestratorGoal`.
 - **Base `WireEnvelope` + payload-type registry in `heddle.core.envelope`**
   (`clean-slate`). A single generic frame (`message_id` UUIDv7, `payload_type`
   discriminator, opaque `payload`, `origin`, `correlation_id`/`causation_id`,

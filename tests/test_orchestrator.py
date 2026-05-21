@@ -26,6 +26,7 @@ import pytest
 import yaml
 
 from heddle.bus.memory import InMemoryBus
+from heddle.core.envelope import wrap
 from heddle.core.messages import (
     OrchestratorGoal,
     TaskMessage,
@@ -92,7 +93,7 @@ def _write_config(
 
 def _make_goal_data(instruction: str = "Summarize this document") -> dict[str, Any]:
     goal = OrchestratorGoal(instruction=instruction, context={"text": "Hello world"})
-    return goal.model_dump(mode="json")
+    return wrap("core.OrchestratorGoal", goal).model_dump(mode="json")
 
 
 def _make_result_data(
@@ -219,7 +220,7 @@ class TestHandleMessage:
             await bus.connect()
 
             goal_data = _make_goal_data()
-            goal_id = goal_data["goal_id"]
+            goal_id = goal_data["payload"]["goal_id"]
             sub = await bus.subscribe(f"heddle.results.{goal_id}")
 
             await actor.handle_message(goal_data)
@@ -502,7 +503,7 @@ class TestConcurrentGoals:
             result_subs_by_id: dict[str, Any] = {}
             for _i in range(3):
                 gd = _make_goal_data(f"Concurrent goal {_i}")
-                gid = gd["goal_id"]
+                gid = gd["payload"]["goal_id"]
                 goal_data_by_id[gid] = gd
                 result_subs_by_id[gid] = await bus.subscribe(f"heddle.results.{gid}")
 
@@ -727,7 +728,7 @@ class TestFullLifecycle:
             )
 
             goal_data = _make_goal_data("Summarize the document")
-            goal_id = goal_data["goal_id"]
+            goal_id = goal_data["payload"]["goal_id"]
 
             # Subscribe for the final result
             result_sub = await bus.subscribe(f"heddle.results.{goal_id}")
@@ -820,7 +821,7 @@ class TestFullLifecycle:
             goal = OrchestratorGoal(instruction="Process many chunks")
             result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-            await actor.handle_message(goal.model_dump(mode="json"))
+            await actor.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
 
             # No tasks should have been dispatched — the goal failed
             # before reaching the dispatch step.
@@ -859,7 +860,7 @@ class TestFullLifecycle:
             )
 
             goal_data = _make_goal_data("This will fail")
-            goal_id = goal_data["goal_id"]
+            goal_id = goal_data["payload"]["goal_id"]
             result_sub = await bus.subscribe(f"heddle.results.{goal_id}")
 
             await actor.handle_message(goal_data)
@@ -894,7 +895,7 @@ class TestFullLifecycle:
             )
 
             goal_data = _make_goal_data("Partial timeout test")
-            goal_id = goal_data["goal_id"]
+            goal_id = goal_data["payload"]["goal_id"]
             result_sub = await bus.subscribe(f"heddle.results.{goal_id}")
 
             # Pre-subscribe the worker before handle_message
@@ -963,7 +964,7 @@ class TestFullLifecycle:
             )
 
             goal_data = _make_goal_data("Synthetic-timeout pin")
-            goal_id = goal_data["goal_id"]
+            goal_id = goal_data["payload"]["goal_id"]
             result_sub = await bus.subscribe(f"heddle.results.{goal_id}")
             worker_sub = await bus.subscribe("heddle.tasks.incoming")
 
@@ -1059,7 +1060,7 @@ class TestFullLifecycle:
             )
 
             goal_data = _make_goal_data("Late-result-after-timeout pin")
-            goal_id = goal_data["goal_id"]
+            goal_id = goal_data["payload"]["goal_id"]
             result_sub = await bus.subscribe(f"heddle.results.{goal_id}")
             worker_sub = await bus.subscribe("heddle.tasks.incoming")
 
@@ -1383,7 +1384,7 @@ class TestHandleMessageExceptionPath:
             )
 
             goal_data = _make_goal_data("Exception test")
-            goal_id = goal_data["goal_id"]
+            goal_id = goal_data["payload"]["goal_id"]
             result_sub = await bus.subscribe(f"heddle.results.{goal_id}")
 
             # Patch _dispatch_subtasks to raise an unexpected exception.

@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 from pydantic import ValidationError
 
+from heddle.core.envelope import wrap
 from heddle.core.messages import (
     ModelTier,
     OrchestratorGoal,
@@ -148,7 +149,7 @@ class MCPBridge:
 
         await self.bus.publish(
             "heddle.goals.incoming",
-            goal.model_dump(mode="json"),
+            wrap("core.OrchestratorGoal", goal).model_dump(mode="json"),
         )
 
         logger.info("bridge.pipeline_dispatched", goal_id=goal.goal_id)

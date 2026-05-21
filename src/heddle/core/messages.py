@@ -34,6 +34,8 @@ from typing import Any
 import structlog
 from pydantic import BaseModel, Field
 
+from heddle.core.envelope import register_payload_type
+
 logger = structlog.get_logger()
 
 
@@ -198,7 +200,10 @@ class OrchestratorGoal(BaseModel):
     )  # Domain data (file_ref, categories, etc.)
     request_id: str | None = None  # Optional correlation ID for tracing goal→task chains
     priority: TaskPriority = TaskPriority.NORMAL
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    # No timestamp here: the WireEnvelope carries occurred_at/recorded_at.
+
+
+register_payload_type("core.OrchestratorGoal", OrchestratorGoal)
 
 
 class CheckpointState(BaseModel):

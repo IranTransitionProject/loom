@@ -311,8 +311,10 @@ class HeddleDashboard(App):
 
     def _handle_goal_received(self, data: dict[str, Any]) -> None:
         """Track a new goal from heddle.goals.incoming."""
-        goal_id = data.get("goal_id", "unknown")
-        instruction = data.get("instruction", "")[:80]
+        # Goals ride a WireEnvelope; the goal fields live in `payload`.
+        body = data.get("payload", data)
+        goal_id = body.get("goal_id", "unknown")
+        instruction = body.get("instruction", "")[:80]
         goal = TrackedGoal(goal_id=goal_id, instruction=instruction)
         self.state.goals[goal_id] = goal
         self._refresh_goals_table()
@@ -467,10 +469,13 @@ class HeddleDashboard(App):
     @staticmethod
     def _summarize_event(subject: str, data: dict[str, Any]) -> str:
         """Create a one-line summary of a NATS event for the log."""
+        # Enveloped messages (e.g. goals) carry their fields under `payload`;
+        # bare messages expose them at the top level. Look in both.
+        body = data.get("payload", data)
         parts = [subject]
         for key in ("goal_id", "task_id", "worker_type", "status", "instruction"):
-            if key in data:
-                val = str(data[key])
+            if key in body:
+                val = str(body[key])
                 if len(val) > 60:
                     val = val[:57] + "..."
                 parts.append(f"{key}={val}")

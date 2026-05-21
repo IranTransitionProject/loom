@@ -17,6 +17,7 @@ import pytest
 import yaml
 
 from heddle.bus.memory import InMemoryBus
+from heddle.core.envelope import wrap
 from heddle.core.messages import (
     ModelTier,
     OrchestratorGoal,
@@ -249,7 +250,9 @@ class TestPipelineFailurePropagation:
                 await worker_sub.unsubscribe()
 
             worker_task = asyncio.create_task(_worker())
-            await pipeline.handle_message(goal.model_dump(mode="json"))
+            await pipeline.handle_message(
+                wrap("core.OrchestratorGoal", goal).model_dump(mode="json")
+            )
             await worker_task
 
             final = await _get_result(result_sub, goal.goal_id)
@@ -308,7 +311,9 @@ class TestPipelineStageTimeout:
             # Worker that never responds (simulating timeout)
             worker_sub = await bus.subscribe("heddle.tasks.incoming")
 
-            await pipeline.handle_message(goal.model_dump(mode="json"))
+            await pipeline.handle_message(
+                wrap("core.OrchestratorGoal", goal).model_dump(mode="json")
+            )
 
             final = await _get_result(result_sub, goal.goal_id)
             assert final["status"] == TaskStatus.FAILED.value
@@ -492,7 +497,9 @@ class TestPipelineConditionalStages:
                 await worker_sub.unsubscribe()
 
             worker_task = asyncio.create_task(_worker())
-            await pipeline.handle_message(goal.model_dump(mode="json"))
+            await pipeline.handle_message(
+                wrap("core.OrchestratorGoal", goal).model_dump(mode="json")
+            )
             await worker_task
 
             final = await _get_result(result_sub, goal.goal_id)
@@ -607,7 +614,7 @@ class TestOrchestratorEmptyDecomposition:
             goal = OrchestratorGoal(instruction="Nothing to do")
             result_sub = await bus.subscribe(f"heddle.results.{goal.goal_id}")
 
-            await actor.handle_message(goal.model_dump(mode="json"))
+            await actor.handle_message(wrap("core.OrchestratorGoal", goal).model_dump(mode="json"))
 
             final = await _get_result(result_sub, goal.goal_id)
             # Empty plan = no subtasks = orchestrator reports failure
@@ -710,7 +717,9 @@ class TestPipelineThreeLevelChain:
                 await worker_sub.unsubscribe()
 
             worker_task = asyncio.create_task(_worker())
-            await pipeline.handle_message(goal.model_dump(mode="json"))
+            await pipeline.handle_message(
+                wrap("core.OrchestratorGoal", goal).model_dump(mode="json")
+            )
             await worker_task
 
             # Verify sequential execution order
@@ -830,7 +839,9 @@ class TestPipelineDiamondDependency:
                 await worker_sub.unsubscribe()
 
             worker_task = asyncio.create_task(_worker())
-            await pipeline.handle_message(goal.model_dump(mode="json"))
+            await pipeline.handle_message(
+                wrap("core.OrchestratorGoal", goal).model_dump(mode="json")
+            )
             await worker_task
 
             final = await _get_result(result_sub, goal.goal_id)
