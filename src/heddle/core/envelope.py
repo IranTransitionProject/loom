@@ -92,9 +92,7 @@ class WireEnvelope(BaseModel):
             return data
         as_dict = cast("dict[str, Any]", data)
         allowed = set(cls.model_fields)
-        unknown = sorted(
-            key for key in as_dict if not key.startswith("_") and key not in allowed
-        )
+        unknown = sorted(key for key in as_dict if not key.startswith("_") and key not in allowed)
         if unknown:
             raise ValueError(
                 f"unknown top-level key(s) {unknown} on WireEnvelope — "

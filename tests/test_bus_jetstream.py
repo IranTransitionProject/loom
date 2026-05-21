@@ -19,6 +19,7 @@ import os
 import uuid
 from typing import Any
 
+import nats.errors
 import pytest
 from nats.js.api import DiscardPolicy, RetentionPolicy, StorageType, StreamConfig
 from nats.js.errors import APIError
@@ -137,6 +138,65 @@ async def test_publish_reraises_other_api_errors() -> None:
 
     with pytest.raises(APIError):
         await jetstream.publish(js, "heddle.test.x", b"{}")  # type: ignore[arg-type]
+
+
+class _Msg:
+    def __init__(self, data: bytes) -> None:
+        self.data = data
+
+
+class _FakePullSub:
+    """Fake pull subscription: returns preset batches, then times out."""
+
+    def __init__(self, batches: list[list[_Msg]]) -> None:
+        self._batches = list(batches)
+        self.unsubscribed = False
+
+    async def fetch(self, batch: int, timeout: float) -> list[_Msg]:
+        if self._batches:
+            return self._batches.pop(0)
+        raise nats.errors.TimeoutError
+
+    async def unsubscribe(self) -> None:
+        self.unsubscribed = True
+
+
+class _PullJS:
+    """Fake JetStreamContext exposing pull_subscribe → a preset subscription."""
+
+    def __init__(self, sub: _FakePullSub) -> None:
+        self._sub = sub
+        self.subscribe_args: tuple[str, str | None] | None = None
+
+    async def pull_subscribe(self, subject: str, durable: str | None = None) -> _FakePullSub:
+        self.subscribe_args = (subject, durable)
+        return self._sub
+
+
+@pytest.mark.asyncio
+async def test_pull_yields_in_order_then_stops_on_timeout() -> None:
+    sub = _FakePullSub([[_Msg(b"0"), _Msg(b"1")], [_Msg(b"2")]])
+    js = _PullJS(sub)
+
+    received = [
+        msg.data
+        async for msg in jetstream.pull(js, subject="s.>", durable="d")  # type: ignore[arg-type]
+    ]
+
+    assert received == [b"0", b"1", b"2"], "drains batches in order, stops on fetch timeout"
+    assert js.subscribe_args == ("s.>", "d")
+    assert sub.unsubscribed is True, "subscription torn down on exit"
+
+
+@pytest.mark.asyncio
+async def test_pull_stops_on_empty_batch() -> None:
+    sub = _FakePullSub([[]])  # an empty batch ends the drain
+    js = _PullJS(sub)
+
+    received = [msg async for msg in jetstream.pull(js, subject="s.>")]  # type: ignore[arg-type]
+
+    assert received == []
+    assert sub.unsubscribed is True
 
 
 # --------------------------------------------------------------------------
