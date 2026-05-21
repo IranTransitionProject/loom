@@ -136,6 +136,33 @@ rule and `docs/CONTRIBUTING.md` for contributor-facing guidance.
 
 ### Added
 
+- **Base `WireEnvelope` + payload-type registry in `heddle.core.envelope`**
+  (`clean-slate`). A single generic frame (`message_id` UUIDv7, `payload_type`
+  discriminator, opaque `payload`, `origin`, `correlation_id`/`causation_id`,
+  `occurred_at`/`recorded_at`, open Middleware-Lane extension via
+  `extra="allow"`) plus a process-global registry (`register_payload_type` /
+  `get_payload_model`) and two-step `wrap`/`unwrap`/`parse` helpers. Core owns
+  the registry mechanism; modules inject their own body types at import — core
+  imports nothing from contrib (DESIGN_INVARIANTS #23). `uuid_utils` is now a
+  core dependency (was `[events]`-only) since the universal envelope mints
+  UUIDv7 ids for every message. Justification: (i) two parallel envelope
+  families carried message-frame concerns redundantly; this introduces the one
+  shared frame + body-resolution mechanism; (ii) composition over Pydantic
+  subclassing because `heddle-sdk`'s schema sync has no `$ref`/`allOf`
+  resolution; (iii) additive — no message type is reshaped and no call site
+  changes this sprint. Adds `tests/test_core_envelope.py`.
+- **Generic JetStream primitives in `heddle.bus.jetstream`** (`clean-slate`).
+  A new core module owns the *generic* JetStream mechanics — idempotent
+  `ensure_stream`, a `publish` helper with `Nats-Msg-Id` dedup and
+  `Nats-Expected-Last-Subject-Sequence` CAS (raising a generic
+  `WrongLastSequenceError`), and a durable pull-consumer base `pull`.
+  Justification: (i) durability-on-NATS logic had no home and was being
+  written inline in `heddle.contrib.events`; (ii) JetStream is a committed
+  core substrate (DESIGN_INVARIANTS #24), so its generic primitives belong in
+  core `bus/`, not a contrib; (iii) additive module, no call-site changes,
+  reviewer-verifiable in one session. `heddle.contrib.events` specializes over
+  these in a later sprint; this commit does not touch contrib. Adds
+  `tests/test_bus_jetstream.py`.
 - **`heddle.contrib.events` Sprint 3 — production runtime.** Replaces
   the Sprint 2 in-memory machinery with JetStream + Valkey backings
   and the coordination mechanisms the in-memory paths didn't need.

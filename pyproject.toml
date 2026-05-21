@@ -30,6 +30,7 @@ dependencies = [
     "tiktoken>=0.7.0",         # Token counting for context management
     "click>=8.3.3",            # CLI
     "structlog>=25.5.0",       # Structured logging
+    "uuid_utils>=0.10.0",      # UUIDv7 for WireEnvelope message_id (all messages)
 ]
 
 [project.urls]
@@ -101,7 +102,8 @@ chatbridge = [
     "openai>=1.0.0",           # OpenAI Chat Completions client
 ]
 events = [
-    "uuid_utils>=0.10.0",      # UUIDv7 generation for contrib.events envelopes
+    # No new deps — uuid_utils (UUIDv7) is now a core dependency, used by the
+    # base WireEnvelope that contrib.events bodies ride.
 ]
 dev = [
     "pytest>=8.0",
@@ -117,7 +119,6 @@ dev = [
     "mkdocs-material>=9.7.6",           # Needed for docs build
     "mkdocstrings[python]>=0.24",
     "deepeval>=3.8.0",         # LLM output quality evaluation
-    "uuid_utils>=0.10.0",      # Needed for contrib.events envelope tests
 ]
 
 [project.scripts]

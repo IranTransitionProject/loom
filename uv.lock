@@ -1379,6 +1379,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "structlog" },
     { name = "tiktoken" },
+    { name = "uuid-utils" },
 ]
 
 [package.optional-dependencies]
@@ -1399,7 +1400,6 @@ dev = [
     { name = "pytest-cov" },
     { name = "redis" },
     { name = "ruff" },
-    { name = "uuid-utils" },
 ]
 docproc = [
     { name = "docling" },
@@ -1413,9 +1413,6 @@ duckdb = [
 ]
 eval = [
     { name = "deepeval" },
-]
-events = [
-    { name = "uuid-utils" },
 ]
 lancedb = [
     { name = "lancedb" },
@@ -1506,8 +1503,7 @@ requires-dist = [
     { name = "telethon", marker = "extra == 'telegram'", specifier = ">=1.36.0" },
     { name = "textual", marker = "extra == 'tui'", specifier = ">=8.2.5" },
     { name = "tiktoken", specifier = ">=0.7.0" },
-    { name = "uuid-utils", marker = "extra == 'dev'", specifier = ">=0.10.0" },
-    { name = "uuid-utils", marker = "extra == 'events'", specifier = ">=0.10.0" },
+    { name = "uuid-utils", specifier = ">=0.10.0" },
     { name = "uvicorn", marker = "extra == 'workshop'", specifier = ">=0.27.0" },
     { name = "zeroconf", marker = "extra == 'mdns'", specifier = ">=0.131.0" },
 ]
