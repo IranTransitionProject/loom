@@ -250,17 +250,30 @@ workspace would grant arbitrary filesystem access.
 **How it fails:** Removing `.resolve()` allows symlinks that point outside the
 workspace to be read. Comparing un-resolved paths allows `../` traversal.
 
-### 14. InMemoryBus exists for testing, not as a feature
+### 14. InMemoryBus is a supported embedded runtime and a test fixture, not a production substrate
 
 `InMemoryBus` is a synchronous in-process message bus with no network
-dependency. It exists so that the full test suite runs without NATS.
+dependency. It is a **supported runtime for embedded analytic use**
+(single-process, transient, research/benchmark workloads) **and** for
+testing. It is **NOT** supported for durable, multi-process, or
+production-style workloads — those require NATS, with or without JetStream
+per persistence needs.
 
-**Why:** Tests must be fast and infrastructure-free. `InMemoryBus` has the
-same interface as `NATSBus` but delivers messages within the process.
+**Why:** The embedded-analytic case (e.g. `contrib/council` runs, the
+persuasion benchmark) is a legitimate deployment shape, not just a test
+fixture — it is the lightweight endpoint of the audience span. `InMemoryBus`
+has the same interface as `NATSBus` but delivers messages within the process.
 
-**How it fails:** If someone uses `InMemoryBus` in production, they lose:
-queue group load balancing, multi-process scaling, persistence, and
-failure isolation. Everything runs in one process with one failure domain.
+**How it fails:** If someone uses `InMemoryBus` for a durable or
+multi-process workload, they lose: queue group load balancing across
+processes, persistence, and failure isolation. Everything runs in one
+process with one failure domain. The boundary against production use is
+not loosened by admitting the embedded-analytic case. (Watch-item: any
+future write-on-shutdown / persistence-for-replay work on `InMemoryBus`
+lands gated on an `AGENTIC-DEV.md` Guardrail-1 written justification that
+names the embedded-analytic use served and the production shape NOT
+enabled — persistence-for-replay and persistence-for-production are one
+slippery step apart.)
 
 ### 15. ResultStream is single-use and subscription-scoped
 
@@ -399,6 +412,53 @@ the primary example today.
 propagate them from `TaskMessage` to `TaskResult`, it breaks distributed
 tracing and observability for the entire pipeline. The failure is "silent"
 to the application but fatal to operational monitoring.
+
+### 23. Core holds horizontal primitives; contrib-specific types stay in contrib {: #23-core-holds-horizontal-primitives }
+
+A type or module MAY live in `heddle.core` only if it has no
+contrib-specific semantics, or it demonstrably serves two or more contrib
+modules. A type specific to one contrib's domain MUST NOT be added to or
+imported by core. The dependency direction is one-way: **core never imports
+from contrib.**
+
+**Why:** Core is the horizontal substrate every contrib builds on. Letting
+one contrib's semantics into core couples core to that contrib's lifecycle
+and invites a core→contrib import cycle. The wire envelope is the worked
+example: the base `WireEnvelope` (identity, timestamps, origin, opaque
+payload slot) is horizontal and lives in `core.envelope`; event-sourcing
+semantics (`aggregate_*`, `event_type`, the `issued_by` vocabulary) stay in
+`contrib.events`. The `payload_type` body registry lives in core but is
+*populated by per-contrib registration* — core owns the map structure, never
+the entries — so resolution works by dependency inversion without core
+importing contrib.
+
+**How it fails:** A contrib type imported into core makes core un-shippable
+without that contrib, and a core→contrib import becomes a cycle the moment
+contrib imports core (which it always does). The leak is silent until a
+second contrib needs the same shape and finds it welded to the first.
+
+### 24. Substrate commitments are admitted to core on principle, not on consumer-counting {: #24-substrate-commitments }
+
+The "two or more contrib modules" test in #23 governs **speculative
+horizontal extractions only.** Audience/substrate commitments — NATS,
+JetStream, ValKey — are admitted to `heddle.core` on principle, not by
+counting consumers. A substrate commitment MUST be tied to a **named,
+in-force audience expansion** (e.g. JetStream ⇒ durable/replayable/
+audit-grade history for the SMB-business audience).
+
+**Why:** Rule-of-three is the right discipline for *might-need-it later*
+extractions (HTTP-for-TPS, schedulers, future model routers — wait for the
+second concrete consumer). It is the wrong discipline for substrates the
+chosen audience structurally requires: every SMB business has accounting,
+and durable messaging *is* accounting in this shape. Forcing each
+persistence-needing contrib to reinvent or escape JetStream serves no one.
+
+**How it fails (the abuse to guard against):** "I committed to X, therefore
+X belongs in core" becomes a pet-dependency loophole. The named-audience
+requirement is the guard: a candidate substrate must demonstrate its
+audience expansion is *in force*, not aspirational. This is a policy
+companion to #23, enforced by review (and the Guardrail-1 justification),
+not by a mechanical check.
 
 ---
 
