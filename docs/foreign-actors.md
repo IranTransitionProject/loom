@@ -1,7 +1,7 @@
 # Foreign-Language Actors — The Wire Protocol
 
 **Audience:** authors of Heddle actors written in languages other than
-Python (.NET, Swift, Go, Rust, etc.).
+Python (.NET, Swift, JVM, Go, Rust, etc.).
 
 Heddle's framework is Python, but the **wire protocol** between actors
 is language-agnostic: NATS subjects + JSON messages. This document
@@ -10,7 +10,7 @@ in a Heddle bus.
 
 !!! tip "Reference SDKs"
     The companion [getheddle/heddle-sdk](https://github.com/getheddle/heddle-sdk)
-    repository packages this protocol for .NET and Swift. The rendered SDK
+    repository packages this protocol for .NET, Swift, and JVM. The rendered SDK
     docs live at <https://getheddle.dev/heddle-sdk/>.
 
 ## The envelope
@@ -91,9 +91,10 @@ heddle.results.{parent_task_id or "default"}
 
 ## Generating typed wrappers in your language
 
-If you are targeting .NET or Swift, start with the reference SDKs:
-[.NET](https://getheddle.dev/heddle-sdk/DOTNET/) and
-[Swift](https://getheddle.dev/heddle-sdk/SWIFT/). The schema-generation
+If you are targeting .NET, Swift, or JVM, start with the reference SDKs:
+[.NET](https://getheddle.dev/heddle-sdk/DOTNET/),
+[Swift](https://getheddle.dev/heddle-sdk/SWIFT/), or
+[JVM](https://getheddle.dev/heddle-sdk/JVM/). The schema-generation
 flow below is for SDK maintainers and for languages that do not yet have a
 packaged SDK.
 
@@ -250,6 +251,8 @@ It currently includes:
   client and actor runtime for processor workers.
 - [Swift SDK](https://getheddle.dev/heddle-sdk/SWIFT/) — `HeddleActor`
   client and actor runtime for Swift services.
+- [JVM SDK](https://getheddle.dev/heddle-sdk/JVM/) — `heddle-sdk-core`
+  client and actor runtime for Kotlin and Java services.
 - [SDK examples](https://getheddle.dev/heddle-sdk/EXAMPLES/) — minimal
   processor actors and callers that match this wire contract.
 
