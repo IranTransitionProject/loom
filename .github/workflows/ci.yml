@@ -13,7 +13,7 @@ jobs:
   lint-md:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       # ``version`` pins the rumdl binary to a known release so a new rule
       # introduced in 0.2.x doesn't turn the lint-md job red mid-PR.
       # Bump this manually with awareness; ``.rumdl.toml`` is the source
@@ -26,7 +26,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
       - run: uv sync --extra dev
       - name: Ruff lint (src + tests)
@@ -64,7 +64,7 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: astral-sh/setup-uv@v7
         with:
@@ -92,7 +92,7 @@ jobs:
   docs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
       - run: uv sync --extra docs
       - name: Build API documentation
@@ -105,7 +105,7 @@ jobs:
     # type coverage matures. See docs/CODING_GUIDE.md "Type checking".
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
       - name: Install all extras
         run: uv sync --all-extras
@@ -119,7 +119,7 @@ jobs:
     # "Dependency security" for how to maintain the baseline.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
       - name: Install all extras
         run: uv sync --all-extras
