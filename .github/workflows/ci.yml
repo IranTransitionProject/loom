@@ -18,7 +18,7 @@ jobs:
       # introduced in 0.2.x doesn't turn the lint-md job red mid-PR.
       # Bump this manually with awareness; ``.rumdl.toml`` is the source
       # of truth for which rules are enabled / disabled.
-      - uses: rvben/rumdl@v0
+      - uses: rvben/rumdl@v0.2.47
         with:
           version: 0.1.91
           report-type: annotations
