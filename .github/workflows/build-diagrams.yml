@@ -25,7 +25,7 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
       - name: Export drawio → SVG
-        uses: rlespinasse/drawio-export-action@v2
+        uses: rlespinasse/drawio-export-action@v2.53.0
         with:
           path: docs/diagrams
           format: svg
